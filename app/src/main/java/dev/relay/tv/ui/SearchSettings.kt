@@ -116,7 +116,7 @@ fun SearchTab() {
         searching = false
     }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
+    LazyColumn(Modifier.fillMaxSize().fadeEdges(), contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp)) {
         item {
             Row(Modifier.padding(horizontal = 48.dp, vertical = 12.dp)) {
                 TvTextField(
@@ -192,8 +192,8 @@ fun SettingsTab() {
     val kidsLocked = current?.kids == true
 
     LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 8.dp, bottom = 64.dp),
+        Modifier.fillMaxSize().fadeEdges(),
+        contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 24.dp, bottom = 64.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         item { Section("Account") }

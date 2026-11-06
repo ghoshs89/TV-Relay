@@ -211,7 +211,7 @@ fun HomeTab() {
         return
     }
 
-    LazyColumn(Modifier.fillMaxSize(), state = app.ui.homeList, contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp)) {
+    LazyColumn(Modifier.fillMaxSize().fadeEdges(), state = app.ui.homeList, contentPadding = PaddingValues(top = 20.dp, bottom = 48.dp)) {
         item {
             Rail("Continue watching", continueWatching) { e ->
                 PosterCard(

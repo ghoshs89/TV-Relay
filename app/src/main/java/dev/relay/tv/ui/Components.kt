@@ -47,6 +47,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -596,3 +597,33 @@ fun ChannelTile(
         }
     }
 }
+
+/**
+ * Fades the top and bottom edges of a scrolling area so rows that scroll under the tab bar
+ * dissolve instead of being sliced in half. Lists add matching top padding so nothing is
+ * faded at rest.
+ */
+fun Modifier.fadeEdges(top: Dp = 20.dp, bottom: Dp = 28.dp): Modifier = this
+    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val h = size.height
+        val t = top.toPx()
+        val b = bottom.toPx()
+        if (t > 0f) {
+            drawRect(
+                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                    0f to Color.Transparent, 1f to Color.Black, startY = 0f, endY = t,
+                ),
+                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+            )
+        }
+        if (b > 0f && h > b) {
+            drawRect(
+                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                    0f to Color.Black, 1f to Color.Transparent, startY = h - b, endY = h,
+                ),
+                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+            )
+        }
+    }

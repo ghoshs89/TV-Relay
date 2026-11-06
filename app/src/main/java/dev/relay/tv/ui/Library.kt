@@ -133,10 +133,10 @@ private fun <T> Browser(
     val narrow = maxWidth < 900.dp
     Row(Modifier.fillMaxSize().padding(start = if (narrow) 16.dp else 32.dp, end = 16.dp)) {
         LazyColumn(
-            Modifier.width(if (narrow) 180.dp else 230.dp).fillMaxHeight(),
+            Modifier.width(if (narrow) 180.dp else 230.dp).fillMaxHeight().fadeEdges(),
             state = catState,
             verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = PaddingValues(vertical = 8.dp),
+            contentPadding = PaddingValues(vertical = 20.dp),
         ) {
             items(cats) { c ->
                 ListRow(
@@ -157,9 +157,9 @@ private fun <T> Browser(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(150.dp),
-                modifier = Modifier.weight(1f).fillMaxHeight(),
+                modifier = Modifier.weight(1f).fillMaxHeight().fadeEdges(),
                 state = gridState,
-                contentPadding = PaddingValues(top = 10.dp, bottom = 40.dp, start = 10.dp, end = 24.dp),
+                contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp, start = 10.dp, end = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(22.dp),
                 verticalArrangement = Arrangement.spacedBy(22.dp),
             ) {

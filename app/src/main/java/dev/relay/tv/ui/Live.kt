@@ -89,10 +89,10 @@ fun LiveTab() {
     val panelWidth = if (narrow) 240.dp else 320.dp
     Row(Modifier.fillMaxSize().padding(start = if (narrow) 16.dp else 32.dp, end = if (narrow) 16.dp else 32.dp, bottom = 16.dp)) {
         LazyColumn(
-            Modifier.width(catWidth).fillMaxHeight(),
+            Modifier.width(catWidth).fillMaxHeight().fadeEdges(),
             state = ui.liveCatList,
             verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = PaddingValues(vertical = 8.dp),
+            contentPadding = PaddingValues(vertical = 20.dp),
         ) {
             items(cats) { c ->
                 val count = when (c.id) {
@@ -124,10 +124,10 @@ fun LiveTab() {
             )
         } else {
             LazyColumn(
-                Modifier.weight(1f).fillMaxHeight(),
+                Modifier.weight(1f).fillMaxHeight().fadeEdges(),
                 state = ui.liveChList,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
+                contentPadding = PaddingValues(vertical = 20.dp, horizontal = 6.dp),
             ) {
                 itemsIndexed(channels) { i, ch ->
                     ChannelRow(
