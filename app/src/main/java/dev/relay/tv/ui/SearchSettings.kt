@@ -355,6 +355,24 @@ fun SettingsTab() {
         }
         item { Setting("Lip-sync adjustment", lipSyncLabel(s.audioDelayMs), false) { lipSync = true } }
         item {
+            Setting("Pause & rewind live TV", if (s.timeshift) "On" else "Off", false) {
+                store.settings = s.copy(timeshift = !s.timeshift)
+            }
+        }
+        if (s.timeshift) {
+            item {
+                Setting("Rewind buffer", "${s.timeshiftMinutes} minutes (max 1.5 GB, deleted on exit)", false) {
+                    store.settings = s.copy(
+                        timeshiftMinutes = when (s.timeshiftMinutes) {
+                            15 -> 30
+                            30 -> 60
+                            else -> 15
+                        },
+                    )
+                }
+            }
+        }
+        item {
             Setting("Start on last channel", if (s.startOnLastChannel) "On" else "Off", false) {
                 store.settings = s.copy(startOnLastChannel = !s.startOnLastChannel)
             }
@@ -431,6 +449,12 @@ fun SettingsTab() {
             }
         }
         item { Setting("Guide time offset", offsetLabel(s.epgOffsetMin), false) { offsetDialog = true } }
+        item {
+            val n = store.reminders.size
+            Setting("Programme reminders", if (n == 0) "None set · set them from the guide grid" else "$n set · clear all", false) {
+                if (n > 0) store.reminders = emptyList()
+            }
+        }
 
         item { Section("Backup & phone") }
         item {

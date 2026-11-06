@@ -29,6 +29,8 @@ import dev.relay.tv.ui.MovieDetailScreen
 import dev.relay.tv.ui.Nav
 import dev.relay.tv.ui.Palette
 import dev.relay.tv.ui.ProfilesScreen
+import dev.relay.tv.ui.ReminderCenter
+import dev.relay.tv.ui.ReminderDialog
 import dev.relay.tv.ui.RelayTheme
 import dev.relay.tv.ui.Route
 import dev.relay.tv.ui.SeriesDetailScreen
@@ -105,6 +107,7 @@ fun AppRoot() {
                     }
                 }
             }
+            ReminderCenter.due?.let { ReminderDialog(it) }
         }
     }
 }

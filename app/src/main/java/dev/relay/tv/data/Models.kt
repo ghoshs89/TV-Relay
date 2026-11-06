@@ -88,6 +88,18 @@ data class Settings(
     val epgOffsetMin: Int = 0,
     // Batch 2
     val keyboard: String = "auto", // auto | relay | system
+    val timeshift: Boolean = true,
+    val timeshiftMinutes: Int = 30,
+)
+
+/** A programme the viewer wants to be told about when it starts. Times are as shown in the guide. */
+@Serializable
+data class Reminder(
+    val channelId: Int,
+    val channelName: String,
+    val title: String,
+    val start: Long,
+    val end: Long,
 )
 
 /** Audio and subtitle choice remembered per series. */

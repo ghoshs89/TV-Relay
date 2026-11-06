@@ -16,6 +16,7 @@ import dev.relay.tv.data.Tmdb
 import dev.relay.tv.data.XtreamApi
 import dev.relay.tv.data.XmltvGuide
 import dev.relay.tv.ui.Palette
+import dev.relay.tv.ui.ReminderCenter
 import dev.relay.tv.ui.Session
 import dev.relay.tv.ui.UiState
 import kotlinx.coroutines.CoroutineScope
@@ -69,6 +70,7 @@ class RelayApp : Application(), ImageLoaderFactory {
         catalog.settings = { store.settings }
         catalog.guide = XmltvGuide(this, http)
         Palette.neutral = store.settings.neutralTheme
+        ReminderCenter.start(appScope)
         tmdb = Tmdb(http)
     }
 

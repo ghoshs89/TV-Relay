@@ -104,6 +104,12 @@ class Store(ctx: Context) {
         prefs.edit().putString("lastcat_$pid", cat).apply()
     }
 
+    // ---------- Reminders ----------
+
+    var reminders: List<Reminder>
+        get() = read<List<Reminder>>("reminders", emptyList())
+        set(v) = write("reminders", v)
+
     // ---------- Per-series tracks ----------
 
     fun trackPref(seriesId: Int): TrackPref? = read<TrackPref?>("trk_$seriesId", null)

@@ -189,6 +189,9 @@ fun LiveTab() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     item {
+                        Chip(if (ui.liveGrid) "List view" else "Guide grid", false, "tb:grid") { ui.liveGrid = !ui.liveGrid }
+                    }
+                    item {
                         Chip("Sort: ${LiveBrowse.SORTS[sort.coerceIn(0, 3)]}", false, "tb:sort") {
                             store.setLiveSort(ui.liveCat, (sort + 1) % LiveBrowse.SORTS.size)
                             scope.launch { ui.liveChList.scrollToItem(0) }
@@ -209,7 +212,7 @@ fun LiveTab() {
                         }
                     }
                 }
-                if (sort == 2 && channels.size > 40) {
+                if (sort == 2 && channels.size > 40 && !ui.liveGrid) {
                     val letters = remember(channels) {
                         channels.mapIndexedNotNull { i, ch ->
                             val c = LiveBrowse.sortKey(ch).firstOrNull()?.uppercaseChar() ?: return@mapIndexedNotNull null
@@ -238,6 +241,8 @@ fun LiveTab() {
                         },
                         Modifier.weight(1f),
                     )
+                } else if (ui.liveGrid) {
+                    GuideGrid(channels, Modifier.weight(1f).fillMaxWidth())
                 } else {
                     LazyColumn(
                         Modifier.weight(1f).fillMaxWidth().fadeEdges(),
@@ -257,12 +262,14 @@ fun LiveTab() {
                     }
                 }
             }
-            Spacer(Modifier.width(14.dp))
-            ChannelPanel(
-                focused,
-                Modifier.width(panelWidth).fillMaxHeight(),
-                groupId = ui.liveCat.takeIf { it.startsWith(ChannelEdits.GROUP) }?.removePrefix(ChannelEdits.GROUP),
-            )
+            if (!ui.liveGrid) {
+                Spacer(Modifier.width(14.dp))
+                ChannelPanel(
+                    focused,
+                    Modifier.width(panelWidth).fillMaxHeight(),
+                    groupId = ui.liveCat.takeIf { it.startsWith(ChannelEdits.GROUP) }?.removePrefix(ChannelEdits.GROUP),
+                )
+            }
         }
     }
 

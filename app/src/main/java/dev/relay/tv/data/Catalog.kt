@@ -13,6 +13,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
@@ -292,6 +293,29 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         emptyList()
     }
 
+    // Guide grid: wider window per channel, cached, with a cap on parallel requests to the provider.
+    private val gridCache = ConcurrentHashMap<Int, Pair<Long, List<EpgEntry>>>()
+    private val gridGate = kotlinx.coroutines.sync.Semaphore(4)
+
+    suspend fun gridEpg(ch: Channel, from: Long, to: Long): List<EpgEntry> {
+        val now = System.currentTimeMillis()
+        gridCache[ch.id]?.let { if (now - it.first < 15 * 60_000L) return it.second.filter { e -> e.end > from && e.start < to } }
+        val list = gridGate.withPermit {
+            val provider = try {
+                // Catch-up channels: the full table includes past shows; others only have what's next.
+                if (ch.hasArchive) api.epg(ch.id, full = true) else api.epg(ch.id, full = false, limit = 30)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.w("Epg", "Grid guide unavailable for ${ch.id}", e)
+                emptyList()
+            }
+            shift(provider).ifEmpty { shift(guide?.entries(ch.id).orEmpty()) }
+        }
+        gridCache[ch.id] = now to list
+        return list.filter { it.end > from && it.start < to }
+    }
+
     /** Applies the guide time offset to displayed times; raw times stay for catch-up URLs. */
     private fun shift(list: List<EpgEntry>): List<EpgEntry> {
         val o = settings().epgOffsetMin * 60L
@@ -300,6 +324,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
     fun clearGuideCache() {
         epgCache.clear()
+        gridCache.clear()
         epgVersion++
     }
 

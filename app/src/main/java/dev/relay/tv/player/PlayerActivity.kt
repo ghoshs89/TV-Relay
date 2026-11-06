@@ -20,6 +20,11 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
+import dev.relay.tv.ui.ReminderCenter
+import dev.relay.tv.data.Reminder
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.compose.runtime.snapshotFlow
+import android.widget.LinearLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.annotation.OptIn
@@ -97,6 +102,26 @@ class PlayerActivity : ComponentActivity() {
 
     private var channelOverlayOpen by mutableStateOf(false)
 
+    // Pause and rewind for live TV.
+    private var timeshift: TimeshiftBuffer? = null
+    private var tsOffset = 0L
+    private val tsDisabled = mutableSetOf<String>()
+    private var stoppedInBackground = false
+    private lateinit var tsSource: ProgressiveMediaSource.Factory
+    private lateinit var tsBar: LinearLayout
+    private lateinit var tsText: TextView
+    private val tsTicker = object : Runnable {
+        override fun run() {
+            updateTsBar()
+            handler.postDelayed(this, 500)
+        }
+    }
+
+    // Programme reminder shown over the video.
+    private lateinit var reminderView: TextView
+    private var reminderShown: Reminder? = null
+    private val hideReminder = Runnable { dismissReminder() }
+
     private val handler = Handler(Looper.getMainLooper())
     private val hideOverlay = Runnable { overlay.visibility = View.GONE }
     private val hideInfo = Runnable { infoView.visibility = View.GONE }
@@ -131,6 +156,10 @@ class PlayerActivity : ComponentActivity() {
                 saveProgress(finished = false)
             }
         }
+        lifecycleScope.launch {
+            snapshotFlow { ReminderCenter.due }.collect { r -> if (r != null && r != reminderShown) showReminder(r) }
+        }
+        handler.post(tsTicker)
     }
 
     // ---------- Setup ----------
@@ -143,6 +172,13 @@ class PlayerActivity : ComponentActivity() {
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
         )
         val mediaSources = DefaultMediaSourceFactory(dataSource, extractors)
+        tsSource = ProgressiveMediaSource.Factory(
+            TimeshiftDataSource.Factory { timeshift },
+            DefaultExtractorsFactory().setTsExtractorFlags(
+                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                    DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
+            ),
+        )
         // ON = use FFmpeg only when the device can't decode a format itself (keeps AC3 passthrough).
         val renderers = RelayRenderersFactory(this, s.audioDelayMs)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -271,6 +307,58 @@ class PlayerActivity : ComponentActivity() {
                 Gravity.TOP or Gravity.END,
             ).apply { setMargins(48, 40, 48, 0) },
         )
+        tsText = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(28, 16, 28, 16)
+        }
+        tsBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(0xDD0B1220.toInt())
+            visibility = View.GONE
+            addView(tsText)
+            if (!isTv) {
+                // Touch controls for phones; TVs use the remote's Left/Right.
+                listOf("−10s" to -10, "+30s" to 30, "Live" to Int.MAX_VALUE).forEach { (t, d) ->
+                    addView(
+                        TextView(this@PlayerActivity).apply {
+                            text = t
+                            setTextColor(0xFF3DDC97.toInt())
+                            textSize = 16f
+                            setPadding(28, 16, 28, 16)
+                            isFocusable = false
+                            setOnClickListener { if (d == Int.MAX_VALUE) tsGoLive() else tsSeek(d) }
+                        },
+                    )
+                }
+            }
+        }
+        root.addView(
+            tsBar,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+            ).apply { setMargins(48, 0, 48, 120) },
+        )
+        reminderView = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 18f
+            setPadding(32, 20, 32, 20)
+            setBackgroundColor(0xEEB8462E.toInt())
+            visibility = View.GONE
+            isFocusable = false
+            setOnClickListener { reminderShown?.let { watchReminder(it) } }
+        }
+        root.addView(
+            reminderView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.END,
+            ).apply { setMargins(48, 110, 48, 0) },
+        )
         root.addView(channelsView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
         view.requestFocus()
@@ -346,7 +434,20 @@ class PlayerActivity : ComponentActivity() {
         hostAttempt = 0
         liveRetries = 0
         val item = req.items[liveIndex]
-        player.setMediaItem(mediaItem(item, 0))
+        stopTimeshift()
+        val s = app.store.settings
+        if (s.timeshift && item.key !in tsDisabled && urlsFor(item).isNotEmpty()) {
+            val ts = TimeshiftBuffer(
+                java.io.File(cacheDir, "timeshift"), app.http, urlsFor(item),
+                s.userAgent.ifBlank { "RelayTV/1.0" }, s.timeshiftMinutes,
+            )
+            timeshift = ts
+            ts.start()
+            tsOffset = 0L
+            player.setMediaSource(tsSource.createMediaSource(tsItem(item, 0L)))
+        } else {
+            player.setMediaItem(mediaItem(item, 0))
+        }
         player.prepare()
         player.playWhenReady = true
         infoPending = true
@@ -362,10 +463,104 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun reconnectLive() {
+        if (stoppedInBackground) return
+        if (timeshift != null) {
+            // The pause buffer reconnects on its own; restart cleanly at live.
+            playLive(liveIndex)
+            return
+        }
         val item = currentItem() ?: return
         player.setMediaItem(mediaItem(item, hostAttempt))
         player.prepare()
         player.playWhenReady = true
+    }
+
+    private fun tsItem(item: PlayItem, offset: Long): MediaItem = MediaItem.Builder()
+        .setUri(TimeshiftBuffer.uriAt(offset))
+        .setMediaId(item.key)
+        .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).setSubtitle(item.subtitle).build())
+        .build()
+
+    private fun stopTimeshift() {
+        timeshift?.close()
+        timeshift = null
+        if (::tsBar.isInitialized) tsBar.visibility = View.GONE
+    }
+
+    /** Byte position of what's on screen now, estimated from the recording's average bitrate. */
+    private fun tsPlayingByte(): Long {
+        val b = timeshift ?: return 0L
+        return tsOffset + (player.currentPosition / 1000.0 * b.bytesPerSecond).toLong()
+    }
+
+    private fun tsBehindSec(): Int {
+        val b = timeshift ?: return 0
+        val rate = b.bytesPerSecond
+        if (rate <= 0) return 0
+        return ((b.written - tsPlayingByte()) / rate).toInt().coerceAtLeast(0)
+    }
+
+    private fun tsSeek(deltaSec: Int) {
+        val b = timeshift ?: return
+        val rate = b.bytesPerSecond
+        if (rate <= 0) {
+            showOverlay("Pause buffer is still filling…")
+            return
+        }
+        val item = currentItem() ?: return
+        val liveEdge = b.written - (2 * rate).toLong()
+        var target = (tsPlayingByte() + (deltaSec * rate).toLong()).coerceAtMost(liveEdge).coerceAtLeast(b.firstAvailable)
+        target -= target % 188 // MPEG-TS packet boundary
+        tsOffset = target
+        player.setMediaSource(tsSource.createMediaSource(tsItem(item, target)))
+        player.prepare()
+        player.play()
+        updateTsBar()
+    }
+
+    private fun tsGoLive() = tsSeek(Int.MAX_VALUE / 4)
+
+    private fun updateTsBar() {
+        if (!::tsBar.isInitialized) return
+        val b = timeshift
+        if (b == null || channelOverlayOpen) {
+            tsBar.visibility = View.GONE
+            return
+        }
+        val behind = tsBehindSec()
+        val paused = !player.playWhenReady
+        if (!paused && behind <= 3) {
+            tsBar.visibility = View.GONE
+            return
+        }
+        val t = if (behind >= 3600) "%d:%02d:%02d".format(behind / 3600, behind / 60 % 60, behind % 60) else "%d:%02d".format(behind / 60, behind % 60)
+        val hints = if (isTv) "   ◀ −10s   ▶ +30s" + (if (paused) "   OK play" else "") else ""
+        tsText.text = (if (paused) "⏸  Paused · " else "") + "$t behind live$hints"
+        tsBar.visibility = View.VISIBLE
+    }
+
+    // ---------- Reminders ----------
+
+    private fun showReminder(r: Reminder) {
+        reminderShown = r
+        reminderView.text = "⏰  ${ReminderCenter.label(r)}\n" + if (isTv) "Press OK to watch · Back to dismiss" else "Tap to watch"
+        reminderView.visibility = View.VISIBLE
+        handler.removeCallbacks(hideReminder)
+        handler.postDelayed(hideReminder, 30_000)
+    }
+
+    private fun dismissReminder() {
+        reminderView.visibility = View.GONE
+        if (ReminderCenter.due == reminderShown) ReminderCenter.due = null
+        reminderShown = null
+    }
+
+    private fun watchReminder(r: Reminder) {
+        reminderShown = null
+        reminderView.visibility = View.GONE
+        saveProgress(finished = false)
+        ReminderCenter.watch(this, r)
+        finish()
     }
 
     private fun currentItem(): PlayItem? =
@@ -482,6 +677,13 @@ class PlayerActivity : ComponentActivity() {
     private fun handleError(e: PlaybackException) {
         val item = currentItem() ?: return
         AppLog.e("Player", "${e.errorCodeName} on ${item.kind} '${item.title}' via ${hostOf(urlsFor(item).getOrNull(hostAttempt))}", e)
+        if (req.live && timeshift != null) {
+            AppLog.w("Timeshift", "Pause buffer playback failed for ${item.title}; playing directly")
+            tsDisabled += item.key
+            playLive(liveIndex)
+            showOverlay("Pause isn't available on this channel")
+            return
+        }
         if (e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
             player.seekToDefaultPosition()
             player.prepare()
@@ -513,6 +715,10 @@ class PlayerActivity : ComponentActivity() {
     // ---------- Back ----------
 
     private fun onBack() {
+        if (reminderShown != null) {
+            dismissReminder()
+            return
+        }
         if (channelOverlayOpen) {
             closeChannelOverlay()
             return
@@ -600,6 +806,38 @@ class PlayerActivity : ComponentActivity() {
         if (channelOverlayOpen) {
             // The overlay handles navigation; Back is routed through onBack().
             return super.dispatchKeyEvent(event)
+        }
+        val r = reminderShown
+        if (r != null && event.action == KeyEvent.ACTION_DOWN &&
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
+        ) {
+            watchReminder(r)
+            return true
+        }
+        if (event.action == KeyEvent.ACTION_DOWN && req.live && timeshift != null) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                    tsSeek(-10); return true
+                }
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                    tsSeek(30); return true
+                }
+            }
+            // While paused or behind live, Left/Right rewind and skip instead of opening menus.
+            val shifted = !player.playWhenReady || tsBehindSec() > 3
+            if (shifted && !view.isControllerFullyVisible) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        tsSeek(-10); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        tsSeek(30); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (!player.playWhenReady) {
+                        player.play(); return true
+                    }
+                }
+            }
         }
         if (event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible) {
             if (req.live) {
@@ -717,7 +955,13 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (::player.isInitialized) player.play()
+        if (stoppedInBackground) {
+            // Came back after leaving the app: resume live, with a fresh pause buffer.
+            stoppedInBackground = false
+            playLive(liveIndex)
+        } else if (::player.isInitialized) {
+            player.play()
+        }
     }
 
     override fun onStop() {
@@ -725,11 +969,18 @@ class PlayerActivity : ComponentActivity() {
         if (::player.isInitialized) {
             saveProgress(finished = false)
             player.pause()
+            // Don't keep recording (and using the connection) while Relay is in the background.
+            if (req.live && timeshift != null && !isInPictureInPictureMode) {
+                stoppedInBackground = true
+                player.stop()
+                stopTimeshift()
+            }
         }
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        stopTimeshift()
         if (::frameRate.isInitialized) frameRate.restore()
         if (::player.isInitialized) {
             player.removeListener(listener)

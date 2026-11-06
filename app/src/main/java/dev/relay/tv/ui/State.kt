@@ -37,6 +37,7 @@ class UiState {
     var liveCountry by mutableStateOf<String?>(null)
     var liveFilters by mutableStateOf(emptySet<String>())
     var liveFind by mutableStateOf("")
+    var liveGrid by mutableStateOf(false)
 
     val liveCatList = LazyListState()
     val liveChList = LazyListState()

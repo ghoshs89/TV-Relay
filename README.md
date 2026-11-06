@@ -79,6 +79,9 @@ If your provider gives you separate URLs for VPN and non-VPN use, put the ones t
 | Live player | 0 to 9 | Type a channel number |
 | Live player | Back | Previous channel; press twice quickly to exit |
 | Live player | Right or Menu | Player controls (audio and subtitle tracks) |
+| Live player | Play/Pause | Pause live TV; it keeps recording behind the scenes |
+| Live player, paused or behind live | Left / Right | Back 10 s / forward 30 s (forward past the end returns to live) |
+| Live TV toolbar | Guide grid | Timeline guide: OK on a past show = catch-up, current = watch, future = reminder |
 | Movie / episode player | Back | Hide controls; otherwise press twice quickly to exit (position is saved) |
 | Live TV list | Right | Move to the channel panel: favourite, guide, catch-up, options (rename, groups) |
 
@@ -95,6 +98,10 @@ Settings → Diagnostics. Recent activity is always kept in memory (500 lines, n
 - **Refresh-rate matching** (TVs): switches the TV to match the video's frame rate; the screen may blank briefly when it changes.
 - **Stream info**: resolution, HDR, codecs, frame rate and network speed for 5 seconds when playback starts.
 - **Per-series audio and subtitles**: the language you pick in a series is reused for its other episodes.
+- **Relay keyboard**: a D-pad friendly on-screen keyboard (default on TVs) with a voice key; Settings → Keyboard switches between Relay and the system keyboard.
+- **Live TV browsing**: categories grouped by country, sort per category, filters (catch-up, HD/4K, has guide), find in list, pinned categories, A–Z jump.
+- **Pause & rewind live TV**: one connection records the channel to a capped buffer (15/30/60 minutes, max 1.5 GB, deleted when you change channel or leave). If a channel doesn't work that way, Relay falls back to direct playback for it.
+- **Reminders**: set from the guide grid; they pop up while Relay is open (Android TV doesn't reliably show notifications from closed apps).
 - **Lip-sync adjustment**, **subtitle style**, **start on last channel**, **neutral black theme**, **channel groups and renames**, **external XMLTV guide** and **guide time offset** are in Settings.
 
 ## Optional: TMDB
