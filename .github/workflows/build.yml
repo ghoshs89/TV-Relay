@@ -5,6 +5,11 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  # SHA-256 of the release signing certificate (public, safe to commit).
+  # Builds fail if the APK is signed with anything else.
+  RELAY_CERT_SHA256: 165d1842e00291d7adc2dcab4f76604bc6372ac3cdf151ced8486ff00c2a6b82
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,22 +26,45 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Restore signing key from secrets
+      - name: Check signing secrets
         env:
           KEYSTORE_B64: ${{ secrets.RELAY_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.RELAY_KEYSTORE_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/relay-release.jks"
-            echo "RELAY_KEYSTORE_PATH=$RUNNER_TEMP/relay-release.jks" >> "$GITHUB_ENV"
-            echo "Signing with your release key."
-          else
-            echo "::warning::RELAY_KEYSTORE_B64 secret not set. This APK uses a temporary debug key, so the next build won't install over it."
+          set -e
+          if [ -z "$KEYSTORE_B64" ]; then echo "::error::Secret RELAY_KEYSTORE_B64 is missing or empty."; exit 1; fi
+          if [ -z "$KEYSTORE_PASSWORD" ]; then echo "::error::Secret RELAY_KEYSTORE_PASSWORD is missing or empty."; exit 1; fi
+          KS="$RUNNER_TEMP/relay-release.jks"
+          # Tolerate stray spaces or line breaks picked up while pasting.
+          if ! printf '%s' "$KEYSTORE_B64" | tr -d ' \r\n\t' | base64 -d > "$KS" 2>/dev/null; then
+            echo "::error::RELAY_KEYSTORE_B64 is not valid base64. Re-copy the whole line from the secrets file."; exit 1
           fi
+          if ! keytool -list -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" -alias relay > /dev/null 2>&1; then
+            echo "::error::The password doesn't open the keystore (or the keystore is incomplete). Re-check both secrets."; exit 1
+          fi
+          FP=$(keytool -exportcert -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" -alias relay | sha256sum | cut -d' ' -f1)
+          if [ "$FP" != "$RELAY_CERT_SHA256" ]; then
+            echo "::error::Keystore opened, but it is not the expected key (got ${FP:0:16}…). Use the latest secrets file."; exit 1
+          fi
+          echo "RELAY_KEYSTORE_PATH=$KS" >> "$GITHUB_ENV"
+          echo "Signing secrets OK: keystore decodes, password opens it, fingerprint matches ${FP:0:16}…"
 
       - name: Build release APK
         env:
           RELAY_KEYSTORE_PASSWORD: ${{ secrets.RELAY_KEYSTORE_PASSWORD }}
         run: gradle :app:assembleRelease --stacktrace --no-daemon
+
+      - name: Verify APK signature
+        run: |
+          set -e
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          SIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+          OUT=$("$SIGNER" verify --print-certs "$APK")
+          echo "$OUT" | grep -i "SHA-256"
+          if ! echo "$OUT" | grep -qi "SHA-256 digest: $RELAY_CERT_SHA256"; then
+            echo "::error::APK is not signed with the Relay release key."; exit 1
+          fi
+          echo "APK signature verified."
 
       - name: Rename APK
         run: |
