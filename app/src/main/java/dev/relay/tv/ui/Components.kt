@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -60,6 +61,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -106,7 +109,16 @@ fun RelayTheme(content: @Composable () -> Unit) {
             surfaceVariant = Palette.surface2,
             onSurfaceVariant = Palette.dim,
         ),
+        typography = relayTypography,
         content = content,
+    )
+}
+
+private val relayTypography = Typography().let { t ->
+    t.copy(
+        bodyLarge = t.bodyLarge.copy(lineHeight = TextUnit.Unspecified),
+        bodyMedium = t.bodyMedium.copy(lineHeight = TextUnit.Unspecified),
+        bodySmall = t.bodySmall.copy(lineHeight = TextUnit.Unspecified),
     )
 }
 
@@ -338,6 +350,7 @@ fun TvTextField(
     onDone: () -> Unit = {},
 ) {
     val fm = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val fr = focusRequester ?: remember { FocusRequester() }
     OutlinedTextField(
         value = value,
@@ -356,8 +369,14 @@ fun TvTextField(
         ),
         keyboardActions = KeyboardActions(
             onNext = { fm.moveFocus(FocusDirection.Down) },
-            onDone = { onDone() },
-            onSearch = { onDone() },
+            onDone = {
+                keyboard?.hide()
+                onDone()
+            },
+            onSearch = {
+                keyboard?.hide()
+                onDone()
+            },
         ),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = Palette.accent,
@@ -496,4 +515,84 @@ fun fmtDuration(ms: Long): String {
     val h = totalMin / 60
     val m = totalMin % 60
     return if (h > 0) "${h}h ${m}m" else "${m}m"
+}
+
+private val CHANNEL_TAG = Regex("^\\s*[\\[(|]?\\s*([A-Za-z]{2,3})\\s*[\\])|]?\\s*[:|\\-]\\s*")
+
+/** "CA: CBC CALGARY" -> ("CA", "CBC CALGARY"). */
+fun splitChannelName(name: String): Pair<String?, String> {
+    val m = CHANNEL_TAG.find(name) ?: return null to name
+    val rest = name.substring(m.range.last + 1).trim()
+    return if (rest.isEmpty()) null to name else m.groupValues[1].uppercase() to rest
+}
+
+/**
+ * Channel card: a near-square tile so square logos fill it, a soft light plate behind the
+ * logo so logos with white or transparent backgrounds both read cleanly, the country tag
+ * as a small badge, and what's on now underneath.
+ */
+@Composable
+fun ChannelTile(
+    ch: dev.relay.tv.data.Channel,
+    onClick: () -> Unit,
+    key: String,
+    nowPlaying: String? = null,
+    width: Dp = 168.dp,
+) {
+    val (tag, title) = remember(ch.name) { splitChannelName(ch.name) }
+    Column(Modifier.width(width)) {
+        Focusable(onClick, Modifier.fillMaxWidth().aspectRatio(1.25f), key = key, shape = RoundedCornerShape(14.dp)) { f ->
+            Box(
+                Modifier.fillMaxSize().background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        listOf(if (f) Palette.surface2 else Palette.surface, Palette.bg),
+                    ),
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxSize(0.72f)
+                        .background(Color(0xFFF2F5FA), RoundedCornerShape(12.dp))
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(initials(title), color = Color(0xFF5B6B85), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    if (!ch.logo.isNullOrBlank()) {
+                        AsyncImage(
+                            model = ch.logo, contentDescription = null, contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize().background(Color(0xFFF2F5FA)),
+                        )
+                    }
+                }
+                if (tag != null) {
+                    Text(
+                        tag,
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .background(Palette.bg.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                        color = Palette.accent, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                    )
+                }
+                if (ch.hasArchive) {
+                    Text(
+                        "CATCH-UP",
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp)
+                            .background(Palette.bg.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                        color = Palette.accent2, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, color = Palette.text, fontWeight = FontWeight.SemiBold)
+        if (nowPlaying != null) {
+            Text(nowPlaying, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp, color = Palette.dim)
+        }
+    }
 }

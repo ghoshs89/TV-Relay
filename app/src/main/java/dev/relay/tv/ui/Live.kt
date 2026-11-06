@@ -3,6 +3,7 @@ package dev.relay.tv.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -81,9 +82,14 @@ fun LiveTab() {
     var focused by remember { mutableStateOf<Channel?>(null) }
     catalog.epgVersion
 
-    Row(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, bottom = 16.dp)) {
+    // 1080p TVs are 960 dp wide and phones in landscape ~750 dp: size columns to fit the channel list.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val narrow = maxWidth < 900.dp
+    val catWidth = if (narrow) 170.dp else 220.dp
+    val panelWidth = if (narrow) 240.dp else 320.dp
+    Row(Modifier.fillMaxSize().padding(start = if (narrow) 16.dp else 32.dp, end = if (narrow) 16.dp else 32.dp, bottom = 16.dp)) {
         LazyColumn(
-            Modifier.width(250.dp).fillMaxHeight(),
+            Modifier.width(catWidth).fillMaxHeight(),
             state = ui.liveCatList,
             verticalArrangement = Arrangement.spacedBy(2.dp),
             contentPadding = PaddingValues(vertical = 8.dp),
@@ -135,7 +141,8 @@ fun LiveTab() {
             }
         }
         Spacer(Modifier.width(16.dp))
-        ChannelPanel(focused, Modifier.width(400.dp).fillMaxHeight())
+        ChannelPanel(focused, Modifier.width(panelWidth).fillMaxHeight())
+    }
     }
 }
 
@@ -220,7 +227,8 @@ private fun ChannelDetails(ch: Channel) {
         }
         Spacer(Modifier.height(16.dp))
         val fav = store.isFav(pid, "live", ch.id)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Stacked so both buttons fit the narrower panel on 1080p TVs and phones.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PillButton(if (fav) "★ Favourite" else "☆ Favourite", {
                 store.toggleFav(pid, FavItem("live", ch.id, ch.name, ch.logo))
             }, key = "pf:${ch.id}")

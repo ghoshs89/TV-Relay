@@ -19,7 +19,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -92,6 +94,7 @@ fun SearchTab() {
     val nav = LocalNav.current
     val ctx = LocalContext.current
     val restrict = app.session.restrict(app.store.settings)
+    val focusManager = LocalFocusManager.current
     var results by remember { mutableStateOf(Results()) }
     var searching by remember { mutableStateOf(false) }
 
@@ -119,6 +122,8 @@ fun SearchTab() {
                 TvTextField(
                     ui.query, { ui.query = it }, "Search channels, movies and series",
                     Modifier.width(680.dp), imeAction = ImeAction.Search,
+                    // Keyboard closes on the search key; focus jumps to the first result.
+                    onDone = { focusManager.moveFocus(FocusDirection.Down) },
                 )
             }
         }
@@ -128,9 +133,9 @@ fun SearchTab() {
         }
         item {
             Rail("Channels", r.channels) { ch ->
-                PosterCard(
-                    ch.name, ch.logo, { Playback.live(ctx, r.channels, r.channels.indexOf(ch)) },
-                    key = "s:ch:${ch.id}", width = 200.dp, aspect = 16f / 9f, fit = true,
+                ChannelTile(
+                    ch, { Playback.live(ctx, r.channels, r.channels.indexOf(ch)) },
+                    key = "s:ch:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
                 )
             }
         }

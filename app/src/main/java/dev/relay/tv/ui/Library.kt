@@ -1,6 +1,7 @@
 package dev.relay.tv.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -128,9 +129,11 @@ private fun <T> Browser(
     card: @Composable (T) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    Row(Modifier.fillMaxSize().padding(start = 32.dp, end = 16.dp)) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val narrow = maxWidth < 900.dp
+    Row(Modifier.fillMaxSize().padding(start = if (narrow) 16.dp else 32.dp, end = 16.dp)) {
         LazyColumn(
-            Modifier.width(250.dp).fillMaxHeight(),
+            Modifier.width(if (narrow) 180.dp else 230.dp).fillMaxHeight(),
             state = catState,
             verticalArrangement = Arrangement.spacedBy(2.dp),
             contentPadding = PaddingValues(vertical = 8.dp),
@@ -163,5 +166,6 @@ private fun <T> Browser(
                 items(items) { card(it) }
             }
         }
+    }
     }
 }

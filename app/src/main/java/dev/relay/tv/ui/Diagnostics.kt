@@ -33,6 +33,7 @@ object LogShare {
             .putExtra(Intent.EXTRA_SUBJECT, "Relay logs")
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (send.resolveActivity(ctx.packageManager) == null) throw IllegalStateException("no share targets")
         ctx.startActivity(Intent.createChooser(send, "Share Relay logs").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         "Log bundle ready (${file.length() / 1024} KB)."
     } catch (e: Exception) {

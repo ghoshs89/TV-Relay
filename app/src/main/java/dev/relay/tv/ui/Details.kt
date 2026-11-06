@@ -3,6 +3,9 @@ package dev.relay.tv.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -79,26 +82,24 @@ fun MovieDetailScreen(m: Movie) {
         tmdb?.genres?.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", ") ?: info?.genre,
     )
 
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Phones in landscape are short: smaller poster and title, everything scrolls.
+        val compact = maxHeight < 480.dp
         Backdrop(tmdb?.backdrop ?: info?.backdrop ?: m.poster)
-        Row(Modifier.fillMaxSize().padding(horizontal = 72.dp, vertical = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-            Poster(tmdb?.poster ?: m.poster, m.name)
-            Spacer(Modifier.width(44.dp))
-            Column(Modifier.weight(1f)) {
-                Text(m.name, fontSize = 38.sp, fontWeight = FontWeight.Bold, color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(10.dp))
-                if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = 16.sp)
-                Spacer(Modifier.height(18.dp))
-                val plot = tmdb?.overview ?: info?.plot
-                if (info == null) {
-                    CircularProgressIndicator(Modifier.size(22.dp), color = Palette.accent, strokeWidth = 2.dp)
-                } else if (!plot.isNullOrBlank()) {
-                    Text(plot, color = Palette.text, fontSize = 17.sp, lineHeight = 25.sp, maxLines = 6, overflow = TextOverflow.Ellipsis)
-                }
-                info?.director?.let { Text("Director: $it", color = Palette.dim, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp)) }
-                val cast = tmdb?.cast?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: info?.cast
-                cast?.let { Text("Cast: $it", color = Palette.dim, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                Spacer(Modifier.height(28.dp))
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = if (compact) 28.dp else 72.dp, vertical = if (compact) 20.dp else 56.dp),
+            verticalAlignment = if (compact) Alignment.Top else Alignment.CenterVertically,
+        ) {
+            Poster(tmdb?.poster ?: m.poster, m.name, width = if (compact) 150 else 260)
+            Spacer(Modifier.width(if (compact) 24.dp else 44.dp))
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                Text(
+                    displayTitle(m.name), fontSize = if (compact) 26.sp else 38.sp, fontWeight = FontWeight.Bold,
+                    color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+                if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = 15.sp)
+                Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PillButton(
                         if (resumable && entry != null) "Resume  ${fmtDuration(entry.position)}" else "Play",
@@ -114,6 +115,17 @@ fun MovieDetailScreen(m: Movie) {
                         icon = if (fav) Icons.Filled.Check else Icons.Filled.Add, key = "md:fav",
                     )
                 }
+                Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
+                val plot = tmdb?.overview ?: info?.plot
+                if (info == null) {
+                    CircularProgressIndicator(Modifier.size(22.dp), color = Palette.accent, strokeWidth = 2.dp)
+                } else if (!plot.isNullOrBlank()) {
+                    Text(plot, color = Palette.text, fontSize = if (compact) 15.sp else 17.sp, lineHeight = if (compact) 22.sp else 25.sp)
+                }
+                info?.director?.let { Text("Director: $it", color = Palette.dim, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp)) }
+                val cast = tmdb?.cast?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: info?.cast
+                cast?.let { Text("Cast: $it", color = Palette.dim, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp)) }
+                Spacer(Modifier.height(24.dp))
             }
         }
     }
@@ -169,22 +181,22 @@ fun SeriesDetailScreen(s: Series) {
         tmdb?.genres?.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", ") ?: info?.genre ?: s.genre,
     )
 
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val compact = maxHeight < 480.dp
+        val side = if (compact) 28.dp else 72.dp
         Backdrop(tmdb?.backdrop ?: info?.backdrop ?: s.cover)
-        Column(Modifier.fillMaxSize().padding(top = 48.dp)) {
-            Row(Modifier.padding(horizontal = 72.dp)) {
-                Poster(tmdb?.poster ?: s.cover, s.name, width = 190)
-                Spacer(Modifier.width(36.dp))
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = if (compact) 20.dp else 48.dp, bottom = 24.dp)) {
+            Row(Modifier.padding(horizontal = side)) {
+                Poster(tmdb?.poster ?: s.cover, s.name, width = if (compact) 120 else 190)
+                Spacer(Modifier.width(if (compact) 22.dp else 36.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(s.name, fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        displayTitle(s.name), fontSize = if (compact) 24.sp else 34.sp, fontWeight = FontWeight.Bold,
+                        color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
                     Spacer(Modifier.height(8.dp))
                     if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = 15.sp)
-                    Spacer(Modifier.height(12.dp))
-                    val plot = tmdb?.overview ?: info?.plot ?: s.plot
-                    if (!plot.isNullOrBlank()) {
-                        Text(plot, color = Palette.text, fontSize = 16.sp, lineHeight = 23.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                    }
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(if (compact) 12.dp else 18.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (nextEp != null) {
                             val label = if (lastIdx >= 0) "Continue S${nextEp.season} E${nextEp.number}" else "Play S${nextEp.season} E${nextEp.number}"
@@ -203,12 +215,21 @@ fun SeriesDetailScreen(s: Series) {
                         )
                     }
                     if (failed) Text("Couldn't load episodes. Try again later.", color = Palette.danger, modifier = Modifier.padding(top = 10.dp))
+                    Spacer(Modifier.height(if (compact) 12.dp else 16.dp))
+                    val plot = tmdb?.overview ?: info?.plot ?: s.plot
+                    if (!plot.isNullOrBlank()) {
+                        Text(
+                            plot, color = Palette.text, fontSize = if (compact) 14.sp else 16.sp,
+                            lineHeight = if (compact) 20.sp else 23.sp, maxLines = if (compact) 3 else 4,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(if (compact) 16.dp else 22.dp))
             if (seasonKeys.size > 1) {
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 72.dp),
+                    contentPadding = PaddingValues(horizontal = side),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(seasonKeys) { k ->
@@ -222,7 +243,7 @@ fun SeriesDetailScreen(s: Series) {
             }
             val eps = (season ?: seasonKeys.firstOrNull())?.let { seasons[it] }.orEmpty()
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 72.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = side, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 items(eps) { e ->
@@ -233,7 +254,7 @@ fun SeriesDetailScreen(s: Series) {
                         image = e.image ?: s.cover,
                         onClick = { Playback.episodes(ctx, s, all, idx, if (h?.inProgress == true) (h?.position ?: 0L) else 0L) },
                         key = "ep:${e.id}",
-                        width = 250.dp,
+                        width = if (compact) 210.dp else 250.dp,
                         aspect = 16f / 9f,
                         subtitle = when {
                             h?.finished == true -> "Watched"
@@ -267,3 +288,10 @@ private fun Poster(url: String?, title: String, width: Int = 260) {
     }
 }
 
+
+private val LANG_PREFIX = Regex("^\\s*[\\[(|]?\\s*[A-Z]{2,4}\\s*[\\])|]?\\s*[-:|]\\s+")
+private val YEAR_SUFFIX = Regex("\\s*[(\\[]\\s*(19|20)\\d{2}\\s*[)\\]]\\s*$")
+
+/** Provider names often carry a language prefix and year, e.g. "IN - Title (2026)". */
+fun displayTitle(raw: String): String =
+    raw.replace(LANG_PREFIX, "").replace(YEAR_SUFFIX, "").trim().ifBlank { raw }

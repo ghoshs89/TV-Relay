@@ -84,7 +84,7 @@ class Tmdb(private val http: OkHttpClient) {
         }
 
     companion object {
-        private val PREFIX = Regex("^\\s*[\\[(|]?\\s*[A-Za-z]{2,4}\\s*[])|]?\\s*[-:|]\\s+")
+        private val PREFIX = Regex("^\\s*[\\[(|]?\\s*[A-Z]{2,4}\\s*[\\])|]?\\s*[-:|]\\s+")
         private val TAGS = Regex("(?i)\\b(4k|uhd|fhd|hd|sd|hevc|h265|multi|vostfr|sub|dub)\\b")
         private val YEAR = Regex("[(\\[]\\s*(19|20)\\d{2}\\s*[)\\]]")
 

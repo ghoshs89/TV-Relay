@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,7 +74,7 @@ fun HomeScreen() {
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, top = 22.dp, bottom = 10.dp),
+            Modifier.fillMaxWidth().padding(start = 40.dp, end = 40.dp, top = 22.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Relay", color = Palette.accent, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
@@ -89,15 +91,16 @@ fun HomeScreen() {
                 CircularProgressIndicator(Modifier.size(18.dp), color = Palette.accent, strokeWidth = 2.dp)
                 Spacer(Modifier.width(10.dp))
             }
+            // A 1080p TV is only 960 dp wide, so the update badge takes the name and clock's place.
             if (Updater.pending != null) {
-                PillButton("Update ready", { Updater.dialogOpen = true }, key = "tab:update", primary = true)
-                Spacer(Modifier.width(16.dp))
+                PillButton("Update", { Updater.dialogOpen = true }, key = "tab:update", primary = true, icon = Icons.Filled.Refresh)
+            } else {
+                app.session.profile?.let {
+                    Text(it.name, color = Palette.dim, fontSize = 15.sp, maxLines = 1)
+                    Spacer(Modifier.width(16.dp))
+                }
+                Clock()
             }
-            app.session.profile?.let {
-                Text(it.name, color = Palette.dim, fontSize = 15.sp)
-                Spacer(Modifier.width(16.dp))
-            }
-            Clock()
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (ui.tab) {
@@ -144,7 +147,7 @@ private fun TabChip(
             text,
             Modifier
                 .background(if (f) Palette.accent else if (selected) Palette.surface2 else Color.Transparent)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             color = if (f) Color.Black else if (selected) Palette.text else Palette.dim,
             fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Normal,
             fontSize = 16.sp,
@@ -220,18 +223,17 @@ fun HomeTab() {
         }
         item {
             Rail("Favourite channels", favChannels) { ch ->
-                PosterCard(
-                    ch.name, ch.logo, { Playback.live(ctx, favChannels, favChannels.indexOf(ch)) },
-                    key = "fc:${ch.id}", width = 200.dp, aspect = 16f / 9f, fit = true,
-                    subtitle = catalog.nowPlaying(ch.id),
+                ChannelTile(
+                    ch, { Playback.live(ctx, favChannels, favChannels.indexOf(ch)) },
+                    key = "fc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
                 )
             }
         }
         item {
             Rail("Recently watched channels", recentChannels) { ch ->
-                PosterCard(
-                    ch.name, ch.logo, { Playback.live(ctx, recentChannels, recentChannels.indexOf(ch)) },
-                    key = "rc:${ch.id}", width = 200.dp, aspect = 16f / 9f, fit = true,
+                ChannelTile(
+                    ch, { Playback.live(ctx, recentChannels, recentChannels.indexOf(ch)) },
+                    key = "rc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
                 )
             }
         }
