@@ -32,6 +32,12 @@ class UiState {
     var seriesCat by mutableStateOf(RECENT)
     var query by mutableStateOf("")
 
+    // Live TV browsing
+    var liveRestored = false
+    var liveCountry by mutableStateOf<String?>(null)
+    var liveFilters by mutableStateOf(emptySet<String>())
+    var liveFind by mutableStateOf("")
+
     val liveCatList = LazyListState()
     val liveChList = LazyListState()
     val movieCatList = LazyListState()

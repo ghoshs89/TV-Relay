@@ -84,6 +84,26 @@ class Store(ctx: Context) {
         write("hist_$pid", history(pid).filterNot { it.key == key })
     }
 
+    // ---------- Live TV browsing ----------
+
+    /** Sort choice per category (index into LiveBrowse.SORTS). */
+    fun liveSort(cat: String): Int = read<Map<String, Int>>("livesort", emptyMap())[cat] ?: 0
+
+    fun setLiveSort(cat: String, sort: Int) {
+        write("livesort", read<Map<String, Int>>("livesort", emptyMap()) + (cat to sort))
+    }
+
+    var pinnedCats: List<String>
+        get() = read<List<String>>("pincats", emptyList())
+        set(v) = write("pincats", v)
+
+    /** Plain prefs: saving the last category must not trigger recomposition. */
+    fun lastLiveCat(pid: String): String? = prefs.getString("lastcat_$pid", null)
+
+    fun setLastLiveCat(pid: String, cat: String) {
+        prefs.edit().putString("lastcat_$pid", cat).apply()
+    }
+
     // ---------- Per-series tracks ----------
 
     fun trackPref(seriesId: Int): TrackPref? = read<TrackPref?>("trk_$seriesId", null)

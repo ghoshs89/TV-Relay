@@ -86,6 +86,8 @@ data class Settings(
     val startOnLastChannel: Boolean = false,
     val xmltvUrl: String = "",
     val epgOffsetMin: Int = 0,
+    // Batch 2
+    val keyboard: String = "auto", // auto | relay | system
 )
 
 /** Audio and subtitle choice remembered per series. */

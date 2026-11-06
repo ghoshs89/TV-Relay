@@ -2,6 +2,10 @@ package dev.relay.tv.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -51,6 +55,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private sealed interface CatRow {
+    data class Item(val id: String, val label: String, val count: Int?, val indent: Boolean = false) : CatRow
+    data class Header(val key: String, val label: String, val count: Int, val open: Boolean) : CatRow
+}
+
 @Composable
 fun LiveTab() {
     val app = RelayApp.instance
@@ -62,17 +71,56 @@ fun LiveTab() {
     val version = store.version.intValue
     val pid = app.session.profileId
     val restrict = app.session.restrict(store.settings)
+    val relayKeys = useRelayKeyboard()
+
+    // Reopen on the category used last time (once per profile session), and keep it saved.
+    LaunchedEffect(Unit) {
+        if (!ui.liveRestored) {
+            ui.liveRestored = true
+            store.lastLiveCat(pid)?.let { ui.liveCat = it }
+        }
+    }
+    LaunchedEffect(ui.liveCat) { store.setLastLiveCat(pid, ui.liveCat) }
 
     val groups = store.channelCustom.groups
-    val cats = remember(catalog.liveCats, restrict, groups) {
-        listOf(
-            Category(UiState.FAV, "★ Favourites"),
-            Category(UiState.HISTORY, "Recently watched"),
-        ) + groups.map { Category("${ChannelEdits.GROUP}${it.id}", "▸ ${it.name}") } +
-            listOf(Category(UiState.ALL, "All channels")) +
-            catalog.liveCats.filter { !(restrict && it.adult) }
+    val pinned = store.pinnedCats
+    val providerCats = remember(catalog.liveCats, restrict) { catalog.liveCats.filter { !(restrict && it.adult) } }
+    val countries = remember(providerCats) { LiveBrowse.group(providerCats) }
+    val shortName: Map<String, String> = remember(providerCats, countries) {
+        countries?.flatMap { g -> g.cats.map { it.id to it.name } }?.toMap() ?: providerCats.associate { it.id to it.name }
     }
-    val channels: List<Channel> = remember(ui.liveCat, catalog.channels, restrict, version) {
+    val selectedCountry = countries?.firstOrNull { g -> g.cats.any { it.id == ui.liveCat } }?.key
+    // null = follow the selected category; "" = all collapsed; otherwise the open country.
+    val openCountry = when (val c = ui.liveCountry) {
+        null -> selectedCountry
+        "" -> null
+        else -> c
+    }
+
+    val rows: List<CatRow> = buildList {
+        add(CatRow.Item(UiState.FAV, "★ Favourites", null))
+        add(CatRow.Item(UiState.HISTORY, "Recently watched", null))
+        pinned.forEach { id ->
+            if (providerCats.any { it.id == id }) {
+                val g = countries?.firstOrNull { gr -> gr.cats.any { it.id == id } }
+                val prefix = if (g != null && g.key != "__other") "${g.label} · " else ""
+                add(CatRow.Item(id, "📌 $prefix${shortName[id] ?: id}", catalog.channelsByCat[id]?.size))
+            }
+        }
+        groups.forEach { add(CatRow.Item("${ChannelEdits.GROUP}${it.id}", "▸ ${it.name}", it.channelIds.size)) }
+        add(CatRow.Item(UiState.ALL, "All channels", catalog.channels.size))
+        if (countries == null) {
+            providerCats.forEach { add(CatRow.Item(it.id, it.name, catalog.channelsByCat[it.id]?.size)) }
+        } else {
+            countries.forEach { g ->
+                val open = g.key == openCountry
+                add(CatRow.Header(g.key, g.label, g.cats.size, open))
+                if (open) g.cats.forEach { add(CatRow.Item(it.id, it.name, catalog.channelsByCat[it.id]?.size, indent = true)) }
+            }
+        }
+    }
+
+    val base: List<Channel> = remember(ui.liveCat, catalog.channels, restrict, version) {
         when (ui.liveCat) {
             UiState.FAV -> store.favs(pid).filter { it.kind == "live" }.mapNotNull { catalog.channelById[it.id] }
             UiState.HISTORY -> store.history(pid).filter { it.kind == "live" }
@@ -87,74 +135,189 @@ fun LiveTab() {
             }
         }
     }
+    val sort = remember(ui.liveCat, version) { store.liveSort(ui.liveCat) }
+    val favIds = remember(version, pid) { store.favs(pid).filter { it.kind == "live" }.map { it.id }.toSet() }
+    val channels = remember(base, sort, ui.liveFilters, ui.liveFind, favIds) {
+        LiveBrowse.apply(base, sort, ui.liveFilters, ui.liveFind, favIds)
+    }
     var focused by remember { mutableStateOf<Channel?>(null) }
+    var finding by remember { mutableStateOf(false) }
     catalog.epgVersion
+
+    val isProviderCat = providerCats.any { it.id == ui.liveCat }
+    val isPinned = ui.liveCat in pinned
 
     // 1080p TVs are 960 dp wide and phones in landscape ~750 dp: size columns to fit the channel list.
     BoxWithConstraints(Modifier.fillMaxSize()) {
-    val narrow = maxWidth < 900.dp
-    val catWidth = if (narrow) 170.dp else 220.dp
-    val panelWidth = if (narrow) 240.dp else 320.dp
-    Row(Modifier.fillMaxSize().padding(start = if (narrow) 16.dp else 32.dp, end = if (narrow) 16.dp else 32.dp, bottom = 16.dp)) {
-        LazyColumn(
-            Modifier.width(catWidth).fillMaxHeight().fadeEdges(),
-            state = ui.liveCatList,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = PaddingValues(vertical = 20.dp),
-        ) {
-            items(cats) { c ->
-                val count = when (c.id) {
-                    UiState.FAV, UiState.HISTORY -> null
-                    UiState.ALL -> catalog.channels.size
-                    else -> catalog.channelsByCat[c.id]?.size
+        val narrow = maxWidth < 900.dp
+        val catWidth = if (narrow) 170.dp else 220.dp
+        val panelWidth = if (narrow) 240.dp else 300.dp
+        Row(Modifier.fillMaxSize().padding(start = if (narrow) 16.dp else 32.dp, end = if (narrow) 16.dp else 32.dp, bottom = 16.dp)) {
+            LazyColumn(
+                Modifier.width(catWidth).fillMaxHeight().fadeEdges(),
+                state = ui.liveCatList,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = PaddingValues(vertical = 20.dp),
+            ) {
+                items(rows) { row ->
+                    when (row) {
+                        is CatRow.Item -> ListRow(
+                            if (row.indent) "   ${row.label}" else row.label,
+                            onClick = {
+                                ui.liveCat = row.id
+                                ui.liveFind = ""
+                                scope.launch { ui.liveChList.scrollToItem(0) }
+                            },
+                            selected = ui.liveCat == row.id,
+                            key = "lc:${row.id}",
+                            trailing = row.count?.toString(),
+                        )
+                        is CatRow.Header -> ListRow(
+                            row.label,
+                            onClick = { ui.liveCountry = if (row.open) "" else row.key },
+                            key = "lh:${row.key}",
+                            trailing = "${row.count}  ${if (row.open) "▾" else "▸"}",
+                            textColor = Palette.accent2,
+                        )
+                    }
                 }
-                ListRow(
-                    c.name,
-                    onClick = {
-                        ui.liveCat = c.id
-                        scope.launch { ui.liveChList.scrollToItem(0) }
-                    },
-                    selected = ui.liveCat == c.id,
-                    key = "lc:${c.id}",
-                    trailing = count?.toString(),
-                )
             }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                LazyRow(
+                    contentPadding = PaddingValues(start = 6.dp, end = 6.dp, top = 14.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
+                        Chip("Sort: ${LiveBrowse.SORTS[sort.coerceIn(0, 3)]}", false, "tb:sort") {
+                            store.setLiveSort(ui.liveCat, (sort + 1) % LiveBrowse.SORTS.size)
+                            scope.launch { ui.liveChList.scrollToItem(0) }
+                        }
+                    }
+                    item {
+                        Chip(if (ui.liveFind.isBlank()) "Find" else "Find: ${ui.liveFind}", ui.liveFind.isNotBlank(), "tb:find") { finding = true }
+                    }
+                    if (ui.liveFind.isNotBlank()) item { Chip("Clear find", false, "tb:clear") { ui.liveFind = "" } }
+                    item { FilterChip("Catch-up", LiveBrowse.F_CATCHUP) }
+                    item { FilterChip("HD / 4K", LiveBrowse.F_HD) }
+                    item { FilterChip("Has guide", LiveBrowse.F_GUIDE) }
+                    if (isProviderCat) {
+                        item {
+                            Chip(if (isPinned) "Unpin category" else "Pin category", isPinned, "tb:pin") {
+                                store.pinnedCats = if (isPinned) pinned - ui.liveCat else pinned + ui.liveCat
+                            }
+                        }
+                    }
+                }
+                if (sort == 2 && channels.size > 40) {
+                    val letters = remember(channels) {
+                        channels.mapIndexedNotNull { i, ch ->
+                            val c = LiveBrowse.sortKey(ch).firstOrNull()?.uppercaseChar() ?: return@mapIndexedNotNull null
+                            (if (c.isLetter()) c.toString() else "#") to i
+                        }.distinctBy { it.first }
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        items(letters) { (letter, index) ->
+                            Chip(letter, false, "az:$letter", compact = true) {
+                                scope.launch { ui.liveChList.scrollToItem(index) }
+                            }
+                        }
+                    }
+                }
+                if (channels.isEmpty()) {
+                    EmptyState(
+                        when {
+                            base.isNotEmpty() -> "No channels match these filters."
+                            ui.liveCat == UiState.FAV -> "No favourite channels yet. Open a channel's panel and press Favourite."
+                            ui.liveCat == UiState.HISTORY -> "Channels you watch will show up here."
+                            catalog.loading -> "Loading…"
+                            else -> "No channels in this category."
+                        },
+                        Modifier.weight(1f),
+                    )
+                } else {
+                    LazyColumn(
+                        Modifier.weight(1f).fillMaxWidth().fadeEdges(),
+                        state = ui.liveChList,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp, horizontal = 6.dp),
+                    ) {
+                        itemsIndexed(channels) { i, ch ->
+                            ChannelRow(
+                                ch,
+                                now = catalog.nowPlaying(ch.id),
+                                fav = ch.id in favIds,
+                                onFocused = { focused = ch },
+                                onClick = { Playback.live(ctx, channels, i) },
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.width(14.dp))
+            ChannelPanel(
+                focused,
+                Modifier.width(panelWidth).fillMaxHeight(),
+                groupId = ui.liveCat.takeIf { it.startsWith(ChannelEdits.GROUP) }?.removePrefix(ChannelEdits.GROUP),
+            )
         }
-        Spacer(Modifier.width(16.dp))
-        if (channels.isEmpty()) {
-            EmptyState(
-                when (ui.liveCat) {
-                    UiState.FAV -> "No favourite channels yet. Open a channel's panel and press Favourite."
-                    UiState.HISTORY -> "Channels you watch will show up here."
-                    else -> if (catalog.loading) "Loading…" else "No channels in this category."
-                },
-                Modifier.weight(1f),
+    }
+
+    if (finding) {
+        if (relayKeys) {
+            KeyboardDialog(
+                label = "Find in this list",
+                value = ui.liveFind,
+                onValueChange = { ui.liveFind = it },
+                password = false,
+                onDone = { finding = false },
+                onDismiss = { finding = false },
             )
         } else {
-            LazyColumn(
-                Modifier.weight(1f).fillMaxHeight().fadeEdges(),
-                state = ui.liveChList,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                contentPadding = PaddingValues(vertical = 20.dp, horizontal = 6.dp),
-            ) {
-                itemsIndexed(channels) { i, ch ->
-                    ChannelRow(
-                        ch,
-                        now = catalog.nowPlaying(ch.id),
-                        fav = store.isFav(pid, "live", ch.id),
-                        onFocused = { focused = ch },
-                        onClick = { Playback.live(ctx, channels, i) },
-                    )
-                }
-            }
+            LiveTextDialog("Find in this list", ui.liveFind, { ui.liveFind = it }, onDismiss = { finding = false })
         }
-        Spacer(Modifier.width(16.dp))
-        ChannelPanel(
-            focused,
-            Modifier.width(panelWidth).fillMaxHeight(),
-            groupId = ui.liveCat.takeIf { it.startsWith(ChannelEdits.GROUP) }?.removePrefix(ChannelEdits.GROUP),
+    }
+}
+
+@Composable
+private fun FilterChip(label: String, filter: String) {
+    val ui = RelayApp.instance.ui
+    val on = filter in ui.liveFilters
+    Chip(label, on, "tb:$filter") { ui.liveFilters = if (on) ui.liveFilters - filter else ui.liveFilters + filter }
+}
+
+@Composable
+private fun Chip(label: String, on: Boolean, key: String, compact: Boolean = false, onClick: () -> Unit) {
+    Focusable(onClick, key = key, shape = RoundedCornerShape(50), scaleOnFocus = 1.06f) { f ->
+        Text(
+            if (on && !compact) "✓ $label" else label,
+            Modifier
+                .background(if (f) Palette.accent else if (on) Palette.surface2 else Palette.surface)
+                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = 7.dp),
+            color = if (f) Color.Black else if (on) Palette.accent else Palette.text,
+            fontSize = 13.sp, maxLines = 1, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
         )
     }
+}
+
+/** System-keyboard version of a live-updating text prompt. */
+@Composable
+fun LiveTextDialog(title: String, value: String, onValueChange: (String) -> Unit, onDismiss: () -> Unit) {
+    val fr = remember { FocusRequester() }
+    InitialFocus(fr)
+    TvDialog(onDismiss) {
+        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        TvTextField(
+            value, onValueChange, title, Modifier.fillMaxWidth(),
+            focusRequester = fr, autoOpen = true, imeAction = ImeAction.Done, onDone = onDismiss,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Done", onDismiss, primary = true)
+            PillButton("Clear", { onValueChange("") })
+        }
     }
 }
 

@@ -5,6 +5,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.focus.FocusRequester
 import dev.relay.tv.companion.CompanionDialog
 import dev.relay.tv.data.ChannelGroup
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -121,20 +127,23 @@ fun SearchTab() {
         searching = false
     }
 
-    LazyColumn(Modifier.fillMaxSize().fadeEdges(), contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp)) {
-        item {
-            Row(Modifier.padding(horizontal = 48.dp, vertical = 12.dp)) {
-                TvTextField(
-                    ui.query, { ui.query = it }, "Search channels, movies and series",
-                    Modifier.width(680.dp), imeAction = ImeAction.Search,
-                    // Keyboard closes on the search key; focus jumps to the first result.
-                    onDone = { focusManager.moveFocus(FocusDirection.Down) },
-                )
-            }
-        }
-        val r = results
+    val relay = useRelayKeyboard()
+    val entry = remember { FocusRequester() }
+    // Opening Search goes straight to typing.
+    InitialFocus(entry)
+
+    val r = results
+    val resultRows: LazyListScope.() -> Unit = {
         if (ui.query.isNotBlank() && !searching && r.channels.isEmpty() && r.movies.isEmpty() && r.series.isEmpty()) {
             item { Text("No matches for \"${ui.query}\"", Modifier.padding(horizontal = 48.dp), color = Palette.dim) }
+        }
+        if (ui.query.isBlank()) {
+            item {
+                Text(
+                    "Start typing: results appear as you go.", Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
+                    color = Palette.dim,
+                )
+            }
         }
         item {
             Rail("Channels", r.channels) { ch ->
@@ -153,6 +162,53 @@ fun SearchTab() {
             Rail("Series", r.series) { s ->
                 PosterCard(s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "s:sr:${s.id}", subtitle = s.year)
             }
+        }
+    }
+
+    if (relay) {
+        // Relay keyboard docked on the left; results update on the right while typing.
+        Row(Modifier.fillMaxSize()) {
+            Column(Modifier.width(420.dp).padding(start = 32.dp, top = 16.dp, end = 4.dp)) {
+                Box(
+                    Modifier.fillMaxWidth().background(Palette.surface, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        if (ui.query.isEmpty()) "Search channels, movies, series" else ui.query + "▏",
+                        color = if (ui.query.isEmpty()) Palette.dim else Palette.text,
+                        fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                RelayKeyboard(
+                    value = ui.query,
+                    onValueChange = { ui.query = it },
+                    onDone = { focusManager.moveFocus(FocusDirection.Right) },
+                    firstKey = entry,
+                    keyHeight = 40.dp,
+                    doneLabel = "Results",
+                )
+            }
+            LazyColumn(
+                Modifier.weight(1f).fillMaxHeight().fadeEdges(),
+                contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp),
+                content = resultRows,
+            )
+        }
+    } else {
+        LazyColumn(Modifier.fillMaxSize().fadeEdges(), contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp)) {
+            item {
+                Row(Modifier.padding(horizontal = 48.dp, vertical = 12.dp)) {
+                    TvTextField(
+                        ui.query, { ui.query = it }, "Search channels, movies and series",
+                        Modifier.width(680.dp), imeAction = ImeAction.Search,
+                        focusRequester = entry, autoOpen = true,
+                        // Keyboard closes on the search key; focus jumps to the first result.
+                        onDone = { focusManager.moveFocus(FocusDirection.Down) },
+                    )
+                }
+            }
+            resultRows()
         }
     }
 }
@@ -326,6 +382,26 @@ fun SettingsTab() {
                 val next = !s.neutralTheme
                 store.settings = s.copy(neutralTheme = next)
                 Palette.neutral = next
+            }
+        }
+
+        item {
+            Setting(
+                "Keyboard",
+                when (s.keyboard) {
+                    "relay" -> "Relay keyboard"
+                    "system" -> "System keyboard"
+                    else -> "Auto (Relay on TVs, system on phones)"
+                },
+                false,
+            ) {
+                store.settings = s.copy(
+                    keyboard = when (s.keyboard) {
+                        "auto" -> "relay"
+                        "relay" -> "system"
+                        else -> "auto"
+                    },
+                )
             }
         }
 

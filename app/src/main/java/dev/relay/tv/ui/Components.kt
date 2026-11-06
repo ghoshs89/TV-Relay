@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -352,7 +353,12 @@ fun TvTextField(
     focusRequester: FocusRequester? = null,
     imeAction: ImeAction = ImeAction.Next,
     onDone: () -> Unit = {},
+    autoOpen: Boolean = false,
 ) {
+    if (useRelayKeyboard()) {
+        RelayTextField(value, onValueChange, label, modifier, password = password, focusRequester = focusRequester, onDone = onDone)
+        return
+    }
     val fm = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val fr = focusRequester ?: remember { FocusRequester() }
@@ -393,11 +399,17 @@ fun TvTextField(
         ),
         modifier = modifier
             .focusRequester(fr)
+            .onFocusChanged { if (it.isFocused && autoOpen) keyboard?.show() }
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (e.key) {
                     Key.DirectionDown -> fm.moveFocus(FocusDirection.Down)
                     Key.DirectionUp -> fm.moveFocus(FocusDirection.Up)
+                    // TVs give the field focus without asking Android for the keyboard: OK does that.
+                    Key.DirectionCenter -> {
+                        keyboard?.show()
+                        true
+                    }
                     else -> false
                 }
             },
