@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import dev.relay.tv.BuildConfig
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AccountInfo
+import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Channel
 import dev.relay.tv.data.Movie
 import dev.relay.tv.data.Profile
@@ -169,6 +170,9 @@ fun SettingsTab() {
     var pinGate by remember { mutableStateOf(false) }
     var addingProfile by remember { mutableStateOf(false) }
     var tmdbStatus by remember { mutableStateOf<String?>(null) }
+    var viewingLog by remember { mutableStateOf(false) }
+    var logNote by remember { mutableStateOf<String?>(null) }
+    val ctx = LocalContext.current
 
     LaunchedEffect(Unit) {
         try {
@@ -274,6 +278,42 @@ fun SettingsTab() {
             item { Setting("Remove profile \"${p.name}\"", if (p.kids) "Kids" else "", kidsLocked, danger = true) { deleting = p } }
         }
 
+        item { Section("Diagnostics") }
+        item {
+            val until = s.logUntil
+            val on = until > System.currentTimeMillis()
+            Setting(
+                "Save detailed logs",
+                if (on) "On until ${timeFmt.format(Date(until))} · ${AppLog.diskBytes() / 1024} KB" else "Off",
+                false,
+            ) {
+                val next = if (on) 0L else System.currentTimeMillis() + AppLog.SAVE_WINDOW_MS
+                AppLog.saveUntil = next
+                store.settings = s.copy(logUntil = next)
+                AppLog.i("App", if (next > 0) "Detailed logging on for 24h" else "Detailed logging off")
+            }
+        }
+        item { Setting("View recent activity", "${AppLog.recent().size} lines", false) { viewingLog = true } }
+        item {
+            val crash = AppLog.lastCrash()
+            Setting("Share logs", crash?.let { "Includes crash from ${timeFmt.format(Date(it))}" } ?: "", false) {
+                logNote = LogShare.share(ctx)
+            }
+        }
+        item {
+            Setting("Clear logs", "", false) {
+                AppLog.clear()
+                logNote = "Logs cleared."
+            }
+        }
+        logNote?.let { n -> item { Info("", n) } }
+        item {
+            Info(
+                "Log folder",
+                (AppLog.directory?.absolutePath ?: "unavailable") + "  (max ~1 MB, auto-off after 24 h)",
+            )
+        }
+
         item { Section("About") }
         item { Info("Version", "Relay ${BuildConfig.VERSION_NAME}") }
         item {
@@ -353,6 +393,8 @@ fun SettingsTab() {
             },
         )
     }
+
+    if (viewingLog) LogViewer(onDismiss = { viewingLog = false })
 
     if (confirmSignOut) {
         ConfirmDialog(

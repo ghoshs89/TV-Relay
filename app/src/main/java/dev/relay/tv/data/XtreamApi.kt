@@ -71,6 +71,7 @@ class XtreamApi(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    AppLog.w("Api", "${params["action"] ?: "login"} failed on $h", e)
                     last = e
                 }
             }

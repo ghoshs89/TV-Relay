@@ -74,6 +74,7 @@ data class Settings(
     val liveExt: String = "ts",
     val hideAdult: Boolean = false,
     val userAgent: String = "RelayTV/1.0",
+    val logUntil: Long = 0L,
 )
 
 // ---------- Domain ----------

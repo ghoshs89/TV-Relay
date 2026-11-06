@@ -32,6 +32,7 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.ui.PlayerView
 import dev.relay.tv.RelayApp
+import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.PlayItem
 import dev.relay.tv.data.PlayRequest
 import dev.relay.tv.data.WatchEntry
@@ -65,6 +66,7 @@ class PlayerActivity : ComponentActivity() {
             return
         }
         req = r
+        AppLog.i("Player", "Open ${if (r.live) "live" else r.items[r.index].kind}: ${r.items[r.index].title} (${r.items.size} in queue)")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildPlayer()
         buildViews()
@@ -235,6 +237,8 @@ class PlayerActivity : ComponentActivity() {
 
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_READY) {
+                if (liveRetries > 0 || hostAttempt > 0) AppLog.i("Player", "Recovered after retry")
+                AppLog.d("Player", "Ready: ${currentItem()?.title} via ${hostOf(currentItem()?.let { urlsFor(it).getOrNull(hostAttempt) })}")
                 liveRetries = 0
                 if (player.duration != C.TIME_UNSET) lastDuration = player.duration
             }
@@ -251,6 +255,7 @@ class PlayerActivity : ComponentActivity() {
 
     private fun handleError(e: PlaybackException) {
         val item = currentItem() ?: return
+        AppLog.e("Player", "${e.errorCodeName} on ${item.kind} '${item.title}' via ${hostOf(urlsFor(item).getOrNull(hostAttempt))}", e)
         if (e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
             player.seekToDefaultPosition()
             player.prepare()
@@ -266,6 +271,7 @@ class PlayerActivity : ComponentActivity() {
             player.prepare()
             player.playWhenReady = true
             showOverlay("Trying backup server…")
+            AppLog.w("Player", "Switching to server ${hostOf(urls.getOrNull(hostAttempt))}")
             return
         }
         if (req.live && liveRetries < 3) {
@@ -324,6 +330,8 @@ class PlayerActivity : ComponentActivity() {
             ),
         )
     }
+
+    private fun hostOf(url: String?): String = url?.let { android.net.Uri.parse(it).host } ?: "?"
 
     private fun showOverlay(text: String, ms: Long = 3_000) {
         overlay.text = text

@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import androidx.core.content.IntentCompat
+import dev.relay.tv.data.AppLog
 
 /** Receives PackageInstaller results: shows Android's confirm screen or reports failure. */
 class InstallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val info = Updater.pending
+        AppLog.i("Update", "Installer status ${intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -999)}: ${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)}")
         when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)

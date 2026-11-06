@@ -75,6 +75,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         mutex.withLock {
             loading = true
             error = null
+            val started = System.currentTimeMillis()
             try {
                 if (isEmpty && cacheComplete()) parse()
                 if (force || !cacheComplete() || cacheAgeMs() > REFRESH_MS) {
@@ -83,9 +84,15 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                             actions.map { a -> async { api.download(a, file(a)) } }.awaitAll()
                         }
                         parse()
+                        AppLog.i(
+                            "Catalog",
+                            "Refreshed in ${(System.currentTimeMillis() - started) / 1000}s: ${channels.size} channels, " +
+                                "${movies.size} movies, ${series.size} series",
+                        )
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
+                        AppLog.e("Catalog", "Refresh failed", e)
                         if (isEmpty) throw e
                         error = "Couldn't refresh (${e.message}). Showing your saved lists."
                     }
@@ -93,6 +100,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                AppLog.e("Catalog", "Load failed", e)
                 error = e.message ?: "Couldn't load your playlist"
             } finally {
                 loading = false
@@ -212,6 +220,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                     .toList()
             }
         } catch (e: Exception) {
+            AppLog.e("Catalog", "Couldn't parse ${f.name}", e)
             emptyList()
         }
     }
@@ -226,6 +235,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            AppLog.w("Epg", "Guide unavailable for stream $id", e)
             emptyList()
         }
         epgCache[id] = now to list

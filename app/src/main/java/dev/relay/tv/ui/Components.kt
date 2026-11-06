@@ -70,6 +70,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 
@@ -379,10 +383,16 @@ fun TvTextField(
 
 @Composable
 fun TvDialog(onDismiss: () -> Unit, width: Dp = 560.dp, content: @Composable ColumnScope.() -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CompositionLocalProvider(LocalFocusEnabled provides true) {
         Column(
-            Modifier.width(width).background(Palette.surface, RoundedCornerShape(16.dp)).padding(28.dp),
+            Modifier
+                .padding(horizontal = 24.dp)
+                .widthIn(max = width)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .background(Palette.surface, RoundedCornerShape(16.dp))
+                .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             content = content,
         )

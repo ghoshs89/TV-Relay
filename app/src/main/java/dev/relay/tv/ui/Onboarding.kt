@@ -3,6 +3,11 @@ package dev.relay.tv.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,7 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.Account
+import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Profile
+import dev.relay.tv.data.ProviderText
 import dev.relay.tv.data.XtreamApi
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -45,6 +52,7 @@ import java.util.UUID
 @Composable
 fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
     val app = RelayApp.instance
+    val clipboard = LocalClipboardManager.current
     val existing = remember { app.store.account }
     var name by remember { mutableStateOf(existing?.name ?: "My IPTV") }
     var host by remember { mutableStateOf(existing?.hosts?.firstOrNull() ?: "") }
@@ -53,9 +61,30 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
     var pass by remember { mutableStateOf(existing?.password ?: "") }
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
+    var note by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val first = remember { FocusRequester() }
     InitialFocus(first)
+
+    val paste: () -> Unit = {
+        val text = clipboard.getText()?.text.orEmpty()
+        val p = ProviderText.parse(text)
+        if (p.hosts.isEmpty() && p.username == null && p.password == null) {
+            err = "Nothing to paste. Copy your provider's whole message first, then press Paste."
+            note = null
+        } else {
+            if (p.hosts.isNotEmpty()) {
+                host = p.hosts.first()
+                backups = p.hosts.drop(1).joinToString(", ")
+            }
+            p.username?.let { user = it }
+            p.password?.let { pass = it }
+            err = null
+            note = "Filled from your provider's message: ${p.hosts.size} server(s)" +
+                (if (p.username != null) ", username" else "") +
+                (if (p.password != null) ", password" else "") + ". Check them, then Sign in."
+        }
+    }
 
     val submit: () -> Unit = submit@{
         if (busy) return@submit
@@ -77,12 +106,14 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
             app.api.host = null
             try {
                 app.api.authenticate()
+                AppLog.i("Login", "Signed in via ${app.api.host} (${acc.hosts.size} server(s) saved)")
                 val changed = prevAcc?.username != acc.username || prevAcc?.hosts != acc.hosts
                 app.store.account = acc
                 app.store.activeHost = app.api.host
                 if (changed) app.catalog.clear()
                 onDone()
             } catch (e: Exception) {
+                AppLog.w("Login", "Sign-in failed", e)
                 app.api.account = prevAcc
                 app.api.host = prevHost
                 err = e.message ?: "Couldn't reach any of the servers."
@@ -92,30 +123,26 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
         }
     }
 
-    Row(Modifier.fillMaxSize().padding(horizontal = 72.dp, vertical = 48.dp)) {
-        Column(Modifier.weight(1f).padding(end = 48.dp), verticalArrangement = Arrangement.Center) {
-            Text("Relay", fontSize = 56.sp, fontWeight = FontWeight.ExtraBold, color = Palette.accent)
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Sign in with the Xtream Codes details from your provider.",
-                fontSize = 20.sp, color = Palette.text,
-            )
-            Spacer(Modifier.height(20.dp))
-            Text(
-                "Add every server URL you were given under Backup servers. If one stops answering, " +
-                    "Relay moves to the next automatically and remembers the one that worked.",
-                fontSize = 15.sp, color = Palette.dim, lineHeight = 22.sp,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Your login stays on this TV only.",
-                fontSize = 15.sp, color = Palette.dim,
-            )
-        }
-        Column(
-            Modifier.width(560.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+    val intro: @Composable () -> Unit = {
+        Text(
+            "Relay", fontSize = 52.sp, fontWeight = FontWeight.ExtraBold, color = Palette.accent,
+            maxLines = 1, softWrap = false,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("Sign in with the Xtream Codes details from your provider.", fontSize = 19.sp, color = Palette.text)
+    }
+    val help: @Composable () -> Unit = {
+        Text(
+            "Tip: copy the message your provider sent you and press Paste provider message. " +
+                "Add every server URL you were given; if one stops answering, Relay moves to the next " +
+                "automatically. Your login stays on this device only.",
+            fontSize = 14.sp, color = Palette.dim, lineHeight = 21.sp,
+        )
+    }
+    val form: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Paste provider message", paste, icon = Icons.Filled.Edit)
+            note?.let { Text(it, color = Palette.accent, fontSize = 14.sp) }
             TvTextField(name, { name = it }, "Playlist name", Modifier.fillMaxWidth(), focusRequester = first)
             TvTextField(host, { host = it }, "Server URL (e.g. http://example.com:8080)", Modifier.fillMaxWidth())
             TvTextField(backups, { backups = it }, "Backup servers (comma separated, optional)", Modifier.fillMaxWidth())
@@ -124,10 +151,38 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
                 pass, { pass = it }, "Password", Modifier.fillMaxWidth(), password = true,
                 imeAction = ImeAction.Done, onDone = submit,
             )
-            if (err != null) Text(err ?: "", color = Palette.danger, fontSize = 15.sp)
+            err?.let { Text(it, color = Palette.danger, fontSize = 15.sp) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PillButton(if (busy) "Checking…" else "Sign in", submit, primary = true)
                 if (onCancel != null) PillButton("Cancel", onCancel)
+            }
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+        if (maxWidth < 760.dp) {
+            // Phones and narrow windows: one scrolling column so the keyboard never hides a field.
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column { intro() }
+                form()
+                help()
+            }
+        } else {
+            Row(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 40.dp)) {
+                Column(
+                    Modifier.weight(0.42f).fillMaxHeight().padding(end = 48.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    intro()
+                    Spacer(Modifier.height(20.dp))
+                    help()
+                }
+                Column(Modifier.weight(0.58f).fillMaxHeight().verticalScroll(rememberScrollState())) {
+                    form()
+                }
             }
         }
     }

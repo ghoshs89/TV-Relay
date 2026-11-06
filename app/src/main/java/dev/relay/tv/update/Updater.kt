@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.relay.tv.BuildConfig
+import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Jsons
 import dev.relay.tv.data.arr
 import dev.relay.tv.data.at
@@ -89,10 +90,12 @@ object Updater {
         if (!quiet) state = UpdateState.Checking
         state = try {
             val info = latest(http)
+            AppLog.i("Update", "Latest release ${info?.versionName ?: "none"}, installed ${BuildConfig.VERSION_NAME}")
             if (info != null && info.versionCode > BuildConfig.VERSION_CODE) UpdateState.Available(info) else UpdateState.UpToDate
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            AppLog.w("Update", "Check failed", e)
             if (quiet) previous else UpdateState.Failed(e.message ?: "Update check failed", null)
         }
     }
@@ -155,6 +158,7 @@ object Updater {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            AppLog.e("Update", "Update to ${info.versionName} failed", e)
             state = UpdateState.Failed(e.message ?: "Update failed", info)
         }
     }

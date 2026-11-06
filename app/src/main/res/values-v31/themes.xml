@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ system splash: match Relay's background so it hands off seamlessly. -->
+    <style name="Theme.Relay" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/relay_bg</item>
+        <item name="android:colorAccent">#3DDC97</item>
+        <item name="android:statusBarColor">@color/relay_bg</item>
+        <item name="android:navigationBarColor">@color/relay_bg</item>
+        <item name="android:windowSplashScreenBackground">@color/relay_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+    </style>
+</resources>

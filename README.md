@@ -77,6 +77,12 @@ If your provider gives you separate URLs for VPN and non-VPN use, put the ones t
 | Any player | Center | Show controls (audio, subtitles, speed under the gear and CC icons) |
 | Live TV list | Right | Move to the channel panel: favourite, guide, catch-up |
 
+## Troubleshooting logs
+
+Settings → Diagnostics. Recent activity is always kept in memory (500 lines, no disk). **Save detailed logs** also writes to disk for 24 hours, then turns itself off. Disk use is capped at about 1 MB (two rotating 512 KB files plus one crash report). Usernames, passwords and tokens are removed from every line.
+
+**Share logs** opens the share sheet on phones. On a TV, pull the folder shown in Settings with `adb pull /sdcard/Android/data/dev.relay.tv/files/logs/`.
+
 ## Optional: TMDB
 
 Settings → TMDB API key. A free key from themoviedb.org (Settings → API, the 32 character "API Key") adds better backdrops, ratings, genres and cast on detail pages. Everything works without it using your provider's own metadata.
