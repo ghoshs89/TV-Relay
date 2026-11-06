@@ -66,9 +66,10 @@ object Playback {
 
     fun catchup(ctx: Context, ch: Channel, e: EpgEntry) {
         val item = PlayItem(
-            key = "catchup:${ch.id}:${e.start}", kind = "catchup", title = ch.name, subtitle = e.title,
+            key = "catchup:${ch.id}:${e.rawStart}", kind = "catchup", title = ch.name, subtitle = e.title,
             image = ch.logo, streamId = ch.id.toString(), ext = "ts",
-            urls = app.api.catchupUrls(ch.id, e.start, e.end),
+            // Provider times, not the offset-adjusted ones shown in the guide.
+            urls = app.api.catchupUrls(ch.id, e.rawStart, e.rawEnd),
         )
         launch(ctx, PlayRequest(pid, listOf(item), 0))
     }

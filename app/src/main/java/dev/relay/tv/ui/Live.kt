@@ -63,12 +63,14 @@ fun LiveTab() {
     val pid = app.session.profileId
     val restrict = app.session.restrict(store.settings)
 
-    val cats = remember(catalog.liveCats, restrict) {
+    val groups = store.channelCustom.groups
+    val cats = remember(catalog.liveCats, restrict, groups) {
         listOf(
             Category(UiState.FAV, "★ Favourites"),
             Category(UiState.HISTORY, "Recently watched"),
-            Category(UiState.ALL, "All channels"),
-        ) + catalog.liveCats.filter { !(restrict && it.adult) }
+        ) + groups.map { Category("${ChannelEdits.GROUP}${it.id}", "▸ ${it.name}") } +
+            listOf(Category(UiState.ALL, "All channels")) +
+            catalog.liveCats.filter { !(restrict && it.adult) }
     }
     val channels: List<Channel> = remember(ui.liveCat, catalog.channels, restrict, version) {
         when (ui.liveCat) {
@@ -76,7 +78,13 @@ fun LiveTab() {
             UiState.HISTORY -> store.history(pid).filter { it.kind == "live" }
                 .mapNotNull { e -> e.streamId.toIntOrNull()?.let { catalog.channelById[it] } }
             UiState.ALL -> if (restrict) catalog.channels.filter { catalog.allowed(it.categoryId, true) } else catalog.channels
-            else -> catalog.channelsByCat[ui.liveCat].orEmpty()
+            else -> if (ui.liveCat.startsWith(ChannelEdits.GROUP)) {
+                groups.firstOrNull { "${ChannelEdits.GROUP}${it.id}" == ui.liveCat }
+                    ?.let { catalog.groupChannels(it) }.orEmpty()
+                    .filter { catalog.allowed(it.categoryId, restrict) }
+            } else {
+                catalog.channelsByCat[ui.liveCat].orEmpty()
+            }
         }
     }
     var focused by remember { mutableStateOf<Channel?>(null) }
@@ -141,7 +149,11 @@ fun LiveTab() {
             }
         }
         Spacer(Modifier.width(16.dp))
-        ChannelPanel(focused, Modifier.width(panelWidth).fillMaxHeight())
+        ChannelPanel(
+            focused,
+            Modifier.width(panelWidth).fillMaxHeight(),
+            groupId = ui.liveCat.takeIf { it.startsWith(ChannelEdits.GROUP) }?.removePrefix(ChannelEdits.GROUP),
+        )
     }
     }
 }
@@ -186,18 +198,18 @@ private val dayFmt = SimpleDateFormat("EEE d MMM", Locale.getDefault())
 private fun hm(sec: Long) = timeFmt.format(Date(sec * 1000))
 
 @Composable
-private fun ChannelPanel(ch: Channel?, modifier: Modifier) {
+private fun ChannelPanel(ch: Channel?, modifier: Modifier, groupId: String?) {
     Column(modifier.background(Palette.surface, RoundedCornerShape(12.dp)).padding(20.dp)) {
         if (ch == null) {
             Text("Move through the list to see what's on.", color = Palette.dim, fontSize = 15.sp)
         } else {
-            ChannelDetails(ch)
+            ChannelDetails(ch, groupId)
         }
     }
 }
 
 @Composable
-private fun ChannelDetails(ch: Channel) {
+private fun ChannelDetails(ch: Channel, groupId: String?) {
     val app = RelayApp.instance
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -208,6 +220,7 @@ private fun ChannelDetails(ch: Channel) {
         var epg by remember(ch.id) { mutableStateOf<List<EpgEntry>?>(null) }
         var archive by remember(ch.id) { mutableStateOf<List<EpgEntry>?>(null) }
         var showArchive by remember(ch.id) { mutableStateOf(false) }
+        var options by remember(ch.id) { mutableStateOf(false) }
         LaunchedEffect(ch.id) {
             delay(250)
             epg = app.catalog.shortEpg(ch.id)
@@ -238,7 +251,9 @@ private fun ChannelDetails(ch: Channel) {
                     if (archive == null) scope.launch { archive = app.catalog.archive(ch.id) }
                 }, key = "pa:${ch.id}")
             }
+            PillButton("Options", { options = true }, key = "po:${ch.id}")
         }
+        if (options) ChannelOptionsDialog(ch, groupId, onDismiss = { options = false })
         Spacer(Modifier.height(16.dp))
 
         val nowSec = System.currentTimeMillis() / 1000

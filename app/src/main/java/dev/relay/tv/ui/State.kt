@@ -16,6 +16,10 @@ import dev.relay.tv.data.Settings
 class Session {
     var profile by mutableStateOf<Profile?>(null)
     var autoPickDone = false
+
+    // Once per app start.
+    var expiryChecked = false
+    var autoStartDone = false
     val profileId: String get() = profile?.id ?: "default"
     fun restrict(settings: Settings): Boolean = profile?.kids == true || settings.hideAdult
 }

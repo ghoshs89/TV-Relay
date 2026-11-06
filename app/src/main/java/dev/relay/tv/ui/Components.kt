@@ -82,13 +82,16 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 
 object Palette {
-    val bg = Color(0xFF0B1220)
-    val surface = Color(0xFF141E30)
-    val surface2 = Color(0xFF1E2B45)
+    /** Neutral near-black theme; navy looks very blue on TVs in vivid picture modes. */
+    var neutral by mutableStateOf(false)
+
+    val bg: Color get() = if (neutral) Color(0xFF0D0E11) else Color(0xFF0B1220)
+    val surface: Color get() = if (neutral) Color(0xFF17191D) else Color(0xFF141E30)
+    val surface2: Color get() = if (neutral) Color(0xFF262A31) else Color(0xFF1E2B45)
     val accent = Color(0xFF3DDC97)
     val accent2 = Color(0xFF6CB4FF)
     val text = Color(0xFFE8EEF7)
-    val dim = Color(0xFF8A98B0)
+    val dim: Color get() = if (neutral) Color(0xFF9AA1AC) else Color(0xFF8A98B0)
     val danger = Color(0xFFFF6B6B)
     val avatars = listOf(
         Color(0xFF3DDC97), Color(0xFF6CB4FF), Color(0xFFFFB454),

@@ -1,9 +1,18 @@
 package dev.relay.tv.player
 
+import android.app.PictureInPictureParams
+import android.app.UiModeManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.util.Rational
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -12,7 +21,12 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.annotation.OptIn
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -21,6 +35,8 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -28,14 +44,19 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.PlayItem
 import dev.relay.tv.data.PlayRequest
+import dev.relay.tv.data.TrackPref
 import dev.relay.tv.data.WatchEntry
+import dev.relay.tv.ui.RelayTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -48,15 +69,42 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var player: ExoPlayer
     private lateinit var view: PlayerView
     private lateinit var overlay: TextView
+    private lateinit var infoView: TextView
+    private lateinit var channelsView: ComposeView
+    private lateinit var channelsButton: TextView
+    private lateinit var bandwidth: DefaultBandwidthMeter
+    private lateinit var frameRate: FrameRateMatcher
 
     private var liveIndex = 0
+    private var previousLiveIndex: Int? = null
     private var hostAttempt = 0
     private var liveRetries = 0
     private var lastItem: PlayItem? = null
     private var lastDuration = 0L
 
+    // Back: second press within this window exits.
+    private var lastBackAt = 0L
+
+    // Number keys typed on the remote, applied after a short pause.
+    private val digits = StringBuilder()
+
+    // Stream info shows once per new item, when it first becomes ready.
+    private var infoPending = false
+
+    // Per-series track memory: only record choices the viewer made, not our own presets.
+    private var applyingPrefs = false
+    private var userChangedTracks = false
+
+    private var channelOverlayOpen by mutableStateOf(false)
+
     private val handler = Handler(Looper.getMainLooper())
     private val hideOverlay = Runnable { overlay.visibility = View.GONE }
+    private val hideInfo = Runnable { infoView.visibility = View.GONE }
+    private val applyDigits = Runnable { jumpToNumber() }
+
+    private val isTv: Boolean by lazy {
+        (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,9 +116,14 @@ class PlayerActivity : ComponentActivity() {
         req = r
         AppLog.i("Player", "Open ${if (r.live) "live" else r.items[r.index].kind}: ${r.items[r.index].title} (${r.items.size} in queue)")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        frameRate = FrameRateMatcher(this)
         buildPlayer()
         buildViews()
         if (req.live) playLive(req.index) else startVod()
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = onBack()
+        })
 
         lifecycleScope.launch {
             while (isActive) {
@@ -91,7 +144,7 @@ class PlayerActivity : ComponentActivity() {
         )
         val mediaSources = DefaultMediaSourceFactory(dataSource, extractors)
         // ON = use FFmpeg only when the device can't decode a format itself (keeps AC3 passthrough).
-        val renderers = DefaultRenderersFactory(this)
+        val renderers = RelayRenderersFactory(this, s.audioDelayMs)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             .setEnableDecoderFallback(true)
         val selector = DefaultTrackSelector(this).apply {
@@ -104,10 +157,12 @@ class PlayerActivity : ComponentActivity() {
         val load = DefaultLoadControl.Builder()
             .setBufferDurationsMs(15_000, 60_000, 2_000, 4_000)
             .build()
+        bandwidth = DefaultBandwidthMeter.getSingletonInstance(this)
         player = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(mediaSources)
             .setTrackSelector(selector)
             .setLoadControl(load)
+            .setBandwidthMeter(bandwidth)
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(30_000)
             .setAudioAttributes(
@@ -119,6 +174,7 @@ class PlayerActivity : ComponentActivity() {
             )
             .build()
         player.addListener(listener)
+        if (s.audioDelayMs != 0) AppLog.i("Player", "Lip-sync offset ${s.audioDelayMs} ms")
     }
 
     private fun buildViews() {
@@ -135,6 +191,8 @@ class PlayerActivity : ComponentActivity() {
             keepScreenOn = true
             setBackgroundColor(Color.BLACK)
         }
+        applySubtitleStyle()
+
         overlay = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 20f
@@ -142,6 +200,51 @@ class PlayerActivity : ComponentActivity() {
             setBackgroundColor(0xDD0B1220.toInt())
             visibility = View.GONE
         }
+        infoView = TextView(this).apply {
+            setTextColor(0xFFE8EEF7.toInt())
+            textSize = 14f
+            typeface = Typeface.MONOSPACE
+            setPadding(28, 14, 28, 14)
+            setBackgroundColor(0xC0000000.toInt())
+            visibility = View.GONE
+        }
+        channelsView = ComposeView(this).apply {
+            visibility = View.GONE
+            setContent {
+                RelayTheme {
+                    if (channelOverlayOpen) {
+                        ChannelOverlay(
+                            items = req.items,
+                            current = liveIndex,
+                            onPick = { i ->
+                                closeChannelOverlay()
+                                switchLive(i)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        channelsButton = TextView(this).apply {
+            text = "☰  Channels"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(32, 18, 32, 18)
+            setBackgroundColor(0xCC1E2B45.toInt())
+            visibility = View.GONE
+            isFocusable = false
+            setOnClickListener {
+                view.hideController()
+                openChannelOverlay()
+            }
+        }
+        view.setControllerVisibilityListener(
+            PlayerView.ControllerVisibilityListener { visibility ->
+                channelsButton.visibility = if (req.live && visibility == View.VISIBLE) View.VISIBLE else View.GONE
+            },
+        )
+
         val root = FrameLayout(this)
         root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(
@@ -152,8 +255,50 @@ class PlayerActivity : ComponentActivity() {
                 Gravity.TOP or Gravity.START,
             ).apply { setMargins(48, 40, 48, 0) },
         )
+        root.addView(
+            infoView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.START,
+            ).apply { setMargins(48, 0, 48, 48) },
+        )
+        root.addView(
+            channelsButton,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.END,
+            ).apply { setMargins(48, 40, 48, 0) },
+        )
+        root.addView(channelsView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
         view.requestFocus()
+    }
+
+    private fun applySubtitleStyle() {
+        val s = app.store.settings
+        val scale = when (s.subSize) {
+            0 -> 0.8f
+            2 -> 1.3f
+            3 -> 1.6f
+            else -> 1.0f
+        }
+        view.subtitleView?.apply {
+            setApplyEmbeddedStyles(false)
+            setApplyEmbeddedFontSizes(false)
+            setStyle(
+                CaptionStyleCompat(
+                    if (s.subYellow) 0xFFFFE14D.toInt() else Color.WHITE,
+                    if (s.subBox) 0x99000000.toInt() else Color.TRANSPARENT,
+                    Color.TRANSPARENT,
+                    if (s.subBox) CaptionStyleCompat.EDGE_TYPE_NONE else CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                    Color.BLACK,
+                    null,
+                ),
+            )
+            setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * scale)
+        }
     }
 
     // ---------- Loading ----------
@@ -176,12 +321,23 @@ class PlayerActivity : ComponentActivity() {
 
     private fun startVod() {
         val start = req.index.coerceIn(0, req.items.lastIndex)
+        applyTrackPrefs(req.items[start])
         player.setMediaItems(req.items.map { mediaItem(it, 0) }, start, req.items[start].resumeMs.coerceAtLeast(0))
         player.pauseAtEndOfMediaItems = !app.store.settings.autoNext
         player.prepare()
         player.playWhenReady = true
         lastItem = req.items[start]
+        infoPending = true
         showOverlay(label(req.items[start]))
+    }
+
+    /** Changes channel and remembers where we came from, for the Back flip. */
+    private fun switchLive(index: Int) {
+        val n = req.items.size
+        val target = ((index % n) + n) % n
+        if (target == liveIndex) return
+        previousLiveIndex = liveIndex
+        playLive(target)
     }
 
     private fun playLive(index: Int) {
@@ -193,6 +349,7 @@ class PlayerActivity : ComponentActivity() {
         player.setMediaItem(mediaItem(item, 0))
         player.prepare()
         player.playWhenReady = true
+        infoPending = true
         showOverlay(label(item))
         app.store.record(
             req.profileId,
@@ -219,6 +376,42 @@ class PlayerActivity : ComponentActivity() {
         else -> listOfNotNull(item.title, item.subtitle).joinToString("  ·  ")
     }
 
+    // ---------- Tracks remembered per series ----------
+
+    private fun applyTrackPrefs(item: PlayItem) {
+        val sid = item.seriesId ?: return
+        val pref = app.store.trackPref(sid) ?: return
+        val s = app.store.settings
+        applyingPrefs = true
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverrides()
+            .setPreferredAudioLanguage(pref.audio ?: s.audioLang.ifBlank { null })
+            .setPreferredTextLanguage(pref.text)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, pref.textOff)
+            .build()
+        applyingPrefs = false
+        AppLog.d("Player", "Series $sid tracks: audio=${pref.audio} subs=${if (pref.textOff) "off" else pref.text}")
+    }
+
+    private fun rememberTracks(tracks: Tracks) {
+        val sid = currentItem()?.seriesId ?: return
+        var audio: String? = null
+        var text: String? = null
+        for (g in tracks.groups) {
+            if (!g.isSelected) continue
+            for (i in 0 until g.length) {
+                if (!g.isTrackSelected(i)) continue
+                val f = g.getTrackFormat(i)
+                when (g.type) {
+                    C.TRACK_TYPE_AUDIO -> if (audio == null) audio = f.language
+                    C.TRACK_TYPE_TEXT -> if (text == null) text = f.language ?: "und"
+                }
+            }
+        }
+        app.store.setTrackPref(sid, TrackPref(audio = audio, text = text, textOff = text == null))
+        AppLog.i("Player", "Remembered for series $sid: audio=$audio subs=${text ?: "off"}")
+    }
+
     // ---------- Events ----------
 
     private val listener = object : Player.Listener {
@@ -232,6 +425,7 @@ class PlayerActivity : ComponentActivity() {
             }
             lastItem = currentItem()
             lastDuration = 0
+            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) infoPending = true
             currentItem()?.let { showOverlay(label(it)) }
         }
 
@@ -241,6 +435,7 @@ class PlayerActivity : ComponentActivity() {
                 AppLog.d("Player", "Ready: ${currentItem()?.title} via ${hostOf(currentItem()?.let { urlsFor(it).getOrNull(hostAttempt) })}")
                 liveRetries = 0
                 if (player.duration != C.TIME_UNSET) lastDuration = player.duration
+                onReady()
             }
             if (state == Player.STATE_ENDED) {
                 if (req.live) {
@@ -248,6 +443,37 @@ class PlayerActivity : ComponentActivity() {
                 } else {
                     saveProgress(finished = true)
                     finish()
+                }
+            }
+        }
+
+        override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
+            if (!applyingPrefs) userChangedTracks = true
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            if (userChangedTracks) {
+                userChangedTracks = false
+                rememberTracks(tracks)
+            }
+        }
+    }
+
+    /** First READY of each item: match the refresh rate and flash the stream info. */
+    private fun onReady() {
+        val video = player.videoFormat
+        if (app.store.settings.matchFrameRate && isTv) {
+            video?.frameRate?.let { frameRate.match(it) }
+        }
+        if (infoPending) {
+            infoPending = false
+            if (app.store.settings.showStreamInfo) {
+                val text = StreamInfo.describe(video, player.audioFormat, bandwidth.bitrateEstimate)
+                if (text.isNotBlank()) {
+                    infoView.text = text
+                    infoView.visibility = View.VISIBLE
+                    handler.removeCallbacks(hideInfo)
+                    handler.postDelayed(hideInfo, 5_000)
                 }
             }
         }
@@ -284,15 +510,120 @@ class PlayerActivity : ComponentActivity() {
         showOverlay("Can't play this stream (${e.errorCodeName})", 8_000)
     }
 
+    // ---------- Back ----------
+
+    private fun onBack() {
+        if (channelOverlayOpen) {
+            closeChannelOverlay()
+            return
+        }
+        if (view.isControllerFullyVisible) {
+            view.hideController()
+            return
+        }
+        val now = SystemClock.uptimeMillis()
+        if (now - lastBackAt < BACK_WINDOW_MS) {
+            saveProgress(finished = false)
+            finish()
+            return
+        }
+        lastBackAt = now
+        val prev = previousLiveIndex
+        if (req.live && prev != null) {
+            // Live: Back flips to the previous channel; a quick second Back exits.
+            switchLive(prev)
+            showOverlay("${label(req.items[liveIndex])}\nPress Back again to exit", BACK_WINDOW_MS)
+        } else {
+            showOverlay("Press Back again to exit", BACK_WINDOW_MS)
+        }
+    }
+
+    // ---------- Channel list overlay ----------
+
+    private fun openChannelOverlay() {
+        channelOverlayOpen = true
+        channelsView.visibility = View.VISIBLE
+        channelsView.requestFocus()
+    }
+
+    private fun closeChannelOverlay() {
+        channelOverlayOpen = false
+        channelsView.visibility = View.GONE
+        view.requestFocus()
+    }
+
+    // ---------- Number keys ----------
+
+    private fun digitPressed(d: Int) {
+        if (digits.length >= 5) digits.clear()
+        digits.append(d)
+        showOverlay("Channel  $digits", 1_800)
+        handler.removeCallbacks(applyDigits)
+        handler.postDelayed(applyDigits, 1_500)
+    }
+
+    /** Finds the number in the current list first, then across all channels. */
+    private fun jumpToNumber() {
+        val num = digits.toString().toIntOrNull()
+        digits.clear()
+        if (num == null) return
+        val inList = req.items.indexOfFirst { it.subtitle == num.toString() }
+        if (inList >= 0) {
+            switchLive(inList)
+            return
+        }
+        val ch = app.catalog.channels.firstOrNull { it.num == num }
+        if (ch == null) {
+            showOverlay("No channel $num")
+            return
+        }
+        // Switch to that channel's category so Up/Down keep making sense.
+        val list = app.catalog.channelsByCat[ch.categoryId].orEmpty().ifEmpty { listOf(ch) }
+        val ext = app.store.settings.liveExt
+        val items = list.map {
+            PlayItem(
+                key = "live:${it.id}", kind = "live", title = it.name,
+                subtitle = it.num.takeIf { n -> n > 0 }?.toString(), image = it.logo,
+                streamId = it.id.toString(), ext = ext,
+            )
+        }
+        val prevItem = req.items.getOrNull(liveIndex)
+        req = req.copy(items = items, index = items.indexOfFirst { it.streamId == ch.id.toString() }.coerceAtLeast(0))
+        // Keep the flip-back target valid in the new list when possible.
+        previousLiveIndex = prevItem?.let { p -> items.indexOfFirst { it.key == p.key }.takeIf { i -> i >= 0 } }
+        playLive(req.index)
+    }
+
+    // ---------- Keys ----------
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (channelOverlayOpen) {
+            // The overlay handles navigation; Back is routed through onBack().
+            return super.dispatchKeyEvent(event)
+        }
         if (event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible) {
             if (req.live) {
-                when (event.keyCode) {
+                val code = event.keyCode
+                if (code in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9) {
+                    digitPressed(code - KeyEvent.KEYCODE_0)
+                    return true
+                }
+                when (code) {
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                        playLive(liveIndex - 1); return true
+                        switchLive(liveIndex - 1); return true
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_UP -> {
-                        playLive(liveIndex + 1); return true
+                        switchLive(liveIndex + 1); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                        openChannelOverlay(); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MENU -> {
+                        // Live controls (audio and subtitle tracks) live under the controller.
+                        view.showController(); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        openChannelOverlay(); return true
                     }
                 }
             } else {
@@ -307,6 +638,45 @@ class PlayerActivity : ComponentActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    // ---------- Picture-in-picture (phones) ----------
+
+    private val pipSupported: Boolean
+        get() = Build.VERSION.SDK_INT >= 26 && !isTv &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    private fun pipParams(): PictureInPictureParams? {
+        if (Build.VERSION.SDK_INT < 26) return null
+        val size = player.videoSize
+        val ratio = if (size.width > 0 && size.height > 0) Rational(size.width, size.height) else Rational(16, 9)
+        // Android only accepts ratios between 1:2.39 and 2.39:1.
+        val safe = if (ratio.toFloat() > 2.39f) Rational(239, 100) else if (ratio.toFloat() < 0.42f) Rational(100, 239) else ratio
+        val b = PictureInPictureParams.Builder().setAspectRatio(safe)
+        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(player.isPlaying)
+        return b.build()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Android 12+ enters automatically via setAutoEnterEnabled; older phones need this call.
+        if (pipSupported && Build.VERSION.SDK_INT in 26..30 && player.isPlaying) {
+            pipParams()?.let { enterPictureInPictureMode(it) }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        view.useController = !isInPictureInPictureMode
+        if (isInPictureInPictureMode) {
+            overlay.visibility = View.GONE
+            infoView.visibility = View.GONE
+            if (channelOverlayOpen) closeChannelOverlay()
+        }
+    }
+
+    private fun refreshPipParams() {
+        if (pipSupported && Build.VERSION.SDK_INT >= 31) pipParams()?.let { setPictureInPictureParams(it) }
     }
 
     // ---------- Progress ----------
@@ -340,6 +710,11 @@ class PlayerActivity : ComponentActivity() {
         handler.postDelayed(hideOverlay, ms)
     }
 
+    override fun onResume() {
+        super.onResume()
+        refreshPipParams()
+    }
+
     override fun onStart() {
         super.onStart()
         if (::player.isInitialized) player.play()
@@ -355,10 +730,15 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        if (::frameRate.isInitialized) frameRate.restore()
         if (::player.isInitialized) {
             player.removeListener(listener)
             player.release()
         }
         super.onDestroy()
+    }
+
+    companion object {
+        private const val BACK_WINDOW_MS = 2_500L
     }
 }

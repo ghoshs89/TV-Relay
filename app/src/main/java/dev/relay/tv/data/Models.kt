@@ -75,6 +75,39 @@ data class Settings(
     val hideAdult: Boolean = false,
     val userAgent: String = "RelayTV/1.0",
     val logUntil: Long = 0L,
+    // Batch 1
+    val matchFrameRate: Boolean = false,
+    val showStreamInfo: Boolean = true,
+    val audioDelayMs: Int = 0,
+    val subSize: Int = 1, // 0 small, 1 medium, 2 large, 3 extra large
+    val subYellow: Boolean = false,
+    val subBox: Boolean = true,
+    val neutralTheme: Boolean = false,
+    val startOnLastChannel: Boolean = false,
+    val xmltvUrl: String = "",
+    val epgOffsetMin: Int = 0,
+)
+
+/** Audio and subtitle choice remembered per series. */
+@Serializable
+data class TrackPref(
+    val audio: String? = null,
+    val text: String? = null,
+    val textOff: Boolean = false,
+)
+
+@Serializable
+data class ChannelGroup(
+    val id: String,
+    val name: String,
+    val channelIds: List<Int> = emptyList(),
+)
+
+/** Device-wide channel customisation: renames and the user's own ordered groups. */
+@Serializable
+data class ChannelCustom(
+    val renames: Map<Int, String> = emptyMap(),
+    val groups: List<ChannelGroup> = emptyList(),
 )
 
 // ---------- Domain ----------
@@ -156,9 +189,12 @@ data class SeriesInfo(
 data class EpgEntry(
     val title: String,
     val description: String,
-    val start: Long, // epoch seconds
+    val start: Long, // epoch seconds, as displayed (after any guide offset)
     val end: Long,
     val hasArchive: Boolean,
+    // Provider's original times; catch-up URLs must use these, not the displayed ones.
+    val rawStart: Long = start,
+    val rawEnd: Long = end,
 )
 
 data class AccountInfo(

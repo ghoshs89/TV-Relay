@@ -41,6 +41,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.relay.tv.RelayApp
+import dev.relay.tv.companion.Accounts
+import dev.relay.tv.companion.CompanionPanel
+import dev.relay.tv.companion.rememberCompanion
 import dev.relay.tv.data.Account
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Profile
@@ -100,27 +103,36 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
         scope.launch {
             busy = true
             err = null
-            val prevAcc = app.api.account
-            val prevHost = app.api.host
-            app.api.account = acc
-            app.api.host = null
-            try {
-                app.api.authenticate()
-                AppLog.i("Login", "Signed in via ${app.api.host} (${acc.hosts.size} server(s) saved)")
-                val changed = prevAcc?.username != acc.username || prevAcc?.hosts != acc.hosts
-                app.store.account = acc
-                app.store.activeHost = app.api.host
-                if (changed) app.catalog.clear()
+            val e = Accounts.signIn(acc)
+            busy = false
+            if (e == null) {
                 onDone()
-            } catch (e: Exception) {
-                AppLog.w("Login", "Sign-in failed", e)
-                app.api.account = prevAcc
-                app.api.host = prevHost
-                err = e.message ?: "Couldn't reach any of the servers."
-            } finally {
-                busy = false
+            } else {
+                err = e
             }
         }
+    }
+
+    // Phone companion: details sent from a phone fill the form, then sign in.
+    var wide by remember { mutableStateOf(false) }
+    val companionUrl = if (wide) {
+        rememberCompanion { form ->
+            val acc = Accounts.fromForm(form, name.ifBlank { "My IPTV" })
+            if (acc == null) {
+                err = "Your phone sent incomplete details: server, username and password are needed."
+                note = null
+            } else {
+                name = acc.name
+                host = acc.hosts.first()
+                backups = acc.hosts.drop(1).joinToString(", ")
+                user = acc.username
+                pass = acc.password
+                note = "Received from your phone."
+                submit()
+            }
+        }
+    } else {
+        null
     }
 
     val intro: @Composable () -> Unit = {
@@ -160,7 +172,9 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
-        if (maxWidth < 760.dp) {
+        val isWide = maxWidth >= 760.dp
+        LaunchedEffect(isWide) { wide = isWide }
+        if (!isWide) {
             // Phones and narrow windows: one scrolling column so the keyboard never hides a field.
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 28.dp),
@@ -179,6 +193,12 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
                     intro()
                     Spacer(Modifier.height(20.dp))
                     help()
+                    Spacer(Modifier.height(24.dp))
+                    CompanionPanel(
+                        companionUrl,
+                        "Or sign in from your phone",
+                        "Scan the code on the same Wi-Fi and paste your provider's message there.",
+                    )
                 }
                 Column(Modifier.weight(0.58f).fillMaxHeight().verticalScroll(rememberScrollState())) {
                     form()

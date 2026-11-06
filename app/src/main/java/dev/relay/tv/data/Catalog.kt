@@ -56,6 +56,14 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     var epgVersion by mutableIntStateOf(0); private set
 
     private val epgCache = ConcurrentHashMap<Int, Pair<Long, List<EpgEntry>>>()
+
+    /** Channels exactly as the provider sent them; [channels] has the user's renames applied. */
+    private var rawChannels: List<Channel> = emptyList()
+
+    /** Wired by the app: user customisation, current settings and the optional external guide. */
+    var custom: () -> ChannelCustom = { ChannelCustom() }
+    var settings: () -> Settings = { Settings() }
+    var guide: XmltvGuide? = null
     private val mutex = Mutex()
     private val dir: File get() = File(ctx.filesDir, "catalog").also { it.mkdirs() }
 
@@ -105,7 +113,24 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             } finally {
                 loading = false
             }
+            refreshGuideIfNeeded(force = false)
             Unit
+        }
+    }
+
+    suspend fun refreshGuideIfNeeded(force: Boolean) {
+        val g = guide ?: return
+        val url = settings().xmltvUrl.trim()
+        if (url.isEmpty() || channels.isEmpty()) return
+        try {
+            if (force || g.needsRefresh(url)) {
+                g.refresh(url, channels)
+                clearGuideCache()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.e("Epg", "External guide refresh failed", e)
         }
     }
 
@@ -116,6 +141,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         moviesByAdded = emptyList(); moviesByRating = emptyList()
         seriesByAdded = emptyList(); seriesByRating = emptyList()
         adultCats = emptySet()
+        rawChannels = emptyList()
         channelById = emptyMap(); movieById = emptyMap(); seriesById = emptyMap()
         epgCache.clear()
         error = null
@@ -127,7 +153,6 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val ch: List<Channel>, val mv: List<Movie>, val sr: List<Series>,
         val mvAdded: List<Movie>, val mvRated: List<Movie>,
         val srAdded: List<Series>, val srRated: List<Series>,
-        val chByCat: Map<String, List<Channel>>,
         val mvByCat: Map<String, List<Movie>>,
         val srByCat: Map<String, List<Series>>,
     )
@@ -186,22 +211,33 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                 mvRated = mv.filter { it.rating > 0 }.sortedByDescending { it.rating },
                 srAdded = sr.sortedByDescending { it.added },
                 srRated = sr.filter { it.rating > 0 }.sortedByDescending { it.rating },
-                chByCat = ch.groupBy { it.categoryId },
                 mvByCat = mv.groupBy { it.categoryId },
                 srByCat = sr.groupBy { it.categoryId },
             )
         }
-        channelById = p.ch.associateBy { it.id }
         movieById = p.mv.associateBy { it.id }
         seriesById = p.sr.associateBy { it.id }
         adultCats = (p.lc + p.vc + p.sc).filter { it.adult }.map { it.id }.toSet()
         liveCats = p.lc; vodCats = p.vc; seriesCats = p.sc
-        channels = p.ch; movies = p.mv; series = p.sr
-        channelsByCat = p.chByCat; moviesByCat = p.mvByCat; seriesByCat = p.srByCat
+        movies = p.mv; series = p.sr
+        moviesByCat = p.mvByCat; seriesByCat = p.srByCat
+        rawChannels = p.ch
+        applyCustom()
         moviesByAdded = p.mvAdded; moviesByRating = p.mvRated
         seriesByAdded = p.srAdded; seriesByRating = p.srRated
         updatedAt = file("get_live_streams").lastModified()
     }
+
+    /** Re-applies channel renames after the user edits them. */
+    fun applyCustom() {
+        val renames = custom().renames
+        val ch = if (renames.isEmpty()) rawChannels else rawChannels.map { c -> renames[c.id]?.let { c.copy(name = it) } ?: c }
+        channels = ch
+        channelById = ch.associateBy { it.id }
+        channelsByCat = ch.groupBy { it.categoryId }
+    }
+
+    fun groupChannels(g: ChannelGroup): List<Channel> = g.channelIds.mapNotNull { channelById[it] }
 
     private fun parseCats(f: File): List<Category> =
         parseList(f, CategoryDto.serializer()) { d ->
@@ -230,7 +266,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     suspend fun shortEpg(id: Int): List<EpgEntry> {
         val now = System.currentTimeMillis()
         epgCache[id]?.let { if (now - it.first < 10 * 60_000L) return it.second }
-        val list = try {
+        val provider = try {
             api.epg(id, full = false, limit = 10)
         } catch (e: CancellationException) {
             throw e
@@ -238,17 +274,33 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             AppLog.w("Epg", "Guide unavailable for stream $id", e)
             emptyList()
         }
+        val nowSec = now / 1000
+        val list = shift(provider).ifEmpty {
+            // Provider has nothing for this channel: fall back to the external XMLTV guide.
+            shift(guide?.entries(id).orEmpty()).filter { it.end > nowSec }.take(10)
+        }
         epgCache[id] = now to list
         epgVersion++
         return list
     }
 
     suspend fun archive(id: Int): List<EpgEntry> = try {
-        api.epg(id, full = true)
+        shift(api.epg(id, full = true))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         emptyList()
+    }
+
+    /** Applies the guide time offset to displayed times; raw times stay for catch-up URLs. */
+    private fun shift(list: List<EpgEntry>): List<EpgEntry> {
+        val o = settings().epgOffsetMin * 60L
+        return if (o == 0L) list else list.map { it.copy(start = it.rawStart + o, end = it.rawEnd + o) }
+    }
+
+    fun clearGuideCache() {
+        epgCache.clear()
+        epgVersion++
     }
 
     fun nowPlaying(id: Int): String? {

@@ -14,6 +14,8 @@ import dev.relay.tv.data.PlayRequest
 import dev.relay.tv.data.Store
 import dev.relay.tv.data.Tmdb
 import dev.relay.tv.data.XtreamApi
+import dev.relay.tv.data.XmltvGuide
+import dev.relay.tv.ui.Palette
 import dev.relay.tv.ui.Session
 import dev.relay.tv.ui.UiState
 import kotlinx.coroutines.CoroutineScope
@@ -63,6 +65,10 @@ class RelayApp : Application(), ImageLoaderFactory {
             AppLog.i("Api", "Now using server $h")
         }
         catalog = Catalog(this, api)
+        catalog.custom = { store.channelCustom }
+        catalog.settings = { store.settings }
+        catalog.guide = XmltvGuide(this, http)
+        Palette.neutral = store.settings.neutralTheme
         tmdb = Tmdb(http)
     }
 

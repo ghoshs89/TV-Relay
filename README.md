@@ -75,13 +75,27 @@ If your provider gives you separate URLs for VPN and non-VPN use, put the ones t
 | Live player | Channel + / − | Next / previous channel |
 | Movie / episode player | Left / Right | Back 10 s / forward 30 s |
 | Any player | Center | Show controls (audio, subtitles, speed under the gear and CC icons) |
-| Live TV list | Right | Move to the channel panel: favourite, guide, catch-up |
+| Live player | OK or Left | Channel list over the video (phones: tap, then "Channels") |
+| Live player | 0 to 9 | Type a channel number |
+| Live player | Back | Previous channel; press twice quickly to exit |
+| Live player | Right or Menu | Player controls (audio and subtitle tracks) |
+| Movie / episode player | Back | Hide controls; otherwise press twice quickly to exit (position is saved) |
+| Live TV list | Right | Move to the channel panel: favourite, guide, catch-up, options (rename, groups) |
 
 ## Troubleshooting logs
 
 Settings → Diagnostics. Recent activity is always kept in memory (500 lines, no disk). **Save detailed logs** also writes to disk for 24 hours, then turns itself off. Disk use is capped at about 1 MB (two rotating 512 KB files plus one crash report). Usernames, passwords and tokens are removed from every line.
 
 **Share logs** opens the share sheet on phones. On a TV, pull the folder shown in Settings with `adb pull /sdcard/Android/data/dev.relay.tv/files/logs/`.
+
+## Other features
+
+- **Phone companion** (Settings → Backup & phone, and on the TV sign-in screen): scan the QR code with a phone on the same Wi-Fi to sign in, download a backup, or restore one. The page only exists while that screen is open and its address contains a random code.
+- **Backup and restore**: profiles, favourites, history, channel groups and settings, without your login. Phones can also save to a file.
+- **Refresh-rate matching** (TVs): switches the TV to match the video's frame rate; the screen may blank briefly when it changes.
+- **Stream info**: resolution, HDR, codecs, frame rate and network speed for 5 seconds when playback starts.
+- **Per-series audio and subtitles**: the language you pick in a series is reused for its other episodes.
+- **Lip-sync adjustment**, **subtitle style**, **start on last channel**, **neutral black theme**, **channel groups and renames**, **external XMLTV guide** and **guide time offset** are in Settings.
 
 ## Optional: TMDB
 

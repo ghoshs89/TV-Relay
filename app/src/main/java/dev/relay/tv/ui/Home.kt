@@ -41,6 +41,10 @@ import dev.relay.tv.player.Playback
 import dev.relay.tv.update.UpdateState
 import dev.relay.tv.update.Updater
 import kotlinx.coroutines.delay
+import dev.relay.tv.data.AppLog
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -71,6 +75,41 @@ fun HomeScreen() {
         }
     }
     if (Updater.dialogOpen) UpdateDialog()
+
+    // Expiry warning: only within 7 days of the end date, only for 5 s after the app starts.
+    var expiryNote by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        if (app.session.expiryChecked) return@LaunchedEffect
+        app.session.expiryChecked = true
+        val exp = runCatching { app.api.authenticate() }.getOrNull()?.expires ?: return@LaunchedEffect
+        val msLeft = exp * 1000 - System.currentTimeMillis()
+        if (msLeft > 7 * 86_400_000L) return@LaunchedEffect
+        val days = (msLeft / 86_400_000L).toInt()
+        val date = SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(exp * 1000))
+        expiryNote = when {
+            msLeft <= 0 -> "Your IPTV subscription has expired ($date)"
+            days == 0 -> "Your IPTV subscription expires today ($date)"
+            else -> "Your IPTV subscription expires in $days day${if (days == 1) "" else "s"} ($date)"
+        }
+        AppLog.i("App", expiryNote ?: "")
+        delay(5_000)
+        expiryNote = null
+    }
+
+    // Optional: go straight to the last live channel when the app starts.
+    val ctx = LocalContext.current
+    LaunchedEffect(Unit) {
+        if (app.session.autoStartDone) return@LaunchedEffect
+        app.session.autoStartDone = true
+        if (!app.store.settings.startOnLastChannel) return@LaunchedEffect
+        val last = app.store.history(app.session.profileId).firstOrNull { it.kind == "live" } ?: return@LaunchedEffect
+        val id = last.streamId.toIntOrNull() ?: return@LaunchedEffect
+        withTimeoutOrNull(30_000) { snapshotFlow { catalog.channels.isNotEmpty() }.first { it } }
+        val ch = catalog.channelById[id] ?: return@LaunchedEffect
+        val list = catalog.channelsByCat[ch.categoryId].orEmpty().ifEmpty { listOf(ch) }
+        AppLog.i("App", "Starting on last channel ${ch.name}")
+        Playback.live(ctx, list, list.indexOfFirst { it.id == id }.coerceAtLeast(0))
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -118,6 +157,17 @@ fun HomeScreen() {
                     Text("Loading your channels and library…", color = Palette.dim)
                     Text("Large playlists can take a minute the first time.", color = Palette.dim, fontSize = 13.sp)
                 }
+            }
+            expiryNote?.let { note ->
+                Text(
+                    note,
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                        .background(Color(0xF0B8462E), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 22.dp, vertical = 12.dp),
+                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                )
             }
             catalog.error?.let { msg ->
                 Text(

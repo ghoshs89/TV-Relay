@@ -1,5 +1,10 @@
 package dev.relay.tv.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.focus.FocusRequester
+import dev.relay.tv.companion.CompanionDialog
+import dev.relay.tv.data.ChannelGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -154,7 +159,7 @@ fun SearchTab() {
 
 // ---------------- Settings ----------------
 
-private enum class Edit { TMDB, AUDIO, SUBS, UA }
+private enum class Edit { TMDB, AUDIO, SUBS, UA, XMLTV }
 
 @Composable
 fun SettingsTab() {
@@ -177,7 +182,39 @@ fun SettingsTab() {
     var tmdbStatus by remember { mutableStateOf<String?>(null) }
     var viewingLog by remember { mutableStateOf(false) }
     var logNote by remember { mutableStateOf<String?>(null) }
+    var backupNote by remember { mutableStateOf<String?>(null) }
+    var companion by remember { mutableStateOf(false) }
+    var lipSync by remember { mutableStateOf(false) }
+    var offsetDialog by remember { mutableStateOf(false) }
+    var managingGroup by remember { mutableStateOf<ChannelGroup?>(null) }
     val ctx = LocalContext.current
+    val guide = app.catalog.guide
+    val newGroupPrompt = remember { mutableStateOf(false) }
+
+    // Phones: back up to / restore from a file through Android's file picker.
+    val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        backupNote = try {
+            ctx.contentResolver.openOutputStream(uri)?.use { it.write(store.exportJson().toByteArray()) }
+            AppLog.i("Backup", "Saved backup file")
+            "Backup saved."
+        } catch (e: Exception) {
+            "Couldn't save the backup: ${e.message}"
+        }
+    }
+    val openDoc = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        backupNote = try {
+            val text = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+            val n = store.importJson(text)
+            app.catalog.applyCustom()
+            Palette.neutral = store.settings.neutralTheme
+            AppLog.i("Backup", "Restored $n entries from file")
+            "Restored $n settings."
+        } catch (e: Exception) {
+            "Couldn't restore: ${e.message}"
+        }
+    }
 
     LaunchedEffect(Unit) {
         try {
@@ -249,6 +286,98 @@ fun SettingsTab() {
         item { Setting("Preferred audio language", s.audioLang.ifBlank { "Device default" }, false) { edit = Edit.AUDIO } }
         item { Setting("Preferred subtitle language", s.subtitleLang.ifBlank { "Off" }, false) { edit = Edit.SUBS } }
         item { Setting("Player user agent", s.userAgent, kidsLocked) { edit = Edit.UA } }
+        item {
+            Setting("Match TV refresh rate to video", if (s.matchFrameRate) "On (TVs only)" else "Off", false) {
+                store.settings = s.copy(matchFrameRate = !s.matchFrameRate)
+            }
+        }
+        item {
+            Setting("Show stream info when playback starts", if (s.showStreamInfo) "On, 5 seconds" else "Off", false) {
+                store.settings = s.copy(showStreamInfo = !s.showStreamInfo)
+            }
+        }
+        item { Setting("Lip-sync adjustment", lipSyncLabel(s.audioDelayMs), false) { lipSync = true } }
+        item {
+            Setting("Start on last channel", if (s.startOnLastChannel) "On" else "Off", false) {
+                store.settings = s.copy(startOnLastChannel = !s.startOnLastChannel)
+            }
+        }
+
+        item { Section("Subtitles") }
+        item {
+            Setting("Size", SUB_SIZES[s.subSize.coerceIn(0, 3)], false) {
+                store.settings = s.copy(subSize = (s.subSize + 1) % 4)
+            }
+        }
+        item {
+            Setting("Colour", if (s.subYellow) "Yellow" else "White", false) {
+                store.settings = s.copy(subYellow = !s.subYellow)
+            }
+        }
+        item {
+            Setting("Background", if (s.subBox) "Dark box" else "Outline only", false) {
+                store.settings = s.copy(subBox = !s.subBox)
+            }
+        }
+
+        item { Section("Appearance") }
+        item {
+            Setting("Theme", if (s.neutralTheme) "Neutral black" else "Navy", false) {
+                val next = !s.neutralTheme
+                store.settings = s.copy(neutralTheme = next)
+                Palette.neutral = next
+            }
+        }
+
+        item { Section("Channels & guide") }
+        item {
+            Setting("Create a channel group", "${store.channelCustom.groups.size} group(s)", kidsLocked) {
+                edit = null
+                newGroupPrompt.value = true
+            }
+        }
+        store.channelCustom.groups.forEach { g ->
+            item { Setting("Group: ${g.name}", "${g.channelIds.size} channels", kidsLocked) { managingGroup = g } }
+        }
+        item {
+            Setting(
+                "External guide (XMLTV) URL",
+                if (s.xmltvUrl.isBlank()) "Not set (optional)" else (guide?.status ?: "Set"),
+                kidsLocked,
+            ) { edit = Edit.XMLTV }
+        }
+        if (s.xmltvUrl.isNotBlank()) {
+            item {
+                Setting("Refresh external guide", "", false) {
+                    app.appScope.launch { app.catalog.refreshGuideIfNeeded(force = true) }
+                }
+            }
+        }
+        item { Setting("Guide time offset", offsetLabel(s.epgOffsetMin), false) { offsetDialog = true } }
+
+        item { Section("Backup & phone") }
+        item {
+            Setting("Phone companion", "Sign in, back up or restore from your phone", kidsLocked) { companion = true }
+        }
+        item {
+            Setting("Back up to a file", "Not including your login", false) {
+                try {
+                    createDoc.launch("relay-backup.json")
+                } catch (e: Exception) {
+                    backupNote = "No file picker on this device. Use Phone companion instead."
+                }
+            }
+        }
+        item {
+            Setting("Restore from a file", "", kidsLocked) {
+                try {
+                    openDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                } catch (e: Exception) {
+                    backupNote = "No file picker on this device. Use Phone companion instead."
+                }
+            }
+        }
+        backupNote?.let { n -> item { Info("", n) } }
 
         item { Section("Library") }
         item {
@@ -330,7 +459,71 @@ fun SettingsTab() {
         item { Setting("Sign out and remove playlist", "", kidsLocked, danger = true) { confirmSignOut = true } }
     }
 
+    if (companion) {
+        CompanionDialog(
+            onDismiss = { companion = false },
+            onSignedIn = { app.appScope.launch { app.catalog.load() } },
+        )
+    }
+    if (lipSync) {
+        StepperDialog(
+            title = "Lip-sync adjustment",
+            value = lipSyncLabel(s.audioDelayMs),
+            hint = "If speech comes after lips move (common with soundbars), increase. If it comes before, decrease. " +
+                "Applies from the next video you start.",
+            onMinus = { store.settings = store.settings.let { it.copy(audioDelayMs = (it.audioDelayMs - 25).coerceAtLeast(-500)) } },
+            onPlus = { store.settings = store.settings.let { it.copy(audioDelayMs = (it.audioDelayMs + 25).coerceAtMost(500)) } },
+            onReset = { store.settings = store.settings.copy(audioDelayMs = 0) },
+            onDismiss = { lipSync = false },
+        )
+    }
+    if (offsetDialog) {
+        StepperDialog(
+            title = "Guide time offset",
+            value = offsetLabel(s.epgOffsetMin),
+            hint = "Shifts guide times if they're consistently early or late. Catch-up still uses the provider's times.",
+            onMinus = {
+                store.settings = store.settings.let { it.copy(epgOffsetMin = (it.epgOffsetMin - 30).coerceAtLeast(-720)) }
+                app.catalog.clearGuideCache()
+            },
+            onPlus = {
+                store.settings = store.settings.let { it.copy(epgOffsetMin = (it.epgOffsetMin + 30).coerceAtMost(720)) }
+                app.catalog.clearGuideCache()
+            },
+            onReset = {
+                store.settings = store.settings.copy(epgOffsetMin = 0)
+                app.catalog.clearGuideCache()
+            },
+            onDismiss = { offsetDialog = false },
+        )
+    }
+    managingGroup?.let { g -> GroupManageDialog(g, onDismiss = { managingGroup = null }) }
+    if (newGroupPrompt.value) {
+        TextEditDialog(
+            "New channel group", "", { newGroupPrompt.value = false },
+            onSave = {
+                if (it.isNotBlank()) ChannelEdits.createGroup(it, null)
+                newGroupPrompt.value = false
+            },
+            hint = "Then add channels from Live TV → a channel → Options.",
+        )
+    }
+
     when (edit) {
+        Edit.XMLTV -> TextEditDialog(
+            "External guide URL", s.xmltvUrl, { edit = null },
+            onSave = {
+                store.settings = s.copy(xmltvUrl = it.trim())
+                edit = null
+                if (it.isBlank()) {
+                    guide?.clear()
+                    app.catalog.clearGuideCache()
+                } else {
+                    app.appScope.launch { app.catalog.refreshGuideIfNeeded(force = true) }
+                }
+            },
+            hint = "An XMLTV link (.xml or .xml.gz). Used only for channels your provider has no guide for.",
+        )
         Edit.TMDB -> TextEditDialog(
             "TMDB API key", s.tmdbKey, { edit = null },
             onSave = { k ->
@@ -463,3 +656,45 @@ private fun ConfirmDialog(title: String, body: String, action: String, onDismiss
     }
 }
 
+
+private val SUB_SIZES = listOf("Small", "Medium", "Large", "Extra large")
+
+private fun lipSyncLabel(ms: Int): String = when {
+    ms == 0 -> "Off"
+    ms > 0 -> "+$ms ms (sound was late)"
+    else -> "$ms ms (sound was early)"
+}
+
+private fun offsetLabel(min: Int): String = when {
+    min == 0 -> "None"
+    else -> {
+        val sign = if (min > 0) "+" else "−"
+        val a = kotlin.math.abs(min)
+        "$sign${a / 60}h${if (a % 60 != 0) " ${a % 60}m" else ""}"
+    }
+}
+
+@Composable
+private fun StepperDialog(
+    title: String,
+    value: String,
+    hint: String,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val first = remember { FocusRequester() }
+    InitialFocus(first)
+    TvDialog(onDismiss) {
+        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text(hint, fontSize = 14.sp, color = Palette.dim)
+        Text(value, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.accent)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("−", onMinus, focusRequester = first)
+            PillButton("+", onPlus)
+            PillButton("Reset", onReset)
+            PillButton("Done", onDismiss, primary = true)
+        }
+    }
+}

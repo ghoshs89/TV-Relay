@@ -84,6 +84,53 @@ class Store(ctx: Context) {
         write("hist_$pid", history(pid).filterNot { it.key == key })
     }
 
+    // ---------- Per-series tracks ----------
+
+    fun trackPref(seriesId: Int): TrackPref? = read<TrackPref?>("trk_$seriesId", null)
+
+    fun setTrackPref(seriesId: Int, p: TrackPref) = write("trk_$seriesId", p)
+
+    // ---------- Channel customisation ----------
+
+    var channelCustom: ChannelCustom
+        get() = read("chcustom", ChannelCustom())
+        set(v) = write("chcustom", v)
+
+    // ---------- Backup ----------
+
+    /** Everything except the login, as one JSON document. */
+    fun exportJson(): String {
+        val map = prefs.all
+            .filterKeys { it != "account" && it != "active_host" }
+            .mapValues { (_, v) -> kotlinx.serialization.json.JsonPrimitive(v?.toString()) }
+        val root = kotlinx.serialization.json.buildJsonObject {
+            put("app", kotlinx.serialization.json.JsonPrimitive("relay"))
+            put("version", kotlinx.serialization.json.JsonPrimitive(1))
+            put("data", kotlinx.serialization.json.JsonObject(map))
+        }
+        return root.toString()
+    }
+
+    /** Restores a backup made by [exportJson]. Returns the number of entries restored. */
+    fun importJson(text: String): Int {
+        val root = Jsons.json.parseToJsonElement(text)
+        if (root.at("app").str() != "relay") throw IllegalArgumentException("Not a Relay backup file")
+        val data = root.at("data") as? kotlinx.serialization.json.JsonObject
+            ?: throw IllegalArgumentException("Backup has no data")
+        val edit = prefs.edit()
+        var n = 0
+        for ((k, v) in data) {
+            if (k == "account" || k == "active_host") continue
+            val value = v.str() ?: continue
+            edit.putString(k, value)
+            n++
+        }
+        edit.apply()
+        cache.clear()
+        version.intValue++
+        return n
+    }
+
     fun deleteProfile(pid: String) {
         profiles = profiles.filterNot { it.id == pid }
         write<List<FavItem>?>("fav_$pid", null)
