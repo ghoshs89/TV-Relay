@@ -17,6 +17,21 @@ In the repo on GitHub: **Settings → Secrets and variables → Actions → New 
 
 Then re-run the latest build. Without these secrets the build still works but uses a temporary key, so each new build would need the old one uninstalled first. Keep a copy of the `.jks` file and password somewhere safe; losing them means reinstalling the app once.
 
+## In-app updates (one time setup)
+
+Every build on `main` is published as a GitHub Release. Relay checks for a newer release when it opens and every 30 minutes while it's running, shows **Update ready** in the top bar, and installs it after one confirmation. You can also check from Settings → Check for app updates.
+
+Because the repo is private, the app needs a read-only token:
+
+1. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
+2. Name: `Relay updater`. Expiration: the longest offered. Repository access: **Only select repositories → TV-Relay**.
+3. Permissions → Repository permissions → **Contents: Read-only**. Nothing else.
+4. Generate, copy the token, and add it in this repo as the Actions secret **`RELAY_UPDATE_TOKEN`**.
+
+The build checks the token works before embedding it. The token can only read this repo, which contains no secrets. When it nears expiry, create a new one, replace the secret, and let one build install; if it has already expired, sideload that build once with adb.
+
+Android also needs Relay allowed to install apps, once per TV. Either run `adb shell appops set dev.relay.tv REQUEST_INSTALL_PACKAGES allow` after installing, or follow the prompt Relay shows the first time it updates (Settings → Apps → Security & restrictions → Unknown sources → Relay).
+
 ## Build
 
 Every push to `main` builds an APK in GitHub Actions.

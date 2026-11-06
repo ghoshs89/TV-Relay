@@ -32,6 +32,7 @@ import dev.relay.tv.data.Movie
 import dev.relay.tv.data.Profile
 import dev.relay.tv.data.Series
 import dev.relay.tv.player.Playback
+import dev.relay.tv.update.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -275,6 +276,12 @@ fun SettingsTab() {
 
         item { Section("About") }
         item { Info("Version", "Relay ${BuildConfig.VERSION_NAME}") }
+        item {
+            Setting("Check for app updates", updateStatusText(), false) {
+                Updater.dialogOpen = true
+                if (Updater.pending == null && !Updater.busy) scope.launch { Updater.check(app.http) }
+            }
+        }
         item { Setting("Sign out and remove playlist", "", kidsLocked, danger = true) { confirmSignOut = true } }
     }
 

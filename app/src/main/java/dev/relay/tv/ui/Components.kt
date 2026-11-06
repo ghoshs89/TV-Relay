@@ -34,6 +34,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -379,11 +380,13 @@ fun TvTextField(
 @Composable
 fun TvDialog(onDismiss: () -> Unit, width: Dp = 560.dp, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
+        CompositionLocalProvider(LocalFocusEnabled provides true) {
         Column(
             Modifier.width(width).background(Palette.surface, RoundedCornerShape(16.dp)).padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             content = content,
         )
+        }
     }
 }
 

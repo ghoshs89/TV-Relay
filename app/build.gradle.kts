@@ -33,6 +33,12 @@ android {
         targetSdk = 35
         versionCode = runNumber
         versionName = "1.0.$runNumber"
+
+        // In-app updates read releases from the private repo with a read-only token
+        // supplied by CI (secret RELAY_UPDATE_TOKEN). Empty token = updater disabled.
+        val updateToken = (System.getenv("RELAY_UPDATE_TOKEN") ?: "").trim()
+        buildConfigField("String", "UPDATE_TOKEN", "\"$updateToken\"")
+        buildConfigField("String", "UPDATE_REPO", "\"ghoshs89/TV-Relay\"")
     }
 
     signingConfigs {

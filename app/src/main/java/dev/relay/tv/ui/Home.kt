@@ -36,6 +36,8 @@ import dev.relay.tv.RelayApp
 import dev.relay.tv.data.Episode
 import dev.relay.tv.data.WatchEntry
 import dev.relay.tv.player.Playback
+import dev.relay.tv.update.UpdateState
+import dev.relay.tv.update.Updater
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -53,6 +55,20 @@ fun HomeScreen() {
 
     LaunchedEffect(Unit) { catalog.load() }
     InitialFocus(tabFocus)
+
+    // Poll GitHub for new builds while Relay is open; announce each new version once.
+    LaunchedEffect(Unit) {
+        while (true) {
+            Updater.check(app.http, quiet = true)
+            val s = Updater.state
+            if (s is UpdateState.Available && s.info.versionCode != Updater.announcedCode) {
+                Updater.announcedCode = s.info.versionCode
+                Updater.dialogOpen = true
+            }
+            delay(30 * 60_000L)
+        }
+    }
+    if (Updater.dialogOpen) UpdateDialog()
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -72,6 +88,10 @@ fun HomeScreen() {
             if (catalog.loading) {
                 CircularProgressIndicator(Modifier.size(18.dp), color = Palette.accent, strokeWidth = 2.dp)
                 Spacer(Modifier.width(10.dp))
+            }
+            if (Updater.pending != null) {
+                PillButton("Update ready", { Updater.dialogOpen = true }, key = "tab:update", primary = true)
+                Spacer(Modifier.width(16.dp))
             }
             app.session.profile?.let {
                 Text(it.name, color = Palette.dim, fontSize = 15.sp)
