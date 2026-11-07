@@ -130,6 +130,7 @@ app/src/main/java/dev/relay/tv/
   data/                Xtream client (host failover), catalog cache, local store, TMDB
   ui/                  Compose screens for TV: login, profiles, home, live, library, details, search, settings
   player/              Media3 player activity, playback requests
+tools/icon/            builds the launcher icon, themed icon and TV banner from one geometry
 ```
 
 Libraries: Jetpack Compose, Media3 ExoPlayer (+ Jellyfin's FFmpeg audio decoder for AC3/E-AC3/DTS), OkHttp, Coil, kotlinx.serialization. The FFmpeg decoder is GPL-3.0; this build is for personal use.

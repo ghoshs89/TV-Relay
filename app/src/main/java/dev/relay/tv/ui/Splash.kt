@@ -20,7 +20,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -61,26 +64,50 @@ fun SplashScreen(onDone: () -> Unit) {
     }
 }
 
-/** The app's signal mark: two arcs and a dot, drawn progressively. */
+/** Relay's mark (same as the launcher icon): a TV screen, a play button and an on-air dot, built up as [progress] goes from 0 to 1. */
 @Composable
 fun RelayMark(modifier: Modifier, progress: Float) {
     Canvas(modifier) {
-        val w = size.minDimension
-        val cx = size.width / 2
-        val cy = size.height * 0.64f
-        val stroke = w * 0.09f
-        listOf(Palette.accent2 to 0.46f, Palette.accent to 0.29f).forEach { (color, radius) ->
-            val r = w * radius
-            drawArc(
-                color = color,
-                startAngle = 200f,
-                sweepAngle = 140f * progress,
-                useCenter = false,
-                topLeft = Offset(cx - r, cy - r),
-                size = Size(r * 2, r * 2),
-                style = Stroke(width = stroke, cap = StrokeCap.Round),
-            )
+        // Drawn in the icon's 72-unit grid.
+        val u = size.minDimension / 72f
+        val ox = (size.width - 72f * u) / 2
+        val oy = (size.height - 72f * u) / 2
+        fun at(x: Float, y: Float) = Offset(ox + x * u, oy + y * u)
+
+        val frame = Palette.text.copy(alpha = (progress / 0.5f).coerceIn(0f, 1f))
+        drawRoundRect(
+            frame, topLeft = at(14f, 19f), size = Size(44f * u, 30f * u),
+            cornerRadius = CornerRadius(5f * u), style = Stroke(width = 4f * u),
+        )
+        drawRoundRect(frame, topLeft = at(28f, 52f), size = Size(16f * u, 3.5f * u), cornerRadius = CornerRadius(1.75f * u))
+
+        val play = ((progress - 0.25f) / 0.55f).coerceIn(0f, 1f)
+        if (play > 0f) {
+            // Grows from its centre while fading in.
+            val k = 0.6f + 0.4f * play
+            val cx = (31.5f + 44f + 31.5f) / 3
+            val cy = 34f
+            fun pt(x: Float, y: Float) = at(cx + (x - cx) * k, cy + (y - cy) * k)
+            val tri = Path().apply {
+                val a = pt(31.5f, 27.5f)
+                val b = pt(44f, 34f)
+                val c = pt(31.5f, 40.5f)
+                moveTo(a.x, a.y)
+                lineTo(b.x, b.y)
+                lineTo(c.x, c.y)
+                close()
+            }
+            val color = Palette.accent.copy(alpha = play)
+            drawPath(tri, color)
+            drawPath(tri, color, style = Stroke(width = 3f * u * k, join = StrokeJoin.Round))
         }
-        drawCircle(Palette.accent, radius = w * 0.075f * progress, center = Offset(cx, cy + w * 0.02f))
+
+        val dot = ((progress - 0.75f) / 0.25f).coerceIn(0f, 1f)
+        if (dot > 0f) {
+            drawCircle(Palette.bg, radius = 6.75f * u * dot, center = at(55f, 19f))
+            drawCircle(LiveRed, radius = 5.5f * u * dot, center = at(55f, 19f))
+        }
     }
 }
+
+private val LiveRed = Color(0xFFFF5A4E)
