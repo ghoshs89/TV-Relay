@@ -6,10 +6,11 @@ Nothing here is started until it's asked for. Newest additions at the top of eac
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | **Split the player code** (left over from batch 3) | `PlayerActivity.kt` is 1,324 lines and holds playback, live zapping, pause & rewind, failure handling and diagnosis, version fallback, kids time limits, the overlay and key handling. Split into focused parts (for example live channel switching, failure and recovery, kids limits, on-screen panels) with no change in behaviour, so each part can be tested on its own. The emulator check in the build guards against a broken split. |
-| 2 | Start over from the guide grid | Batch 6 added Start over to the channel panel only. The plan also had it on the current programme in the guide grid. |
-| 3 | README wording on repo visibility | The top note still says "Keep this repository private"; the repo is public. Either change the note or make the repo private again. |
-| 4 | Review the 57 non-critical lint warnings | None stop the build; worth a pass to clear the real ones. |
+| 1 | **Remove items from Continue watching on Home** | A way to drop a movie or episode you don't intend to finish (for example long-press or Menu on the card → Remove). Should also clear its saved position and its entry on the Google TV home screen. `Store.removeHistory` exists but nothing calls it yet. Possibly the same for Recently watched channels. |
+| 2 | **Split the player code** (left over from batch 3) | `PlayerActivity.kt` is 1,324 lines and holds playback, live zapping, pause & rewind, failure handling and diagnosis, version fallback, kids time limits, the overlay and key handling. Split into focused parts (for example live channel switching, failure and recovery, kids limits, on-screen panels) with no change in behaviour, so each part can be tested on its own. The emulator check in the build guards against a broken split. |
+| 3 | Start over from the guide grid | Batch 6 added Start over to the channel panel only. The plan also had it on the current programme in the guide grid. |
+| 4 | README wording on repo visibility | The top note still says "Keep this repository private"; the repo is public. Either change the note or make the repo private again. |
+| 5 | Review the 57 non-critical lint warnings | None stop the build; worth a pass to clear the real ones. |
 
 ## Check on a device
 
