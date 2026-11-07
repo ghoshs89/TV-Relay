@@ -182,6 +182,8 @@ for dpi, px in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 1
     render(icon_svg(px, "round"), RES / f"mipmap-{dpi}" / "ic_launcher_round.png", px)
 
 render(banner_svg, PREVIEW / "banner.png")
+# The README header uses the same banner.
+render(banner_svg, RES.resolve().parents[3] / "docs" / "banner.png")
 render(mono_svg, PREVIEW / "mono.png")
 for px in (24, 32, 48, 192):
     render(icon_svg(px, "square"), PREVIEW / f"icon_{px}.png", px)

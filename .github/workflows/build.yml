@@ -3,6 +3,11 @@ name: Build APK
 on:
   push:
     branches: [ main ]
+    # Changes to docs or tools alone don't build or publish a release.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'tools/**'
   workflow_dispatch:
 
 env:

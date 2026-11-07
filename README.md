@@ -1,136 +1,270 @@
-# Relay
+<p align="center">
+  <img src="docs/banner.png" alt="Relay" width="480">
+</p>
 
-A personal IPTV player for Google TV, Android TV and Fire TV. Xtream Codes login, live TV with guide and catch-up, movies, series, profiles, and optional TMDB artwork. No content is included; it plays the account you sign in with.
+<p align="center">
+  A personal IPTV player for Android TV, Google TV and Android phones.<br>
+  Live TV with a guide and catch-up, movies, series, and profiles for the whole family.
+</p>
 
-Keep this repository private. Your IPTV login is never stored in the repo; you enter it on each TV.
+<p align="center">
+  <a href="https://github.com/ghoshs89/TV-Relay/releases/latest"><b>Download the latest APK</b></a>
+  &nbsp;·&nbsp; <a href="#install">Install</a>
+  &nbsp;·&nbsp; <a href="#remote-controls">Remote</a>
+  &nbsp;·&nbsp; <a href="#settings-worth-knowing">Settings</a>
+  &nbsp;·&nbsp; <a href="#troubleshooting">Help</a>
+</p>
 
-## Signing key (one time setup)
+<p align="center">
+  <a href="https://github.com/ghoshs89/TV-Relay/actions/workflows/build.yml"><img src="https://github.com/ghoshs89/TV-Relay/actions/workflows/build.yml/badge.svg" alt="Build status"></a>
+</p>
 
-Android only installs an update over an existing app if both are signed with the same key. The key is kept in GitHub Secrets, never in the repo.
+> [!IMPORTANT]
+> Keep this repository **private**. It contains no logins or keys, but its Releases hold installable builds, and Relay's updater is set up for a private repo.
 
-In the repo on GitHub: **Settings → Secrets and variables → Actions → New repository secret**, and add:
+Relay signs in to an Xtream Codes account and plays what that account provides. No content comes with the app.
 
-| Name | Value |
-|---|---|
-| `RELAY_KEYSTORE_B64` | the base64 text of your `relay-release.jks` |
-| `RELAY_KEYSTORE_PASSWORD` | the keystore password |
+<table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/home.jpg"><img src="docs/screenshots/home.jpg" alt="Home: Continue watching with progress bars, then recently watched channels"></a><br><sub><b>Home</b> · pick up where you left off</sub></td>
+    <td width="50%"><a href="docs/screenshots/live-tv.jpg"><img src="docs/screenshots/live-tv.jpg" alt="Live TV: categories grouped by country, the channel list, and the toolbar with Guide grid, Sort, Find and Catch-up"></a><br><sub><b>Live TV</b> · categories by country, guide, sort and filters</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/series.jpg"><img src="docs/screenshots/series.jpg" alt="Series: provider categories on the left and posters on the right"></a><br><sub><b>Series</b> · your provider's categories and posters</sub></td>
+    <td width="50%"><a href="docs/screenshots/player.jpg"><img src="docs/screenshots/player.jpg" alt="The player showing a live 4K football match"></a><br><sub><b>Player</b> · live 4K, with pause and rewind</sub></td>
+  </tr>
+</table>
 
-Then re-run the latest build. Without these secrets the build still works but uses a temporary key, so each new build would need the old one uninstalled first. Keep a copy of the `.jks` file and password somewhere safe; losing them means reinstalling the app once.
+<sub>Screenshots from an Android phone. What you see in your lists depends on your provider.</sub>
 
-## In-app updates (one time setup)
+## Features
 
-Every build on `main` is published as a GitHub Release. Relay checks for a newer release when it opens and every 30 minutes while it's running, shows **Update ready** in the top bar, and installs it after one confirmation. You can also check from Settings → Check for app updates.
+<table>
+  <tr><td><b>Watch</b></td><td>Live TV with pause and rewind, catch-up, movies and series with resume, next episode, picture-in-picture on phones</td></tr>
+  <tr><td><b>Find</b></td><td>Timeline guide, categories grouped by country, filters, A–Z jump, search, favourites, channel groups and renames</td></tr>
+  <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, a parent PIN for anything that changes access</td></tr>
+  <tr><td><b>Reliability</b></td><td>Backup servers used automatically, stalled streams reconnect on their own, a library refresh that can't wipe your saved lists</td></tr>
+  <tr><td><b>Picture and sound</b></td><td>Refresh-rate matching, Dolby and DTS audio, lip-sync adjustment, subtitle style, stream info on start</td></tr>
+  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores, TMDB artwork, programme reminders, phone companion, backup and restore, in-app updates</td></tr>
+</table>
 
-Because the repo is private, the app needs a read-only token:
+## Install
 
-1. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
-2. Name: `Relay updater`. Expiration: the longest offered. Repository access: **Only select repositories → TV-Relay**.
-3. Permissions → Repository permissions → **Contents: Read-only**. Nothing else.
-4. Generate, copy the token, and add it in this repo as the Actions secret **`RELAY_UPDATE_TOKEN`**.
+1. Download `Relay-1.0.N.apk` from [Releases](https://github.com/ghoshs89/TV-Relay/releases/latest).
+2. Install it once by hand (below). After that, Relay updates itself: it checks when it opens and every 30 minutes, shows **Update ready** in the top bar, and installs after one confirmation.
 
-The build checks the token works before embedding it. The token can only read this repo, which contains no secrets. When it nears expiry, create a new one, replace the secret, and let one build install; if it has already expired, sideload that build once with adb.
+<details>
+<summary><b>On a TV, from a computer (adb)</b></summary>
 
-Android also needs Relay allowed to install apps, once per TV. Either run `adb shell appops set dev.relay.tv REQUEST_INSTALL_PACKAGES allow` after installing, or follow the prompt Relay shows the first time it updates (Settings → Apps → Security & restrictions → Unknown sources → Relay).
-
-## Build
-
-Every push to `main` builds an APK in GitHub Actions. The build runs the unit tests and lint first; a failing test, or a lint issue that would crash on a device (such as calling an Android API newer than the TV supports), stops it before anything is published. Test and lint reports are attached to each run as `reports-1.0.N`.
-
-To build locally: `./gradlew :app:assembleRelease` (tests: `./gradlew :app:testReleaseUnitTest`).
-
-1. Open the repo's **Actions** tab, select the latest **Build APK** run.
-2. Download the `Relay-1.0.N` artifact (a zip containing the APK).
-
-You can also trigger a build manually from the Actions tab with **Run workflow**.
-
-## Install on a Google TV
-
-**Over the network with adb (easiest from a computer):**
-
-1. On the TV: Settings → System → About → click **Android TV OS build** 7 times to unlock Developer options.
-2. Settings → System → Developer options → turn on **USB debugging** (on Google TV this also allows network debugging).
-3. Find the TV's IP in Settings → Network & Internet.
-4. On your computer:
+1. On the TV: Settings → System → About → select **Android TV OS build** seven times to unlock Developer options.
+2. Settings → System → Developer options → turn on **USB debugging**.
+3. Find the TV's IP address in Settings → Network & Internet.
+4. On the computer:
    ```
    adb connect 192.168.x.x:5555
    adb install -r Relay-1.0.N.apk
+   adb shell appops set dev.relay.tv REQUEST_INSTALL_PACKAGES allow
    ```
-   Accept the prompt on the TV the first time. On newer Google TV models, if `adb connect` is refused, turn on **Wireless debugging** in Developer options and use `adb pair` with the code it shows first.
+   Accept the prompt on the TV the first time. The last line lets Relay install its own updates.
 
-**Without a computer:** install *Send Files to TV* on your phone and TV, send the APK, then open it on the TV with a file manager (allow it to install unknown apps when asked).
+   If `adb connect` is refused on a newer Google TV, turn on **Wireless debugging** instead. Run `adb pair IP:PAIRING_PORT` with the code it shows, then `adb connect IP:PORT`. The two ports are different; use the ones on the TV's screen.
 
-Updates: install the newer APK the same way. Because it's signed with the same key, your login, profiles and history are kept.
+</details>
+
+<details>
+<summary><b>On a TV, without a computer</b></summary>
+
+Install *Send Files to TV* on your phone and the TV, send the APK, and open it on the TV with a file manager. Allow installs from that app when asked. The first time Relay updates itself, Android asks you to allow Relay to install apps as well.
+
+</details>
+
+<details>
+<summary><b>On a phone</b></summary>
+
+Open the APK from the Releases page and allow your browser to install apps when Android asks.
+
+</details>
 
 ## First run
 
-1. Enter a playlist name, the primary server URL, any backup server URLs (comma separated), username and password.
-2. Relay checks the login, then downloads your channel and library lists. Large playlists can take a minute the first time; after that it loads from cache and refreshes once the lists are 6 hours old, including while Relay stays open. A refresh is checked before it replaces anything: if the server sends an error page, a cut-off list, or suddenly no channels, movies or series, your saved library is kept and a message says so.
-3. If the primary server stops answering, Relay tries the backups automatically, both for browsing and during playback.
+1. Enter a name for the playlist, the server address, any backup servers (comma separated), your username and password. A phone can fill this in for you: scan the QR code on the sign-in screen.
+2. Relay checks the login and downloads your channels, movies and series. A large playlist takes about a minute the first time; after that it opens from its saved copy.
+3. Pick or create a profile.
 
-If your provider gives you separate URLs for VPN and non-VPN use, put the ones that match how the TV connects in the server fields. You can change them later in Settings → Change servers or login.
+If your provider gives separate addresses for VPN and non-VPN use, enter the ones that match how this device connects. You can change them later in Settings → Account.
 
 ## Remote controls
 
-| Where | Button | Action |
-|---|---|---|
-| Live player | Up / Down | Previous / next channel in the list you opened it from |
-| Live player | Channel + / − | Next / previous channel |
-| Movie / episode player | Left / Right | Back 10 s / forward 30 s |
-| Any player | Center | Show controls (audio, subtitles, speed under the gear and CC icons) |
-| Live player | OK or Left | Channel list over the video (phones: tap, then "Channels") |
-| Live player | 0 to 9 | Type a channel number |
-| Live player | Back | Previous channel; press twice quickly to exit |
-| Live player | Right or Menu | Player controls (audio and subtitle tracks) |
-| Live player | Play/Pause | Pause live TV; it keeps recording behind the scenes |
-| Live player, paused or behind live | Left / Right | Back 10 s / forward 30 s (forward past the end returns to live) |
-| Live TV toolbar | Guide grid | Timeline guide: OK on a past show = catch-up, current = watch, future = reminder |
-| Movie / episode player | Back | Hide controls; otherwise press twice quickly to exit (position is saved) |
-| Live TV list | Right | Move to the channel panel: favourite, guide, catch-up, options (rename, groups) |
+**Live TV**
 
-## Troubleshooting logs
+| Button | Action |
+|---|---|
+| Up / Down, Channel − / + | Previous / next channel in the list you opened |
+| OK or Left | Channel list over the video |
+| Right or Menu | Player controls: audio and subtitle tracks |
+| 0 to 9 | Go to a channel number |
+| Play/Pause | Pause live TV; Relay keeps recording behind the scenes |
+| Left / Right while paused or behind live | Back 10 s / forward 30 s; going forward past the end returns to live |
+| Back | Previous channel; press twice quickly to exit |
 
-Settings → Diagnostics. Recent activity is always kept in memory (500 lines, no disk). **Save detailed logs** also writes to disk for 24 hours, then turns itself off. Disk use is capped at about 1 MB (two rotating 512 KB files plus one crash report). Usernames, passwords and tokens are removed from every line.
+**Movies and episodes**
 
-**Share logs** opens the share sheet on phones. On a TV, pull the folder shown in Settings with `adb pull /sdcard/Android/data/dev.relay.tv/files/logs/`.
+| Button | Action |
+|---|---|
+| Left / Right | Back 10 s / forward 30 s |
+| OK | Show the player controls: audio, subtitles and speed |
+| Back | Hide the controls; otherwise press twice quickly to exit. Your position is saved. |
 
-## Other features
+**In the guide grid:** OK on a past show plays it from catch-up, on a current show tunes in, and on a future show sets a reminder. In the Live TV list, **Right** opens the channel panel: favourite, guide, catch-up, rename and groups.
 
-- **Phone companion** (Settings → Backup & phone, and on the TV sign-in screen): scan the QR code with a phone on the same Wi-Fi to sign in, download a backup, or restore one. The page only exists while that screen is open and its address contains a random code.
-- **Backup and restore**: profiles, favourites, history, channel groups, sort choices, series tracks, reminders and settings. Backups never contain your login, any PIN, or API keys. A restore checks the whole file first (nothing changes if it's damaged or from a newer Relay), then replaces those items on the TV; PINs already set on the TV are kept, and it lists any profiles that need a PIN set again. Older backups still restore, without their PINs. Phones can also save to a file.
-- **Refresh-rate matching** (TVs): switches the TV to match the video's frame rate; the screen may blank briefly when it changes.
-- **Stream info**: resolution, HDR, codecs, frame rate and network speed for 5 seconds when playback starts.
-- **Per-series audio and subtitles**: the language you pick in a series is reused for its other episodes.
-- **Relay keyboard**: a D-pad friendly on-screen keyboard (default on TVs) with a voice key; Settings → Keyboard switches between Relay and the system keyboard.
-- **Live TV browsing**: categories grouped by country, sort per category, filters (catch-up, HD/4K, has guide), find in list, pinned categories, A–Z jump.
-- **Pause & rewind live TV**: one connection records the channel to a capped buffer (15/30/60 minutes, max 1.5 GB, deleted when you change channel or leave). If a channel doesn't work that way, Relay falls back to direct playback for it.
-- **Parent PIN** (Settings → Profiles): once set, it's needed to add or remove profiles, leave a kids profile, show adult categories, restore a backup, change servers or sign out. A kids profile used last reopens directly when Relay starts. Kids profiles can't reach adult titles by any route, including typing a channel number.
-- **Stream recovery**: live TV reconnects (moving through your backup servers) when a channel stalls for 20 seconds, and movies and episodes for 30 seconds, resuming at the same position. After three tries a live channel shows Retry and Next channel instead of buffering forever. Pause & rewind is used only with the MPEG-TS format; HLS channels play directly.
-- **Reminders**: set from the guide grid; they pop up while Relay is open (Android TV doesn't reliably show notifications from closed apps).
-- **Lip-sync adjustment**, **subtitle style**, **start on last channel**, **neutral black theme**, **channel groups and renames**, **external XMLTV guide** and **guide time offset** are in Settings.
+## Settings worth knowing
 
-## Optional: Rotten Tomatoes scores
+| Where | What |
+|---|---|
+| **Profiles** | Kids profiles, profile PINs, and the **parent PIN**. Once set, it's needed to add or remove profiles, leave a kids profile, show adult categories, restore a backup, change servers or sign out. A kids profile used last reopens directly when Relay starts. |
+| **Playback** | Live stream format, pause & rewind buffer (15, 30 or 60 minutes, up to 1.5 GB, deleted when you leave the channel), refresh-rate matching, lip-sync, start on last channel |
+| **Subtitles** | Size, colour and background |
+| **Channels & guide** | Channel groups, an external XMLTV guide, guide time offset, reminders |
+| **Backup & phone** | Phone companion, backup to a file, restore |
+| **Library** | TMDB key and Rotten Tomatoes scores (both optional, below) |
+| **Diagnostics** | Recent activity, saved logs, sharing logs |
 
-Settings → Rotten Tomatoes scores. Add a free MDBList key (mdblist.com: sign in, then Preferences → API Access) and movie and series pages show the Rotten Tomatoes critics and audience scores when they exist. Titles without a score show nothing extra.
+<details>
+<summary><b>How Relay stays up when your provider doesn't</b></summary>
 
-- Lookups happen only when you open a title, after the page appears, and never delay Play. Scores are saved: titles from this year are checked again after a day, older ones after a week, titles with no score after three days.
-- The free key allows 1,000 lookups a day; Relay stops at 900 and shows saved scores until the next day.
+- **Backup servers** are tried automatically, both for browsing and during playback.
+- **Stalled streams:** live TV reconnects after 20 seconds of buffering and movies after 30, resuming at the same position. After three tries a channel shows **Retry** and **Next channel** instead of buffering forever.
+- **Pause & rewind** records MPEG-TS channels only; HLS channels play directly. If a channel doesn't work with the buffer, Relay plays it directly instead.
+- **Library refresh** happens once your lists are six hours old, including while Relay stays open. A refresh is checked before it replaces anything: an error page, a cut-off list, or a sudden empty list is rejected and your saved library is kept.
+
+</details>
+
+<details>
+<summary><b>Backups and the phone companion</b></summary>
+
+A backup holds profiles, favourites, history, channel groups and renames, sort choices, per-series audio and subtitle choices, reminders and settings. It never contains your login, any PIN, or API keys.
+
+A restore checks the whole file first, so nothing changes if it's damaged or from a newer Relay. It then replaces those items on the device, so back up the device first if you might want its current setup back. PINs already set on the device are kept, and Relay lists any profiles that need a PIN set again. Backups from older versions still restore, without their PINs.
+
+Treat backup files as personal: they include your viewing history, and an external guide address can contain your provider login if the provider builds it that way.
+
+The phone companion (Settings → Backup & phone, or the sign-in screen) is a page a phone on the same Wi-Fi opens by scanning a QR code. It can sign the TV in, download a backup and restore one. It exists only while that screen is open, and its address includes a random code.
+
+</details>
+
+## Optional extras
+
+<details>
+<summary><b>Rotten Tomatoes scores</b></summary>
+
+Settings → Library → Rotten Tomatoes scores. Add a free MDBList key (mdblist.com: sign in, then Preferences → API Access). Movie and series pages then show the critics and audience scores when Rotten Tomatoes has them; titles without a score show nothing extra.
+
+- Lookups happen only when you open a title, after the page appears, and never delay Play.
+- Scores are saved and checked again after a day for this year's releases, a week for older titles, and three days for titles with no score.
+- The free key allows 1,000 lookups a day. Relay stops at 900 and shows saved scores until the next day.
 - **Scores on posters** (on by default) shows the critics score on posters of titles you've already opened. It never makes extra lookups.
-- Titles are matched by their TMDB ID (from your provider or TMDB). Without one, Relay searches by title and year and shows a score only when there's exactly one match.
+- Titles are matched by their TMDB ID. Without one, Relay searches by title and year and shows a score only when there's exactly one match.
 
-## Optional: TMDB
+</details>
 
-Settings → TMDB API key. A free key from themoviedb.org (Settings → API, the 32 character "API Key") adds better backdrops, ratings, genres and cast on detail pages. Everything works without it using your provider's own metadata.
+<details>
+<summary><b>TMDB artwork and details</b></summary>
 
-## Project layout
+Settings → Library → TMDB API key. A free key from themoviedb.org (Settings → API, the 32-character "API Key") adds better backdrops, ratings, genres and cast to movie and series pages. Without it, Relay uses your provider's own information.
+
+</details>
+
+## Troubleshooting
+
+**Logs:** Settings → Diagnostics. The last 500 lines are always kept in memory. **Save detailed logs** also writes them to disk for 24 hours, then turns itself off; disk use is capped at about 1 MB. Usernames, passwords, tokens and API keys are removed from every line. **Share logs** works on phones; on a TV, run `adb pull /sdcard/Android/data/dev.relay.tv/files/logs/`.
+
+**Updates stopped arriving:** the update token has probably expired. See *Update token* under Maintaining Relay, then install the next build by hand once.
+
+**A channel won't play:** try Settings → Playback → Live stream format (MPEG-TS or HLS). Pause & rewind needs MPEG-TS.
+
+## Maintaining Relay
+
+<details>
+<summary><b>Signing key</b></summary>
+
+Android installs an update only if it's signed with the same key as the installed app. The key lives in GitHub Secrets, never in the repo. In **Settings → Secrets and variables → Actions**, add:
+
+| Secret | Value |
+|---|---|
+| `RELAY_KEYSTORE_B64` | The base64 text of `relay-release.jks` |
+| `RELAY_KEYSTORE_PASSWORD` | The keystore password |
+
+Every build checks that the APK is signed with this exact key and fails otherwise.
+
+> [!WARNING]
+> Keep a copy of the `.jks` file and its password somewhere safe. Losing them means uninstalling and reinstalling Relay on every device.
+
+</details>
+
+<details>
+<summary><b>Update token</b></summary>
+
+Because the repo is private, Relay needs a read-only token to see new releases.
+
+1. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
+2. Name `Relay updater`, the longest expiry offered, and Repository access: **Only select repositories → TV-Relay**.
+3. Repository permissions → **Contents: Read-only**. Nothing else.
+4. Save it as the Actions secret **`RELAY_UPDATE_TOKEN`**.
+
+Each build checks that the token can read this repo's releases before building it into the app. When the token nears expiry, replace the secret and let one build install. If it has already expired, install the next build by hand once.
+
+</details>
+
+<details>
+<summary><b>Builds and releases</b></summary>
+
+Every push to `main` that changes the app builds it in GitHub Actions and publishes it as release `v1.0.N`. Changes that touch only documentation or tools (`README.md`, `docs/`, `tools/`) don't make a release. You can also start a build from the Actions tab with **Run workflow**.
+
+Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. Test and lint reports are attached to each run as `reports-1.0.N`.
+
+To build locally (JDK 17 and the Android SDK):
+
+```
+./gradlew :app:testReleaseUnitTest
+./gradlew :app:lintRelease
+./gradlew :app:assembleRelease
+```
+
+Without the release key (the `RELAY_KEYSTORE_PATH` and `RELAY_KEYSTORE_PASSWORD` environment variables, or a local `signing.properties`), a local build is signed with a debug key and can't update an installed copy of Relay.
+
+</details>
+
+<details>
+<summary><b>App icon and TV banner</b></summary>
+
+The launcher icon, themed icon, legacy icons and TV banner are all generated from one drawing by `tools/icon/build_icon.py`. Run it from the repo root (instructions at the top of the script), then commit the changed files under `app/src/main/res` and `docs/banner.png`.
+
+</details>
+
+<details>
+<summary><b>Project layout</b></summary>
 
 ```
 app/src/main/java/dev/relay/tv/
-  RelayApp.kt          singletons: HTTP client, store, API, catalog
-  MainActivity.kt      navigation root
-  data/                Xtream client (host failover), catalog cache, local store, TMDB
-  ui/                  Compose screens for TV: login, profiles, home, live, library, details, search, settings
-  player/              Media3 player activity, playback requests
-tools/icon/            builds the launcher icon, themed icon and TV banner from one geometry
+  RelayApp.kt       app-wide singletons: HTTP client, store, API, catalog, ratings
+  MainActivity.kt   navigation root and splash
+  data/             Xtream client with server failover, catalog, local store,
+                    backups, restrictions, TMDB and Rotten Tomatoes
+  ui/               Compose screens for TV and phone
+  player/           Media3 player, pause-buffer recorder, stream recovery
+  companion/        phone companion web page
+  update/           in-app updater
+app/src/test/       unit tests
+tools/icon/         icon and banner generator
+docs/               README banner and screenshots
 ```
 
-Libraries: Jetpack Compose, Media3 ExoPlayer (+ Jellyfin's FFmpeg audio decoder for AC3/E-AC3/DTS), OkHttp, Coil, kotlinx.serialization. The FFmpeg decoder is GPL-3.0; this build is for personal use.
+</details>
+
+## Credits
+
+Built with Jetpack Compose, Media3 ExoPlayer, the Jellyfin FFmpeg audio decoder for Dolby and DTS (GPL-3.0), OkHttp, Coil and kotlinx.serialization. The wordmark uses Space Grotesk (SIL Open Font License).
+
+This product uses the TMDB API but is not endorsed or certified by TMDB. Rotten Tomatoes scores are provided through MDBList; Rotten Tomatoes is a trademark of its owner.
+
+Relay is for personal use and comes with no licence to redistribute.
