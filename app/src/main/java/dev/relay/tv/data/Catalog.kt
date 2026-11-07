@@ -309,7 +309,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     }
 
     /** Everything worked out from a parsed library, off the screen thread. */
-    private class Indexes(p: ParsedCatalog, step: (Float) -> Unit) {
+    private class Indexes(p: ParsedCatalog, private val step: (Float) -> Unit) {
         val timings = LinkedHashMap<String, Long>()
         private var t = System.currentTimeMillis()
         private fun lap(name: String, done: Float) {
