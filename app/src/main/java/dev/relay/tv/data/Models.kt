@@ -112,6 +112,8 @@ data class Settings(
     val pinnedSeries: List<String> = emptyList(),
     // Batch 6
     val mergeVariants: Boolean = true,
+    /** Chosen version per channel, by version key. */
+    val preferredVersions: Map<String, Int> = emptyMap(),
     val startScreen: String = "home", // home | live | guide
     val fullGuideSearch: Boolean = false,
 )
@@ -253,6 +255,8 @@ data class PlayItem(
     val seriesId: Int? = null,
     val resumeMs: Long = 0,
     val urls: List<String> = emptyList(),
+    /** Live: stream ids of other versions of this channel, tried in order if this one fails. */
+    val alternates: List<String> = emptyList(),
 )
 
 data class PlayRequest(

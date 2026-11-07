@@ -41,9 +41,13 @@ import androidx.compose.ui.unit.sp
 import dev.relay.tv.BuildConfig
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.HomeLayout
+import dev.relay.tv.data.ProviderNames
+import dev.relay.tv.data.EpgEntry
+import android.widget.Toast
 import dev.relay.tv.data.Langs
 import dev.relay.tv.data.AccountInfo
 import dev.relay.tv.data.AppLog
+import dev.relay.tv.data.Catalog
 import dev.relay.tv.data.Channel
 import dev.relay.tv.data.Movie
 import dev.relay.tv.data.Profile
@@ -61,6 +65,7 @@ import java.util.Locale
 // ---------------- Search ----------------
 
 private class Results(
+    val onTv: List<Pair<Channel, EpgEntry>> = emptyList(),
     val channels: List<Channel> = emptyList(),
     val movies: List<Movie> = emptyList(),
     val series: List<Series> = emptyList(),
@@ -123,7 +128,11 @@ fun SearchTab() {
         val rank = app.session.langRank(app.store.settings)
         results = withContext(Dispatchers.Default) {
             // Gather more than shown, then put your languages first.
+            val hidden = app.store.settings.hiddenCats
             Results(
+                onTv = catalog.searchGuide(match).filter { (ch, _) ->
+                    catalog.allowed(ch.categoryId, restrict) && "live:${ch.categoryId}" !in hidden
+                }.sortedBy { (ch, _) -> rank.rank(catalog.channelLang(ch.id)) }.take(30),
                 channels = catalog.channels.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }
                     .take(400).toList().sortedBy { rank.rank(catalog.channelLang(it.id)) }.take(40),
                 movies = catalog.movies.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }
@@ -142,7 +151,7 @@ fun SearchTab() {
 
     val r = results
     val resultRows: LazyListScope.() -> Unit = {
-        if (ui.query.isNotBlank() && !searching && r.channels.isEmpty() && r.movies.isEmpty() && r.series.isEmpty()) {
+        if (ui.query.isNotBlank() && !searching && r.onTv.isEmpty() && r.channels.isEmpty() && r.movies.isEmpty() && r.series.isEmpty()) {
             item { Text("No matches for \"${ui.query}\"", Modifier.padding(horizontal = 48.dp), color = Palette.dim) }
         }
         if (ui.query.isBlank()) {
@@ -151,6 +160,18 @@ fun SearchTab() {
                     "Start typing: results appear as you go.", Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
                     color = Palette.dim,
                 )
+            }
+        }
+        item {
+            Rail("On TV", r.onTv) { (ch, e) ->
+                ProgrammeCard(ch, e) {
+                    val nowSec = System.currentTimeMillis() / 1000
+                    if (e.start <= nowSec) {
+                        Playback.live(ctx, listOf(ch), 0)
+                    } else {
+                        Toast.makeText(ctx, ReminderCenter.toggle(ch, e), Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
         item {
@@ -225,6 +246,29 @@ fun SearchTab() {
                 }
             }
             resultRows()
+        }
+    }
+}
+
+private val progTime = java.text.SimpleDateFormat("EEE h:mm a", java.util.Locale.getDefault())
+
+/** A programme found in the guide: on now (OK watches) or later (OK sets a reminder). */
+@Composable
+private fun ProgrammeCard(ch: Channel, e: EpgEntry, onClick: () -> Unit) {
+    val nowSec = System.currentTimeMillis() / 1000
+    val live = e.start <= nowSec
+    val reminder = !live && ReminderCenter.isSet(ch.id, e.start)
+    Focusable(onClick, Modifier.width(280.dp).height(110.dp), key = "s:tv:${ch.id}:${e.start}", shape = RoundedCornerShape(10.dp)) { f ->
+        Column(
+            Modifier.fillMaxSize().background(if (f) Palette.surface2 else Palette.surface).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                if (live) "NOW · OK to watch" else progTime.format(java.util.Date(e.start * 1000)) + if (reminder) " · 🔔 Reminder set" else "",
+                color = if (live) Palette.accent else Palette.dim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            )
+            Text(e.title, color = Palette.text, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(ProviderNames.clean(ch.name), color = Palette.dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -478,6 +522,35 @@ fun SettingsTab() {
             }
         }
         item { Setting("Guide time offset", offsetLabel(s.epgOffsetMin), false) { offsetDialog = true } }
+        item {
+            val n = app.catalog.versionGroupCount
+            Setting(
+                "Show each channel once",
+                if (s.mergeVariants) "On · $n channels have more than one version (HD, FHD, backup)" else "Off · every version listed",
+                false,
+            ) { store.settings = s.copy(mergeVariants = !s.mergeVariants) }
+        }
+        item {
+            Setting(
+                "Search the whole TV guide",
+                when {
+                    s.xmltvUrl.isNotBlank() -> "Uses your external guide"
+                    s.fullGuideSearch -> "On · your languages and favourites (${guide?.status ?: "downloading"})"
+                    else -> "Off · finds what's on channels you've browsed"
+                },
+                kidsLocked,
+            ) {
+                if (s.xmltvUrl.isNotBlank()) return@Setting
+                val on = !s.fullGuideSearch
+                store.settings = s.copy(fullGuideSearch = on)
+                if (on) {
+                    app.appScope.launch { app.catalog.refreshGuideIfNeeded(force = true) }
+                } else if (guide?.source == Catalog.PROVIDER_GUIDE) {
+                    guide?.clear()
+                    app.catalog.clearGuideCache()
+                }
+            }
+        }
         item {
             val n = store.reminders.size
             Setting("Programme reminders", if (n == 0) "None set · set them from the guide grid" else "$n set · clear all", false) {

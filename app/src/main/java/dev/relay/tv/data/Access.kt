@@ -39,7 +39,13 @@ class Restrictions(
         if (!allows(chosen)) return null
         if (!restrict) return req
         val kept = req.items.filter(::allows)
-        return req.copy(items = kept, index = kept.indexOf(chosen).coerceAtLeast(0))
+        val index = kept.indexOf(chosen).coerceAtLeast(0)
+        // Fallback versions of a channel must pass too.
+        val clean = kept.map { item ->
+            if (item.alternates.isEmpty()) item
+            else item.copy(alternates = item.alternates.filter { a -> allowsCategory(a.toIntOrNull()?.let(channelCat)) })
+        }
+        return req.copy(items = clean, index = index)
     }
 
     /** Channel-number lookup across the whole catalog, skipping channels this profile can't see. */

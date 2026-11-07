@@ -204,6 +204,13 @@ class XtreamApi(
         return hostsOrdered().map { h -> "${h.trimEnd('/')}/$path/$u/$p/$id.$ext" }
     }
 
+    /** The provider's full XMLTV guide (large); null when signed out. */
+    fun xmltvUrl(): String? {
+        val acc = account ?: return null
+        val h = hostsOrdered().firstOrNull() ?: return null
+        return "${h.trimEnd('/')}/xmltv.php?username=${Uri.encode(acc.username)}&password=${Uri.encode(acc.password)}"
+    }
+
     fun catchupUrls(streamId: Int, startSec: Long, endSec: Long): List<String> {
         val acc = account ?: return emptyList()
         val minutes = ((endSec - startSec) / 60).coerceAtLeast(1)

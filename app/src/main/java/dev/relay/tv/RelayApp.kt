@@ -10,6 +10,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Catalog
+import dev.relay.tv.data.Channel
 import dev.relay.tv.data.PlayRequest
 import dev.relay.tv.data.Ratings
 import dev.relay.tv.data.Store
@@ -73,6 +74,17 @@ class RelayApp : Application(), ImageLoaderFactory {
         }
         catalog = Catalog(this, api)
         catalog.custom = { store.channelCustom }
+        catalog.preferredVersions = { store.settings.preferredVersions }
+        catalog.guideSearchScope = {
+            val s = store.settings
+            val featured = session.langFeatured(s).toSet()
+            val favs = store.favs(session.profileId).filter { it.kind == "live" }.map { it.id }.toSet()
+            val hidden = s.hiddenCats
+            val pick: (Channel) -> Boolean = { ch ->
+                ch.id in favs || (catalog.channelLang(ch.id) in featured && "live:${ch.categoryId}" !in hidden)
+            }
+            pick
+        }
         catalog.settings = { store.settings }
         catalog.guide = XmltvGuide(this, http)
         Palette.neutral = store.settings.neutralTheme

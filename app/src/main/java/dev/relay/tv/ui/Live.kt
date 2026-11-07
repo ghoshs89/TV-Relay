@@ -50,6 +50,9 @@ import dev.relay.tv.data.Channel
 import dev.relay.tv.data.EpgEntry
 import dev.relay.tv.data.FavItem
 import dev.relay.tv.data.ProviderNames
+import dev.relay.tv.data.ChannelVersions
+import dev.relay.tv.data.AppLog
+import androidx.compose.foundation.layout.heightIn
 import dev.relay.tv.data.LanguageDetector
 import dev.relay.tv.data.Langs
 import dev.relay.tv.player.Playback
@@ -180,8 +183,12 @@ fun LiveTab() {
     }
     val sort = remember(ui.liveCat, version) { store.liveSort(ui.liveCat) }
     val favIds = remember(version, pid) { store.favs(pid).filter { it.kind == "live" }.map { it.id }.toSet() }
-    val channels = remember(base, sort, ui.liveFilters, ui.liveFind, favIds) {
-        LiveBrowse.apply(base, sort, ui.liveFilters, ui.liveFind, favIds)
+    // Several versions of one channel (HD, FHD, backup) show once, unless you list them yourself.
+    val merge = st.mergeVariants && ui.liveCat != UiState.FAV && ui.liveCat != UiState.HISTORY &&
+        !ui.liveCat.startsWith(ChannelEdits.GROUP)
+    val channels = remember(base, sort, ui.liveFilters, ui.liveFind, favIds, merge, st.preferredVersions) {
+        val list = LiveBrowse.apply(base, sort, ui.liveFilters, ui.liveFind, favIds)
+        if (merge) catalog.collapseVersions(list) else list
     }
     var focused by remember { mutableStateOf<Channel?>(null) }
     val isTv = rememberIsTv()
@@ -471,6 +478,7 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
         var archiveFailed by remember(ch.id) { mutableStateOf(false) }
         var showArchive by remember(ch.id) { mutableStateOf(false) }
         var options by remember(ch.id) { mutableStateOf(false) }
+        var versionsOpen by remember(ch.id) { mutableStateOf(false) }
         LaunchedEffect(ch.id, epgRetry) {
             delay(250)
             epgFailed = false
@@ -512,9 +520,18 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
                     if (archive == null) loadArchive()
                 }, key = "pa:${ch.id}")
             }
+            val current = epg?.firstOrNull { it.start <= System.currentTimeMillis() / 1000 && System.currentTimeMillis() / 1000 < it.end }
+            if (ch.hasArchive && current != null) {
+                PillButton("⟲ Start over", { Playback.catchup(ctx, ch, current) }, key = "ps:${ch.id}")
+            }
+            val versions = remember(ch.id, app.catalog.channels, store.settings.preferredVersions) { app.catalog.versionsOf(ch.id) }
+            if (versions.size > 1) {
+                PillButton("Versions (${versions.size})", { versionsOpen = true }, key = "pv:${ch.id}")
+            }
             PillButton("Options", { options = true }, key = "po:${ch.id}")
         }
         if (options) ChannelOptionsDialog(ch, groupId, onDismiss = { options = false })
+        if (versionsOpen) ChannelVersionsDialog(ch, onDismiss = { versionsOpen = false })
         Spacer(Modifier.height(16.dp))
 
         val nowSec = System.currentTimeMillis() / 1000
@@ -566,6 +583,59 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Every version of a channel: play one, or make it the one lists show and play first. */
+@Composable
+private fun ChannelVersionsDialog(ch: Channel, onDismiss: () -> Unit) {
+    val app = RelayApp.instance
+    val store = app.store
+    store.version.intValue
+    val ctx = LocalContext.current
+    val versions = app.catalog.versionsOf(ch.id)
+    val key = app.catalog.versionKeyOf(ch.id)
+    val chosen = key?.let { store.settings.preferredVersions[it] }
+    val first = remember { FocusRequester() }
+    InitialFocus(first)
+    TvDialog(onDismiss, width = 620.dp) {
+        Text("Versions of ${ProviderNames.clean(ch.name)}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text(
+            "Lists show the first one. If it fails to play, Relay tries the next. OK plays a version; " +
+                "Use as main moves it to the top.",
+            fontSize = 14.sp, color = Palette.dim,
+        )
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(versions.size) { i ->
+                val v = versions[i]
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ListRow(
+                        ProviderNames.clean(v.name),
+                        onClick = { Playback.live(ctx, versions, i) },
+                        modifier = Modifier.weight(1f),
+                        key = "vr:${v.id}",
+                        trailing = ChannelVersions.describe(v.name) + if (v.id == chosen) "  ·  Main" else "",
+                        focusRequester = if (i == 0) first else null,
+                    )
+                    if (key != null && v.id != chosen) {
+                        PillButton("Use as main", {
+                            val s = store.settings
+                            store.settings = s.copy(preferredVersions = s.preferredVersions + (key to v.id))
+                            AppLog.i("Channels", "Main version of ${ProviderNames.clean(ch.name)}: ${v.name}")
+                        }, key = "vm:${v.id}")
+                    }
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Done", onDismiss, primary = true)
+            if (chosen != null && key != null) {
+                PillButton("Best quality first", {
+                    val s = store.settings
+                    store.settings = s.copy(preferredVersions = s.preferredVersions - key)
+                })
             }
         }
     }

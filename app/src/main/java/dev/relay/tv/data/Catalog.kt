@@ -71,6 +71,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
     /** Wired by the app: user customisation, current settings and the optional external guide. */
     var custom: () -> ChannelCustom = { ChannelCustom() }
+
+    /** Your chosen version per channel (see [ChannelVersions]); set by the app from settings. */
+    var preferredVersions: () -> Map<String, Int> = { emptyMap() }
     var settings: () -> Settings = { Settings() }
     var guide: XmltvGuide? = null
     private val mutex = Mutex()
@@ -159,13 +162,28 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         }
     }
 
+    /**
+     * Channels the provider's full guide is kept for when guide search is on: your languages and
+     * favourites, capped so the saved guide stays small. Set by the app.
+     */
+    var guideSearchScope: () -> (Channel) -> Boolean = { { false } }
+
     suspend fun refreshGuideIfNeeded(force: Boolean) {
         val g = guide ?: return
-        val url = settings().xmltvUrl.trim()
-        if (url.isEmpty() || channels.isEmpty()) return
+        if (channels.isEmpty()) return
+        val own = settings().xmltvUrl.trim()
+        val (url, key, list) = when {
+            own.isNotEmpty() -> Triple(own, own, channels)
+            settings().fullGuideSearch -> {
+                val inScope = guideSearchScope()
+                Triple(api.xmltvUrl() ?: return, PROVIDER_GUIDE, channels.filter(inScope).take(MAX_GUIDE_CHANNELS))
+            }
+            else -> return
+        }
         try {
-            if (force || g.needsRefresh(url)) {
-                g.refresh(url, channels)
+            if (force || g.needsRefresh(key)) {
+                AppLog.i("Epg", if (key == PROVIDER_GUIDE) "Downloading the provider's full guide for ${list.size} channels" else "Downloading external guide")
+                g.refresh(url, list, key)
                 clearGuideCache()
             }
         } catch (e: CancellationException) {
@@ -203,6 +221,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val srLang = HashMap<Int, String>().also { m ->
             p.series.forEach { v -> LanguageDetector.ofTitle(v.name, seriesCatLang[v.categoryId])?.let { m[v.id] = it } }
         }
+        val versionKeys = HashMap<Int, String>(p.channels.size * 2).also { m ->
+            p.channels.forEach { c -> m[c.id] = ChannelVersions.key(c.name) + "|" + (chLang[c.id] ?: "") }
+        }
         val mvAdded = p.movies.sortedByDescending { it.added }
         val mvRated = p.movies.filter { it.rating > 0 }.sortedByDescending { it.rating }
         val srAdded = p.series.sortedByDescending { it.added }
@@ -218,6 +239,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val sorted = withContext(Dispatchers.Default) { Indexes(p) }
         liveCatLang = sorted.liveCatLang; vodCatLang = sorted.vodCatLang; seriesCatLang = sorted.seriesCatLang
         chLang = sorted.chLang; mvLang = sorted.mvLang; srLang = sorted.srLang
+        rawVersionKeys = sorted.versionKeys
         indexMs = System.currentTimeMillis() - t0
         langVersion++
         AppLog.i("Catalog", loadSummary().replace("\n", "; "))
@@ -324,10 +346,42 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     fun applyCustom() {
         val renames = custom().renames
         val ch = if (renames.isEmpty()) rawChannels else rawChannels.map { c -> renames[c.id]?.let { c.copy(name = it) } ?: c }
+        // Keys for provider names come from the background index; only renamed channels are redone here.
+        val keys = HashMap(rawVersionKeys)
+        renames.keys.forEach { id -> channelById0(ch, id)?.let { c -> keys[id] = ChannelVersions.key(c.name) + "|" + (chLang[id] ?: "") } }
+        val groups = ChannelVersions.group(ch) { keys[it.id]!! }
+        versionKey = keys.filterValues { it in groups }
+        versionsByKey = groups
         channels = ch
         channelById = ch.associateBy { it.id }
         channelsByCat = ch.groupBy { it.categoryId }
     }
+
+    // ---------- Versions of one channel ----------
+
+    @Volatile private var versionKey: Map<Int, String> = emptyMap()
+    @Volatile private var versionsByKey: Map<String, List<Channel>> = emptyMap()
+
+    private var rawVersionKeys: Map<Int, String> = emptyMap()
+
+    private fun channelById0(list: List<Channel>, id: Int): Channel? = list.firstOrNull { it.id == id }
+
+    fun versionKeyOf(id: Int): String? = versionKey[id]
+
+    /** Every version of a channel, your choice first then best quality; empty when it has only one. */
+    fun versionsOf(id: Int): List<Channel> {
+        val k = versionKey[id] ?: return emptyList()
+        return ChannelVersions.order(versionsByKey[k].orEmpty(), { it.name }, { it.id }, preferredVersions()[k])
+    }
+
+    /** One entry per channel in a list, showing your chosen or the best version. */
+    fun collapseVersions(list: List<Channel>): List<Channel> {
+        if (versionKey.isEmpty()) return list
+        val prefs = preferredVersions()
+        return ChannelVersions.collapse(list, { versionKey[it.id] }, { it.name }, { it.id }) { prefs[it] }
+    }
+
+    val versionGroupCount: Int get() = versionsByKey.size
 
     fun groupChannels(g: ChannelGroup): List<Channel> = g.channelIds.mapNotNull { channelById[it] }
 
@@ -410,6 +464,28 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         return if (o == 0L) list else list.map { it.copy(start = it.rawStart + o, end = it.rawEnd + o) }
     }
 
+    /**
+     * Upcoming and current programmes matching a search, from the saved guide and from guide
+     * data already loaded for channel rows. Returns (channel, programme), soonest first.
+     */
+    fun searchGuide(match: (String) -> Boolean, limit: Int = 40): List<Pair<Channel, EpgEntry>> {
+        val nowSec = System.currentTimeMillis() / 1000
+        val found = LinkedHashMap<String, Pair<Channel, EpgEntry>>()
+        for ((id, e) in guide?.search(match, limit * 2).orEmpty()) {
+            val ch = channelById[id] ?: continue
+            val shifted = shift(listOf(e)).first()
+            // One result per programme even when a channel has several versions.
+            found["${versionKey[id] ?: id}:${e.rawStart}"] = ch to shifted
+        }
+        for ((id, cached) in epgCache) {
+            val ch = channelById[id] ?: continue
+            for (e in cached.second) {
+                if (e.end > nowSec && match(e.title)) found.putIfAbsent("${versionKey[id] ?: id}:${e.rawStart}", ch to e)
+            }
+        }
+        return found.values.sortedBy { it.second.start }.take(limit)
+    }
+
     fun clearGuideCache() {
         epgCache.clear()
         gridCache.clear()
@@ -442,6 +518,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     }
 
     companion object {
+        const val PROVIDER_GUIDE = "provider"
+        const val MAX_GUIDE_CHANNELS = 1500
+
         fun yearIn(name: String): String? = CatalogParser.yearIn(name)
     }
 }

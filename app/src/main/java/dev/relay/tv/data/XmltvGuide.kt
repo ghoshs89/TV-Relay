@@ -42,6 +42,23 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
     fun entries(channelId: Int): List<EpgEntry> =
         data?.byChannel?.get(channelId)?.map { EpgEntry(it.t, it.d, it.s, it.e, hasArchive = false) }.orEmpty()
 
+    /** Programmes not yet over whose title matches, as (channel id, entry); soonest first. */
+    fun search(match: (String) -> Boolean, limit: Int = 80): List<Pair<Int, EpgEntry>> {
+        val d = data ?: return emptyList()
+        val now = System.currentTimeMillis() / 1000
+        val out = ArrayList<Pair<Int, EpgEntry>>()
+        for ((id, progs) in d.byChannel) {
+            for (p in progs) {
+                if (p.e > now && match(p.t)) out += id to EpgEntry(p.t, p.d, p.s, p.e, hasArchive = false)
+            }
+            if (out.size > limit * 4) break
+        }
+        return out.sortedBy { it.second.start }.take(limit)
+    }
+
+    /** True when this guide was loaded from [key] (a URL, or "provider" for the provider's own). */
+    val source: String? get() = data?.url
+
     suspend fun needsRefresh(url: String): Boolean {
         if (data == null) load()
         val d = data ?: return true
@@ -65,7 +82,8 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
         status = null
     }
 
-    suspend fun refresh(url: String, channels: List<Channel>) {
+    /** [key] is saved instead of the URL, so a URL with a login in it never reaches the disk. */
+    suspend fun refresh(url: String, channels: List<Channel>, key: String = url) {
         status = "Downloading…"
         val started = System.currentTimeMillis()
         val cache = withContext(Dispatchers.IO) {
@@ -73,7 +91,7 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
             http.newCall(req).execute().use { r ->
                 if (!r.isSuccessful) throw IOException("Guide download failed (HTTP ${r.code})")
                 val body = r.body ?: throw IOException("Empty guide")
-                parse(maybeGunzip(body.byteStream()), channels, url)
+                parse(maybeGunzip(body.byteStream()), channels, key)
             }
         }
         withContext(Dispatchers.IO) { file.writeText(Jsons.json.encodeToString(Cache.serializer(), cache)) }

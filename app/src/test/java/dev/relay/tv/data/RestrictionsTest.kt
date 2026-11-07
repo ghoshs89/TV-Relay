@@ -48,6 +48,14 @@ class RestrictionsTest {
     }
 
     @Test
+    fun fallbackVersionsInBlockedCategoriesAreDropped() {
+        val item = live(newsChannel).copy(alternates = listOf("3", "1", "999"))
+        val ok = restrictions(true).admit(PlayRequest("p", listOf(item), 0, live = true))!!
+        assertEquals(listOf("1"), ok.items[0].alternates)
+        assertEquals(listOf("3", "1", "999"), restrictions(false).admit(PlayRequest("p", listOf(item), 0, live = true))!!.items[0].alternates)
+    }
+
+    @Test
     fun choosingAnAdultChannelIsBlocked() {
         val req = PlayRequest("p", channels.map(::live), index = 2, live = true)
         assertNull(restrictions(true).admit(req))

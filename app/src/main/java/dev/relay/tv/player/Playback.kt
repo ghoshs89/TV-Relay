@@ -35,11 +35,13 @@ object Playback {
     fun live(ctx: Context, channels: List<Channel>, index: Int) {
         if (channels.isEmpty()) return
         val ext = app.store.settings.liveExt
+        val merge = app.store.settings.mergeVariants
         val items = channels.map {
             PlayItem(
                 key = "live:${it.id}", kind = "live", title = it.name,
                 subtitle = it.num.takeIf { n -> n > 0 }?.toString(), image = it.logo,
                 streamId = it.id.toString(), ext = ext,
+                alternates = if (merge) app.catalog.versionsOf(it.id).filter { v -> v.id != it.id }.map { v -> v.id.toString() } else emptyList(),
             )
         }
         launch(ctx, PlayRequest(pid, items, index.coerceIn(0, items.lastIndex), live = true))

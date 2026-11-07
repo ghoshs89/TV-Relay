@@ -127,6 +127,8 @@ class PlayerActivity : ComponentActivity() {
     private val liveWatch = StallWatchdog(StallWatchdog.LIVE_MS) { SystemClock.elapsedRealtime() }
     private val vodWatch = StallWatchdog(StallWatchdog.VOD_MS) { SystemClock.elapsedRealtime() }
     private var liveStalls = 0
+    /** This channel version has played at least once since it was tuned. */
+    private var liveReady = false
     private var vodStalls = 0
     private var failPos = 0L
     private lateinit var failPanel: LinearLayout
@@ -548,7 +550,8 @@ class PlayerActivity : ComponentActivity() {
         if (req.live) {
             liveStalls++
             AppLog.w("Player", "Live '${item.title}' stuck buffering (reconnect $liveStalls of ${StallWatchdog.LIVE_TRIES})")
-            if (liveStalls > StallWatchdog.LIVE_TRIES) {
+            if (liveStalls > StallWatchdog.LIVE_TRIES || (!liveReady && liveStalls > 1)) {
+                if (tryNextVersion()) return
                 showFailure("This channel isn't responding")
                 return
             }
@@ -650,6 +653,7 @@ class PlayerActivity : ComponentActivity() {
         hostAttempt = 0
         liveRetries = 0
         liveStalls = 0
+        liveReady = false
         liveWatch.reset()
         if (failing) hideFailure()
         val item = req.items[liveIndex]
@@ -851,6 +855,7 @@ class PlayerActivity : ComponentActivity() {
                 liveRetries = 0
                 liveStalls = 0
                 vodStalls = 0
+                if (req.live) liveReady = true
                 if (player.duration != C.TIME_UNSET) lastDuration = player.duration
                 onReady()
             }
@@ -861,7 +866,7 @@ class PlayerActivity : ComponentActivity() {
                         liveRetries++
                         AppLog.w("Player", "Live stream ended; reconnecting ($liveRetries of 3)")
                         reconnectLive()
-                    } else {
+                    } else if (!tryNextVersion()) {
                         showFailure("This channel isn't responding")
                     }
                 } else {
@@ -933,6 +938,8 @@ class PlayerActivity : ComponentActivity() {
             AppLog.w("Player", "Switching to server ${hostOf(urls.getOrNull(hostAttempt))}")
             return
         }
+        // A version that never started is likely broken: go straight to the next one.
+        if (req.live && !liveReady && tryNextVersion()) return
         if (req.live && liveRetries < 3) {
             liveRetries++
             hostAttempt = 0
@@ -940,7 +947,25 @@ class PlayerActivity : ComponentActivity() {
             handler.postDelayed({ if (!failing) reconnectLive() }, 2_000)
             return
         }
+        if (req.live && tryNextVersion()) return
         showFailure(if (req.live) "This channel isn't responding" else "Can't play this video (${e.errorCodeName})")
+    }
+
+    /** Swaps the current channel for its next version (HD, FHD, backup), if it has one left. */
+    private fun tryNextVersion(): Boolean {
+        if (!req.live) return false
+        val item = req.items.getOrNull(liveIndex) ?: return false
+        val altId = item.alternates.firstOrNull() ?: return false
+        val ch = altId.toIntOrNull()?.let { app.catalog.channelById[it] } ?: return false
+        val next = item.copy(
+            key = "live:${ch.id}", title = ch.name, streamId = altId, image = ch.logo ?: item.image,
+            alternates = item.alternates.drop(1),
+        )
+        req = req.copy(items = req.items.toMutableList().also { it[liveIndex] = next })
+        AppLog.w("Player", "'${item.title}' failed; trying another version: ${ch.name}")
+        playLive(liveIndex)
+        showOverlay("Trying another version\n${ch.name}")
+        return true
     }
 
     // ---------- Back ----------
