@@ -50,6 +50,7 @@ import dev.relay.tv.data.MovieInfo
 import dev.relay.tv.data.Series
 import dev.relay.tv.data.SeriesInfo
 import dev.relay.tv.data.Tmdb
+import dev.relay.tv.data.TitleParts
 import dev.relay.tv.player.Playback
 
 @Composable
@@ -85,8 +86,10 @@ fun MovieDetailScreen(m: Movie) {
     InitialFocus(playFocus)
 
     val rating = tmdb?.rating ?: info?.rating ?: m.rating.takeIf { it > 0 }
+    val tp = remember(m.name) { TitleParts.parse(m.name) }
     val meta = listOfNotNull(
         tmdb?.year ?: info?.year ?: m.year,
+        tp.tag, tp.region,
         info?.durationSecs?.takeIf { it > 0 }?.let { fmtDuration(it * 1000L) },
         rating?.let { "★ %.1f".format(it) },
         tmdb?.genres?.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", ") ?: info?.genre,
@@ -198,8 +201,10 @@ fun SeriesDetailScreen(s: Series) {
     InitialFocus(playFocus, info != null)
 
     val rating = tmdb?.rating ?: info?.rating ?: s.rating.takeIf { it > 0 }
+    val tp = remember(s.name) { TitleParts.parse(s.name) }
     val meta = listOfNotNull(
         tmdb?.year ?: info?.year ?: s.year,
+        tp.tag, tp.region,
         if (seasonKeys.isNotEmpty()) "${seasonKeys.size} season${if (seasonKeys.size == 1) "" else "s"}" else null,
         rating?.let { "★ %.1f".format(it) },
         tmdb?.genres?.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", ") ?: info?.genre ?: s.genre,
@@ -285,6 +290,7 @@ fun SeriesDetailScreen(s: Series) {
                         image = e.image ?: s.cover,
                         onClick = { Playback.episodes(ctx, s, all, idx, if (h?.inProgress == true) (h?.position ?: 0L) else 0L) },
                         key = "ep:${e.id}",
+                        parseTitle = false,
                         width = if (compact) 210.dp else 250.dp,
                         aspect = 16f / 9f,
                         subtitle = when {
@@ -330,9 +336,5 @@ private fun Poster(url: String?, title: String, width: Int = 260) {
 }
 
 
-private val LANG_PREFIX = Regex("^\\s*[\\[(|]?\\s*[A-Z]{2,4}\\s*[\\])|]?\\s*[-:|]\\s+")
-private val YEAR_SUFFIX = Regex("\\s*[(\\[]\\s*(19|20)\\d{2}\\s*[)\\]]\\s*$")
-
-/** Provider names often carry a language prefix and year, e.g. "IN - Title (2026)". */
-fun displayTitle(raw: String): String =
-    raw.replace(LANG_PREFIX, "").replace(YEAR_SUFFIX, "").trim().ifBlank { raw }
+/** Provider names often carry a language tag, year and region, e.g. "IN - Title (2026) (US)". */
+fun displayTitle(raw: String): String = TitleParts.parse(raw).title

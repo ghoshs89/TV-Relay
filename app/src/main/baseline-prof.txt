@@ -1,0 +1,3 @@
+# Startup and scrolling paths compiled ahead of time when the app is installed.
+HSPLdev/relay/tv/**->**(**)**
+Ldev/relay/tv/**;

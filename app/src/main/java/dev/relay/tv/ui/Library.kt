@@ -25,6 +25,8 @@ import dev.relay.tv.RelayApp
 import dev.relay.tv.data.Category
 import dev.relay.tv.data.Movie
 import dev.relay.tv.data.Series
+import dev.relay.tv.data.ProviderNames
+import dev.relay.tv.data.TitleParts
 import kotlinx.coroutines.launch
 
 @Composable
@@ -62,9 +64,10 @@ fun MoviesTab() {
         empty = if (ui.movieCat == UiState.FAV) "Movies you add to My list show up here." else "Nothing here.",
     ) { m ->
         val rt = posterScore("m", m.id)
+        val tp = remember(m.name, m.year) { TitleParts.parse(m.name, m.year) }
         PosterCard(
             m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "mv:${m.id}",
-            subtitle = listOfNotNull(m.year, m.rating.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString("  "),
+            subtitle = listOfNotNull(tp.year, tp.region, m.rating.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString(" · "),
             badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
     }
@@ -105,9 +108,10 @@ fun SeriesTab() {
         empty = if (ui.seriesCat == UiState.FAV) "Series you add to My list show up here." else "Nothing here.",
     ) { s ->
         val rt = posterScore("s", s.id)
+        val tp = remember(s.name, s.year) { TitleParts.parse(s.name, s.year) }
         PosterCard(
             s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "sr:${s.id}",
-            subtitle = listOfNotNull(s.year, s.rating.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString("  "),
+            subtitle = listOfNotNull(tp.year, tp.region, s.rating.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString(" · "),
             badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
     }
@@ -144,7 +148,7 @@ private fun <T> Browser(
         ) {
             items(cats) { c ->
                 ListRow(
-                    c.name,
+                    if (c.id.startsWith("__")) c.name else ProviderNames.clean(c.name),
                     onClick = {
                         onSelect(c.id)
                         scope.launch { gridState.scrollToItem(0) }

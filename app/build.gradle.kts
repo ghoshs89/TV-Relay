@@ -54,7 +54,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Shrinks library code (Compose, Media3, OkHttp) for a smaller, faster app. Relay's own
+            // classes are kept whole and nothing is renamed: see proguard-rules.pro. CI starts the
+            // shrunk APK on an emulator before publishing to catch anything removed by mistake.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (hasReleaseKey) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
@@ -106,6 +111,11 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.google.zxing:core:3.5.3") // QR code for phone sign-in
+    // Installs the startup profiles shipped with Compose and Relay's own, so sideloaded builds
+    // start and scroll faster on TVs (the Play Store would otherwise do this).
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+    // Continue watching on the Google TV / Android TV home screen.
+    implementation("androidx.tvprovider:tvprovider:1.0.0")
 
     val media3 = "1.6.1"
     implementation("androidx.media3:media3-exoplayer:$media3")

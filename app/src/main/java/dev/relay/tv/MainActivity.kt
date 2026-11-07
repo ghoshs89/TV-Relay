@@ -8,7 +8,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +75,19 @@ fun AppRoot() {
             else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
     }
 
+    // Coming back from the player: put focus back on the channel or poster that was selected.
+    val owner = LocalContext.current as? ComponentActivity
+    DisposableEffect(owner) {
+        var first = true
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) {
+                if (first) first = false else nav.memory(nav.stack.lastIndex, app.ui.focus).restoreTick++
+            }
+        }
+        owner?.lifecycle?.addObserver(obs)
+        onDispose { owner?.lifecycle?.removeObserver(obs) }
+    }
+
     if (splash) {
         SplashScreen(onDone = { splash = false })
         return
@@ -77,7 +96,9 @@ fun AppRoot() {
     BackHandler(enabled = nav.stack.size > 1) { nav.pop(ui.focus) }
 
     CompositionLocalProvider(LocalNav provides nav) {
-        Box(Modifier.fillMaxSize().background(Palette.bg)) {
+        // Phones draw edge to edge on Android 15: keep content clear of the status and gesture bars.
+        // TVs report no insets, so nothing moves there.
+        Box(Modifier.fillMaxSize().background(Palette.bg).windowInsetsPadding(WindowInsets.safeDrawing)) {
             val top = nav.stack.lastIndex
             nav.stack.forEachIndexed { i, route ->
                 // Home stays composed underneath detail pages so its scroll and focus survive "back".

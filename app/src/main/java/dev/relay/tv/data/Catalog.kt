@@ -189,6 +189,19 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     }
 
     private class Indexes(p: ParsedCatalog) {
+        // Language groups (see LanguageDetector), worked out once per load.
+        val liveCatLang = langOf(p.liveCats)
+        val vodCatLang = langOf(p.vodCats)
+        val seriesCatLang = langOf(p.seriesCats)
+        val chLang = HashMap<Int, String>().also { m ->
+            p.channels.forEach { c -> LanguageDetector.ofChannel(c.name, liveCatLang[c.categoryId])?.let { m[c.id] = it } }
+        }
+        val mvLang = HashMap<Int, String>().also { m ->
+            p.movies.forEach { v -> LanguageDetector.ofTitle(v.name, vodCatLang[v.categoryId])?.let { m[v.id] = it } }
+        }
+        val srLang = HashMap<Int, String>().also { m ->
+            p.series.forEach { v -> LanguageDetector.ofTitle(v.name, seriesCatLang[v.categoryId])?.let { m[v.id] = it } }
+        }
         val mvAdded = p.movies.sortedByDescending { it.added }
         val mvRated = p.movies.filter { it.rating > 0 }.sortedByDescending { it.rating }
         val srAdded = p.series.sortedByDescending { it.added }
@@ -200,7 +213,13 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     }
 
     private suspend fun applyParsed(p: ParsedCatalog) {
+        val t0 = System.currentTimeMillis()
         val sorted = withContext(Dispatchers.Default) { Indexes(p) }
+        liveCatLang = sorted.liveCatLang; vodCatLang = sorted.vodCatLang; seriesCatLang = sorted.seriesCatLang
+        chLang = sorted.chLang; mvLang = sorted.mvLang; srLang = sorted.srLang
+        indexMs = System.currentTimeMillis() - t0
+        langVersion++
+        AppLog.i("Catalog", loadSummary().replace("\n", "; "))
         movieById = sorted.mvById
         seriesById = sorted.srById
         adultCats = (p.liveCats + p.vodCats + p.seriesCats).filter { it.adult }.map { it.id }.toSet()
@@ -212,6 +231,72 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         moviesByAdded = sorted.mvAdded; moviesByRating = sorted.mvRated
         seriesByAdded = sorted.srAdded; seriesByRating = sorted.srRated
         updatedAt = file("get_live_streams").lastModified()
+    }
+
+    // ---------- Languages ----------
+
+    private var liveCatLang: Map<String, String> = emptyMap()
+    private var vodCatLang: Map<String, String> = emptyMap()
+    private var seriesCatLang: Map<String, String> = emptyMap()
+    private var chLang: Map<Int, String> = emptyMap()
+    private var mvLang: Map<Int, String> = emptyMap()
+    private var srLang: Map<Int, String> = emptyMap()
+
+    /** Original languages learned from TMDB when a title is opened; they correct the guesses. */
+    private val learned = ConcurrentHashMap<String, String>()
+
+    var langVersion by mutableIntStateOf(0); private set
+    var indexMs = 0L; private set
+
+    fun channelLang(id: Int): String? = chLang[id]
+    fun movieLang(id: Int): String? = learned["m:$id"] ?: mvLang[id]
+    fun seriesLang(id: Int): String? = learned["s:$id"] ?: srLang[id]
+    fun liveCatLang(id: String): String? = liveCatLang[id]
+    fun vodCatLang(id: String): String? = vodCatLang[id]
+    fun seriesCatLang(id: String): String? = seriesCatLang[id]
+
+    /** TMDB's original language for a title ("hi", "bn", "en", "ta"...), mapped to Relay's groups. */
+    fun learnLanguage(key: String, isoCode: String?, region: String? = null) {
+        val g = when (isoCode?.lowercase()) {
+            "en" -> Langs.EN
+            "hi" -> Langs.HI
+            "bn" -> if (region.equals("BD", true)) Langs.BD else Langs.BN
+            "ta", "te", "ml", "kn" -> Langs.SOUTH
+            null, "" -> return
+            else -> Langs.OTHER
+        }
+        if (learned.put(key, g) != g) langVersion++
+    }
+
+    /** Library size, how long indexing took and memory in use, for the report and the log. */
+    fun loadSummary(): String {
+        val rt = Runtime.getRuntime()
+        val usedMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+        val maxMb = rt.maxMemory() / (1024 * 1024)
+        return "Library: ${"%,d".format(rawChannels.size)} channels, ${"%,d".format(movies.size)} movies, " +
+            "${"%,d".format(series.size)} series, ${liveCats.size + vodCats.size + seriesCats.size} categories\n" +
+            "Indexing took ${indexMs} ms; memory in use ${usedMb} MB of ${maxMb} MB"
+    }
+
+    fun languageReport(): LanguageReport {
+        fun count(ids: Collection<Int>, lang: (Int) -> String?) = ids.groupingBy { lang(it) }.eachCount()
+        val tags = HashMap<String, Int>()
+        (movies.asSequence().map { it.name } + series.asSequence().map { it.name }).forEach { n ->
+            val t = TitleParts.parse(n).tag
+            if (t != null && LanguageDetector.ofCode(t) == null) tags[t] = (tags[t] ?: 0) + 1
+        }
+        val unknownCats = buildList {
+            liveCats.filter { liveCatLang[it.id] == null }.forEach { add(it.name to (channelsByCat[it.id]?.size ?: 0)) }
+            vodCats.filter { vodCatLang[it.id] == null }.forEach { add(it.name to (moviesByCat[it.id]?.size ?: 0)) }
+            seriesCats.filter { seriesCatLang[it.id] == null }.forEach { add(it.name to (seriesByCat[it.id]?.size ?: 0)) }
+        }.sortedByDescending { it.second }.take(40)
+        return LanguageReport(
+            channels = count(rawChannels.map { it.id }) { chLang[it] },
+            movies = count(movies.map { it.id }) { movieLang(it) },
+            series = count(series.map { it.id }) { seriesLang(it) },
+            unknownTags = tags.entries.sortedByDescending { it.value }.take(25).map { it.key to it.value },
+            unknownCategories = unknownCats,
+        )
     }
 
     /** Re-applies channel renames after the user edits them. */
@@ -310,6 +395,25 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         epgVersion++
     }
 
+    private val rowGate = kotlinx.coroutines.sync.Semaphore(3)
+
+    /** Loads now and next for a channel row, a few at a time so scrolling doesn't flood the provider. */
+    suspend fun prefetchNowNext(id: Int) {
+        if (epgCache.containsKey(id)) return
+        rowGate.withPermit { if (!epgCache.containsKey(id)) shortEpgOrNull(id) }
+    }
+
+    /** What's on now and next; null until loaded, (null, null) when the channel has no guide. */
+    fun nowNext(id: Int): Pair<EpgEntry?, EpgEntry?>? {
+        minute
+        epgVersion
+        val list = epgCache[id]?.second ?: return null
+        val nowSec = System.currentTimeMillis() / 1000
+        val cur = list.firstOrNull { nowSec in it.start until it.end }
+        val next = list.firstOrNull { it.start >= (cur?.end ?: nowSec) }
+        return cur to next
+    }
+
     fun nowPlaying(id: Int): String? {
         minute // read so callers recompose each minute
         val nowSec = System.currentTimeMillis() / 1000
@@ -319,4 +423,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     companion object {
         fun yearIn(name: String): String? = CatalogParser.yearIn(name)
     }
+}
+
+private fun langOf(cats: List<Category>): Map<String, String> = buildMap {
+    cats.forEach { c -> LanguageDetector.ofCategory(c.name)?.let { put(c.id, it) } }
 }

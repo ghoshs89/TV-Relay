@@ -12,20 +12,45 @@ object LiveBrowse {
     private val PREFIX = Regex("^\\s*[\\[(|]?\\s*([A-Za-z][A-Za-z\\-]{1,14})\\s*(?:[\\])|]\\s*[:|\\-–»•✦]?|[:|\\-–»•✦])\\s*(.+)$")
 
     private val NAMES = mapOf(
-        "CA" to "Canada", "US" to "USA", "USA" to "USA", "UK" to "UK", "GB" to "UK", "IN" to "India",
-        "BD" to "Bangladesh", "PK" to "Pakistan", "LK" to "Sri Lanka", "NP" to "Nepal", "AR" to "Arabic",
-        "ARA" to "Arabic", "FR" to "France", "DE" to "Germany", "ES" to "Spain", "IT" to "Italy",
-        "PT" to "Portugal", "BR" to "Brazil", "MX" to "Mexico", "AU" to "Australia", "NZ" to "New Zealand",
-        "IE" to "Ireland", "NL" to "Netherlands", "BE" to "Belgium", "SE" to "Sweden", "NO" to "Norway",
-        "DK" to "Denmark", "FI" to "Finland", "PL" to "Poland", "TR" to "Turkey", "GR" to "Greece",
-        "RU" to "Russia", "UA" to "Ukraine", "RO" to "Romania", "HU" to "Hungary", "CZ" to "Czechia",
-        "AL" to "Albania", "PH" to "Philippines", "CN" to "China", "JP" to "Japan", "KR" to "Korea",
-        "VN" to "Vietnam", "TH" to "Thailand", "MY" to "Malaysia", "SG" to "Singapore", "ID" to "Indonesia",
-        "IR" to "Iran", "IL" to "Israel", "EG" to "Egypt", "MA" to "Morocco", "NG" to "Nigeria",
-        "ZA" to "South Africa", "KE" to "Kenya", "AF" to "Africa", "LAT" to "Latino", "LATAM" to "Latin America",
-        "CAR" to "Caribbean", "EN" to "English", "EX-YU" to "Ex-Yugoslavia", "EXYU" to "Ex-Yugoslavia",
-        "SPORT" to "Sports", "SPORTS" to "Sports", "PPV" to "Pay-per-view", "VIP" to "VIP", "4K" to "4K",
+        // Countries (ISO codes, plus the variants providers use)
+        "AD" to "Andorra", "AE" to "UAE", "UAE" to "UAE", "AF" to "Afghanistan", "AL" to "Albania", "AM" to "Armenia",
+        "AO" to "Angola", "AR" to "Argentina", "AT" to "Austria", "AU" to "Australia", "AUS" to "Australia",
+        "AZ" to "Azerbaijan", "BA" to "Bosnia", "BD" to "Bangladesh", "BE" to "Belgium", "BG" to "Bulgaria",
+        "BH" to "Bahrain", "BO" to "Bolivia", "BR" to "Brazil", "BY" to "Belarus", "CA" to "Canada", "CAN" to "Canada",
+        "CH" to "Switzerland", "CL" to "Chile", "CN" to "China", "CO" to "Colombia", "CR" to "Costa Rica", "CU" to "Cuba",
+        "CY" to "Cyprus", "CZ" to "Czechia", "DE" to "Germany", "GER" to "Germany", "DK" to "Denmark", "DO" to "Dominican Republic",
+        "DZ" to "Algeria", "EC" to "Ecuador", "EE" to "Estonia", "EG" to "Egypt", "ES" to "Spain", "ESP" to "Spain",
+        "ET" to "Ethiopia", "FI" to "Finland", "FR" to "France", "FRA" to "France", "GB" to "UK", "UK" to "UK",
+        "GE" to "Georgia", "GH" to "Ghana", "GR" to "Greece", "GT" to "Guatemala", "HK" to "Hong Kong", "HN" to "Honduras",
+        "HR" to "Croatia", "HU" to "Hungary", "ID" to "Indonesia", "IE" to "Ireland", "IL" to "Israel", "IN" to "India",
+        "IND" to "India", "IQ" to "Iraq", "IR" to "Iran", "IS" to "Iceland", "IT" to "Italy", "ITA" to "Italy",
+        "JM" to "Jamaica", "JO" to "Jordan", "JP" to "Japan", "KE" to "Kenya", "KR" to "Korea", "KW" to "Kuwait",
+        "KZ" to "Kazakhstan", "LB" to "Lebanon", "LK" to "Sri Lanka", "LT" to "Lithuania", "LU" to "Luxembourg",
+        "LV" to "Latvia", "LY" to "Libya", "MA" to "Morocco", "MD" to "Moldova", "ME" to "Montenegro", "MK" to "North Macedonia",
+        "MT" to "Malta", "MX" to "Mexico", "MY" to "Malaysia", "NG" to "Nigeria", "NL" to "Netherlands", "NO" to "Norway",
+        "NP" to "Nepal", "NZ" to "New Zealand", "OM" to "Oman", "PA" to "Panama", "PE" to "Peru", "PH" to "Philippines",
+        "PK" to "Pakistan", "PL" to "Poland", "PR" to "Puerto Rico", "PT" to "Portugal", "PY" to "Paraguay", "QA" to "Qatar",
+        "RO" to "Romania", "RS" to "Serbia", "RU" to "Russia", "SA" to "Saudi Arabia", "SE" to "Sweden", "SG" to "Singapore",
+        "SI" to "Slovenia", "SK" to "Slovakia", "SN" to "Senegal", "SO" to "Somalia", "SV" to "El Salvador", "SY" to "Syria",
+        "TH" to "Thailand", "TN" to "Tunisia", "TR" to "Turkey", "TUR" to "Turkey", "TW" to "Taiwan", "TZ" to "Tanzania",
+        "UA" to "Ukraine", "UG" to "Uganda", "US" to "USA", "USA" to "USA", "UY" to "Uruguay", "VE" to "Venezuela",
+        "VN" to "Vietnam", "YE" to "Yemen", "ZA" to "South Africa", "ZM" to "Zambia", "ZW" to "Zimbabwe",
+        // Regions and languages
+        "AR-AR" to "Arabic", "ARA" to "Arabic", "ARAB" to "Arabic", "AFR" to "Africa", "LAT" to "Latino",
+        "LATAM" to "Latin America", "LATINO" to "Latino", "CAR" to "Caribbean", "CARIB" to "Caribbean", "EN" to "English",
+        "ENG" to "English", "EX-YU" to "Ex-Yugoslavia", "EXYU" to "Ex-Yugoslavia", "YU" to "Ex-Yugoslavia",
+        "KUR" to "Kurdish", "PERSIAN" to "Persian", "TAMIL" to "Tamil", "PUNJABI" to "Punjabi", "URDU" to "Urdu",
+        "BANGLA" to "Bangla", "HINDI" to "Hindi", "BENGALI" to "Bengali", "TELUGU" to "Telugu", "MALAYALAM" to "Malayalam",
+        "KANNADA" to "Kannada", "MARATHI" to "Marathi", "GUJARATI" to "Gujarati", "INDIA" to "India", "CANADA" to "Canada",
+        "PAKISTAN" to "Pakistan", "BANGLADESH" to "Bangladesh", "ARABIC" to "Arabic", "AFRICA" to "Africa",
+        "CARIBBEAN" to "Caribbean", "ENGLISH" to "English", "FRANCE" to "France", "GERMANY" to "Germany", "SPAIN" to "Spain",
+        "ITALY" to "Italy", "PORTUGAL" to "Portugal", "BRAZIL" to "Brazil", "MEXICO" to "Mexico", "TURKEY" to "Turkey",
+        "GREECE" to "Greece", "POLAND" to "Poland",
+        // Topics some providers group by
+        "SPORT" to "Sports", "SPORTS" to "Sports", "PPV" to "Pay-per-view", "VIP" to "VIP", "4K" to "4K", "UHD" to "4K",
+        "KIDS" to "Kids", "MUSIC" to "Music", "NEWS" to "News",
     )
+
     private val KNOWN = setOf(
         "INDIA", "CANADA", "PAKISTAN", "BANGLA", "BANGLADESH", "ARABIC", "LATINO", "AFRICA", "CARIBBEAN",
         "ENGLISH", "HINDI", "PUNJABI", "TAMIL", "TELUGU", "BENGALI", "MALAYALAM", "KANNADA", "MARATHI",
@@ -39,12 +64,16 @@ object LiveBrowse {
         val rest = m.groupValues[2].trim()
         if (rest.isEmpty()) return null
         val up = code.uppercase()
-        val ok = (code.length in 2..4 && code == up) || up in KNOWN
+        // Only codes we can name: "HR" is Croatia, but an unknown "TS" isn't treated as a country.
+        val ok = up in NAMES || up in KNOWN
         return if (ok) up to rest else null
     }
 
     fun label(key: String): String =
         NAMES[key] ?: key.lowercase().split('-').joinToString("-") { w -> w.replaceFirstChar { it.uppercase() } }
+
+    /** Display name of a country or language code, or null when it isn't one Relay knows. */
+    fun nameOf(code: String): String? = NAMES[code.uppercase()]
 
     /** Null when the provider doesn't use prefixes consistently enough to be worth grouping. */
     fun group(cats: List<Category>): List<CatGroup>? {

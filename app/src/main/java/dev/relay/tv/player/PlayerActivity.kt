@@ -44,6 +44,7 @@ import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import dev.relay.tv.data.PlaybackDiagnosis
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -130,6 +131,10 @@ class PlayerActivity : ComponentActivity() {
     private var failPos = 0L
     private lateinit var failPanel: LinearLayout
     private lateinit var failText: TextView
+    private lateinit var failHint: TextView
+    private var lastHttp: Int? = null
+    private var lastErrorName = "STALL"
+    private var diagnoseJob: kotlinx.coroutines.Job? = null
     private lateinit var failRetry: TextView
     private lateinit var failNext: TextView
     private val watchdog = object : Runnable {
@@ -403,6 +408,13 @@ class PlayerActivity : ComponentActivity() {
             setTextColor(Color.WHITE)
             textSize = 20f
             gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 8)
+        }
+        failHint = TextView(this).apply {
+            setTextColor(0xFFB8C2D3.toInt())
+            textSize = 15f
+            gravity = Gravity.CENTER
+            maxWidth = 900
             setPadding(0, 0, 0, 28)
         }
         failRetry = button("Retry") { retryAfterFailure() }
@@ -423,6 +435,7 @@ class PlayerActivity : ComponentActivity() {
             setBackgroundColor(0xEE0B1220.toInt())
             visibility = View.GONE
             addView(failText)
+            addView(failHint)
             addView(buttons)
         }
         root.addView(
@@ -442,9 +455,45 @@ class PlayerActivity : ComponentActivity() {
         overlay.visibility = View.GONE
         view.hideController()
         failText.text = message
+        failHint.text = "Checking what went wrong…"
+        diagnose()
         failNext.visibility = if (req.live && req.items.size > 1) View.VISIBLE else View.GONE
         failPanel.visibility = View.VISIBLE
         failRetry.requestFocus()
+    }
+
+    /** Checks the account and the last error, then explains the failure in plain words. */
+    private fun diagnose() {
+        diagnoseJob?.cancel()
+        val http = lastHttp
+        val err = lastErrorName
+        diagnoseJob = lifecycleScope.launch {
+            val login = try {
+                kotlinx.coroutines.withTimeoutOrNull(8_000) { app.api.authenticate() }
+                    ?.let { PlaybackDiagnosis.Login.Ok(it, System.currentTimeMillis() / 1000) }
+                    ?: PlaybackDiagnosis.Login.Unreachable
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e.message?.contains("rejected", ignoreCase = true) == true) PlaybackDiagnosis.Login.Rejected(e.message.orEmpty())
+                else PlaybackDiagnosis.Login.Unreachable
+            }
+            val r = PlaybackDiagnosis.diagnose(http, err, login, req.live)
+            AppLog.w("Player", "Diagnosis: ${r.title} (error $err, HTTP ${http ?: "-"})")
+            if (failing) {
+                failText.text = r.title
+                failHint.text = r.hint
+            }
+        }
+    }
+
+    private fun httpCodeOf(e: Throwable?): Int? {
+        var c = e
+        while (c != null) {
+            if (c is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) return c.responseCode
+            c = c.cause
+        }
+        return null
     }
 
     private fun hideFailure() {
@@ -479,6 +528,8 @@ class PlayerActivity : ComponentActivity() {
 
     private fun onStall() {
         val item = currentItem() ?: return
+        lastErrorName = "STALL"
+        lastHttp = null
         val urls = urlsFor(item)
         if (req.live) {
             liveStalls++
@@ -840,6 +891,8 @@ class PlayerActivity : ComponentActivity() {
 
     private fun handleError(e: PlaybackException) {
         val item = currentItem() ?: return
+        lastErrorName = e.errorCodeName
+        lastHttp = httpCodeOf(e)
         AppLog.e("Player", "${e.errorCodeName} on ${item.kind} '${item.title}' via ${hostOf(urlsFor(item).getOrNull(hostAttempt))}", e)
         if (req.live && timeshift != null) {
             AppLog.w("Timeshift", "Pause buffer playback failed for ${item.title}; playing directly")

@@ -258,6 +258,7 @@ fun SettingsTab() {
     val newGroupPrompt = remember { mutableStateOf(false) }
     val gate = rememberParentGate()
     var parentPinDialog by remember { mutableStateOf(false) }
+    var reportOpen by remember { mutableStateOf(false) }
     var pinFor by remember { mutableStateOf<Profile?>(null) }
 
     // Phones: back up to / restore from a file through Android's file picker.
@@ -584,6 +585,7 @@ fun SettingsTab() {
             }
         }
         item { Setting("View recent activity", "${AppLog.recent().size} lines", false) { viewingLog = true } }
+        item { Setting("Library and language report", "What Relay recognised in your playlist", false) { reportOpen = true } }
         item {
             val crash = AppLog.lastCrash()
             Setting("Share logs", crash?.let { "Includes crash from ${timeFmt.format(Date(it))}" } ?: "", false) {
@@ -755,6 +757,7 @@ fun SettingsTab() {
         )
     }
     if (parentPinDialog) ParentPinDialog(onDismiss = { parentPinDialog = false })
+    if (reportOpen) LibraryReportDialog(onDismiss = { reportOpen = false })
     pinFor?.let { p ->
         TextEditDialog(
             "PIN for ${p.name}", "", { pinFor = null },

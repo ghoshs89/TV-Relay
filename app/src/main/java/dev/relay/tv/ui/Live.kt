@@ -49,6 +49,7 @@ import dev.relay.tv.data.Category
 import dev.relay.tv.data.Channel
 import dev.relay.tv.data.EpgEntry
 import dev.relay.tv.data.FavItem
+import dev.relay.tv.data.ProviderNames
 import dev.relay.tv.player.Playback
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -78,7 +79,12 @@ fun LiveTab() {
     LaunchedEffect(Unit) {
         if (!ui.liveRestored) {
             ui.liveRestored = true
-            store.lastLiveCat(pid)?.let { ui.liveCat = it }
+            // First visit: start on a short list (favourites, then recent) rather than every channel.
+            ui.liveCat = store.lastLiveCat(pid) ?: when {
+                store.favs(pid).any { it.kind == "live" } -> UiState.FAV
+                store.history(pid).any { it.kind == "live" } -> UiState.HISTORY
+                else -> ui.liveCat
+            }
         }
     }
     LaunchedEffect(ui.liveCat) { store.setLastLiveCat(pid, ui.liveCat) }
@@ -105,18 +111,18 @@ fun LiveTab() {
             if (providerCats.any { it.id == id }) {
                 val g = countries?.firstOrNull { gr -> gr.cats.any { it.id == id } }
                 val prefix = if (g != null && g.key != "__other") "${g.label} · " else ""
-                add(CatRow.Item(id, "📌 $prefix${shortName[id] ?: id}", catalog.channelsByCat[id]?.size))
+                add(CatRow.Item(id, "📌 $prefix${ProviderNames.clean(shortName[id] ?: id)}", catalog.channelsByCat[id]?.size))
             }
         }
         groups.forEach { add(CatRow.Item("${ChannelEdits.GROUP}${it.id}", "▸ ${it.name}", it.channelIds.size)) }
         add(CatRow.Item(UiState.ALL, "All channels", catalog.channels.size))
         if (countries == null) {
-            providerCats.forEach { add(CatRow.Item(it.id, it.name, catalog.channelsByCat[it.id]?.size)) }
+            providerCats.forEach { add(CatRow.Item(it.id, ProviderNames.clean(it.name), catalog.channelsByCat[it.id]?.size)) }
         } else {
             countries.forEach { g ->
                 val open = g.key == openCountry
                 add(CatRow.Header(g.key, g.label, g.cats.size, open))
-                if (open) g.cats.forEach { add(CatRow.Item(it.id, it.name, catalog.channelsByCat[it.id]?.size, indent = true)) }
+                if (open) g.cats.forEach { add(CatRow.Item(it.id, ProviderNames.clean(it.name), catalog.channelsByCat[it.id]?.size, indent = true)) }
             }
         }
     }
@@ -142,6 +148,7 @@ fun LiveTab() {
         LiveBrowse.apply(base, sort, ui.liveFilters, ui.liveFind, favIds)
     }
     var focused by remember { mutableStateOf<Channel?>(null) }
+    val isTv = rememberIsTv()
     var finding by remember { mutableStateOf(false) }
     catalog.epgVersion
 
@@ -254,7 +261,6 @@ fun LiveTab() {
                         itemsIndexed(channels) { i, ch ->
                             ChannelRow(
                                 ch,
-                                now = catalog.nowPlaying(ch.id),
                                 fav = ch.id in favIds,
                                 onFocused = { focused = ch },
                                 onClick = { Playback.live(ctx, channels, i) },
@@ -263,7 +269,8 @@ fun LiveTab() {
                     }
                 }
             }
-            if (!ui.liveGrid) {
+            // Phones show the panel only once a channel is selected; TVs keep it as a guide preview.
+            if (!ui.liveGrid && (isTv || focused != null)) {
                 Spacer(Modifier.width(14.dp))
                 ChannelPanel(
                     focused,
@@ -330,7 +337,14 @@ fun LiveTextDialog(title: String, value: String, onValueChange: (String) -> Unit
 }
 
 @Composable
-private fun ChannelRow(ch: Channel, now: String?, fav: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
+private fun ChannelRow(ch: Channel, fav: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
+    val catalog = RelayApp.instance.catalog
+    LaunchedEffect(ch.id) {
+        delay(350) // rows passed while scrolling quickly don't ask the provider
+        catalog.prefetchNowNext(ch.id)
+    }
+    val nn = catalog.nowNext(ch.id)
+    val name = remember(ch.name) { ProviderNames.clean(ch.name) }
     Focusable(
         onClick, Modifier.fillMaxWidth().height(66.dp), key = "ch:${ch.id}",
         shape = RoundedCornerShape(8.dp), scaleOnFocus = 1.02f, onFocused = onFocused,
@@ -352,8 +366,34 @@ private fun ChannelRow(ch: Channel, now: String?, fav: Boolean, onFocused: () ->
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(ch.name, color = Palette.text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (now != null) Text(now, color = Palette.dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(name, color = Palette.text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val cur = nn?.first
+                val next = nn?.second
+                when {
+                    nn == null -> {}
+                    cur == null && next == null -> Text("No guide available", color = Palette.dim, fontSize = 12.sp)
+                    else -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                cur?.title ?: "Nothing on now", Modifier.weight(1f, fill = false),
+                                color = Palette.text.copy(alpha = 0.8f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                            if (next != null) {
+                                Text(
+                                    "   Next: ${next.title}", color = Palette.dim, fontSize = 12.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        if (cur != null) {
+                            val nowSec = System.currentTimeMillis() / 1000
+                            val p = ((nowSec - cur.start).toFloat() / (cur.end - cur.start).coerceAtLeast(1)).coerceIn(0f, 1f)
+                            Box(Modifier.padding(top = 3.dp).fillMaxWidth(0.6f).height(2.dp).background(Palette.bg)) {
+                                Box(Modifier.fillMaxWidth(p).fillMaxHeight().background(Palette.accent))
+                            }
+                        }
+                    }
+                }
             }
             if (ch.hasArchive) {
                 Text("CATCH-UP", color = Palette.accent2, fontSize = 10.sp, fontWeight = FontWeight.Bold)

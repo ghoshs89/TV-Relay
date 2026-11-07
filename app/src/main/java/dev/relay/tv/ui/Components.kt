@@ -1,7 +1,9 @@
 package dev.relay.tv.ui
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -225,6 +227,7 @@ fun PillButton(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ListRow(
     text: String,
@@ -252,9 +255,11 @@ fun ListRow(
                 Box(Modifier.size(width = 3.dp, height = 18.dp).background(Palette.accent))
                 Spacer(Modifier.width(10.dp))
             }
+            // A long name scrolls while focused so the whole of it can be read.
             Text(
-                text, Modifier.weight(1f), color = if (selected) Palette.accent else textColor,
-                fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                text, Modifier.weight(1f).then(if (f) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier),
+                color = if (selected) Palette.accent else textColor,
+                fontSize = 15.sp, maxLines = 1, overflow = if (f) TextOverflow.Clip else TextOverflow.Ellipsis,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             )
             if (trailing != null) Text(trailing, color = Palette.dim, fontSize = 13.sp, maxLines = 1)
@@ -278,7 +283,12 @@ fun PosterCard(
     fit: Boolean = false,
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
+    parseTitle: Boolean = true,
 ) {
+    // Provider names like "ES - Nocturno (2026) (US)" show as "Nocturno" with an "ES" tag on the art.
+    val parts = remember(title, parseTitle) { if (parseTitle) dev.relay.tv.data.TitleParts.parse(title) else null }
+    val shown = parts?.title ?: title
+    val tag = parts?.tag
     Column(modifier.width(width)) {
         Focusable(
             onClick, Modifier.fillMaxWidth().aspectRatio(aspect), key = key,
@@ -286,7 +296,7 @@ fun PosterCard(
         ) { _ ->
             Box(Modifier.fillMaxSize().background(Palette.surface2)) {
                 Text(
-                    initials(title), Modifier.align(Alignment.Center), color = Palette.dim,
+                    initials(shown), Modifier.align(Alignment.Center), color = Palette.dim,
                     fontSize = 26.sp, fontWeight = FontWeight.Bold,
                 )
                 if (!image.isNullOrBlank()) {
@@ -295,6 +305,17 @@ fun PosterCard(
                         contentDescription = null,
                         contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().padding(if (fit) 14.dp else 0.dp),
+                    )
+                }
+                if (tag != null) {
+                    Text(
+                        tag,
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .background(Color(0xCC000000), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                        color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                     )
                 }
                 if (badge != null) {
@@ -319,7 +340,7 @@ fun PosterCard(
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, color = Palette.text)
+        Text(shown, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, color = Palette.text)
         if (subtitle != null) {
             Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp, color = Palette.dim)
         }
@@ -556,7 +577,9 @@ fun ChannelTile(
     nowPlaying: String? = null,
     width: Dp = 168.dp,
 ) {
-    val (tag, title) = remember(ch.name) { splitChannelName(ch.name) }
+    val (tag, rawTitle) = remember(ch.name) { splitChannelName(ch.name) }
+    val title = remember(rawTitle) { dev.relay.tv.data.ProviderNames.clean(rawTitle) }
+    var logoOk by remember(ch.logo) { mutableStateOf(false) }
     Column(Modifier.width(width)) {
         Focusable(onClick, Modifier.fillMaxWidth().aspectRatio(1.25f), key = key, shape = RoundedCornerShape(14.dp)) { f ->
             Box(
@@ -574,11 +597,14 @@ fun ChannelTile(
                         .padding(8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(initials(title), color = Color(0xFF5B6B85), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    // Initials stay visible until the logo actually loads, so a broken logo never leaves a blank tile.
+                    if (!logoOk) Text(initials(title), color = Color(0xFF5B6B85), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     if (!ch.logo.isNullOrBlank()) {
                         AsyncImage(
                             model = ch.logo, contentDescription = null, contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize().background(Color(0xFFF2F5FA)),
+                            modifier = Modifier.fillMaxSize(),
+                            onSuccess = { logoOk = true },
+                            onError = { logoOk = false },
                         )
                     }
                 }
