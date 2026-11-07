@@ -71,8 +71,18 @@ android {
         buildConfig = true
     }
     lint {
+        // CI runs lint as its own step and fails only on the crash-class issues listed in
+        // .github/lint-gate.py; the full report is kept with each build.
         checkReleaseBuilds = false
         abortOnError = false
+        xmlReport = true
+        xmlOutput = file("build/reports/lint/lint.xml")
+        htmlReport = true
+        htmlOutput = file("build/reports/lint/lint.html")
+    }
+    testOptions {
+        // Plain JVM tests: Android framework calls (logging) return defaults instead of throwing.
+        unitTests.isReturnDefaultValues = true
     }
     packaging {
         resources.excludes += setOf("META-INF/AL2.0", "META-INF/LGPL2.1", "META-INF/*.kotlin_module")
@@ -104,4 +114,8 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
     // FFmpeg audio decoders (AC3, E-AC3, DTS, TrueHD) for devices without hardware support.
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.6.1+1")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

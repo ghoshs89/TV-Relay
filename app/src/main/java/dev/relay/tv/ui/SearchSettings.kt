@@ -247,6 +247,8 @@ fun SettingsTab() {
     val ctx = LocalContext.current
     val guide = app.catalog.guide
     val newGroupPrompt = remember { mutableStateOf(false) }
+    val gate = rememberParentGate()
+    var parentPinDialog by remember { mutableStateOf(false) }
 
     // Phones: back up to / restore from a file through Android's file picker.
     val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -325,7 +327,7 @@ fun SettingsTab() {
         }
         item {
             Setting("Change servers or login", "${acc?.hosts?.size ?: 0} server(s) saved", kidsLocked) {
-                nav.push(Route.Login)
+                gate.run("Parent PIN to change servers") { nav.push(Route.Login) }
             }
         }
 
@@ -458,7 +460,9 @@ fun SettingsTab() {
 
         item { Section("Backup & phone") }
         item {
-            Setting("Phone companion", "Sign in, back up or restore from your phone", kidsLocked) { companion = true }
+            Setting("Phone companion", "Sign in, back up or restore from your phone", kidsLocked) {
+                gate.run("Parent PIN for the phone companion") { companion = true }
+            }
         }
         item {
             Setting("Back up to a file", "Not including your login", false) {
@@ -471,10 +475,12 @@ fun SettingsTab() {
         }
         item {
             Setting("Restore from a file", "", kidsLocked) {
-                try {
-                    openDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
-                } catch (e: Exception) {
-                    backupNote = "No file picker on this device. Use Phone companion instead."
+                gate.run("Parent PIN to restore a backup") {
+                    try {
+                        openDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                    } catch (e: Exception) {
+                        backupNote = "No file picker on this device. Use Phone companion instead."
+                    }
                 }
             }
         }
@@ -492,10 +498,16 @@ fun SettingsTab() {
                 if (s.hideAdult) "On" else "Off",
                 kidsLocked,
             ) {
-                if (s.hideAdult && !current?.pin.isNullOrEmpty()) {
+                if (!s.hideAdult) {
+                    store.settings = s.copy(hideAdult = true)
+                } else if (store.hasParentPin) {
+                    gate.run("Parent PIN to show adult categories") {
+                        store.settings = store.settings.copy(hideAdult = false)
+                    }
+                } else if (!current?.pin.isNullOrEmpty()) {
                     pinGate = true
                 } else {
-                    store.settings = s.copy(hideAdult = !s.hideAdult)
+                    store.settings = s.copy(hideAdult = false)
                 }
             }
         }
@@ -503,14 +515,26 @@ fun SettingsTab() {
         item { Section("Profiles") }
         item {
             Setting("Switch profile", current?.name ?: "", false) {
-                app.session.profile = null
-                app.ui = UiState()
-                nav.reset(Route.Profiles)
+                val leave = {
+                    app.session.profile = null
+                    app.ui = UiState()
+                    nav.reset(Route.Profiles)
+                }
+                if (current?.kids == true) gate.run("Parent PIN to leave the kids profile", leave) else leave()
             }
         }
-        item { Setting("Add a profile", "", kidsLocked) { addingProfile = true } }
+        item { Setting("Add a profile", "", kidsLocked) { gate.run("Parent PIN to add a profile") { addingProfile = true } } }
         store.profiles.filter { it.id != current?.id }.forEach { p ->
-            item { Setting("Remove profile \"${p.name}\"", if (p.kids) "Kids" else "", kidsLocked, danger = true) { deleting = p } }
+            item {
+                Setting("Remove profile \"${p.name}\"", if (p.kids) "Kids" else "", kidsLocked, danger = true) {
+                    gate.run("Parent PIN to remove a profile") { deleting = p }
+                }
+            }
+        }
+        item {
+            Setting("Parent PIN", if (store.hasParentPin) "Set · change or remove" else "Not set", kidsLocked) {
+                gate.run("Current parent PIN") { parentPinDialog = true }
+            }
         }
 
         item { Section("Diagnostics") }
@@ -557,7 +581,11 @@ fun SettingsTab() {
                 if (Updater.pending == null && !Updater.busy) scope.launch { Updater.check(app.http) }
             }
         }
-        item { Setting("Sign out and remove playlist", "", kidsLocked, danger = true) { confirmSignOut = true } }
+        item {
+            Setting("Sign out and remove playlist", "", kidsLocked, danger = true) {
+                gate.run("Parent PIN to sign out") { confirmSignOut = true }
+            }
+        }
     }
 
     if (companion) {
@@ -676,9 +704,11 @@ fun SettingsTab() {
             onSave = {
                 store.profiles = store.profiles + it
                 addingProfile = false
+                if (it.kids && !store.hasParentPin) parentPinDialog = true
             },
         )
     }
+    if (parentPinDialog) ParentPinDialog(onDismiss = { parentPinDialog = false })
 
     deleting?.let { p ->
         ConfirmDialog(

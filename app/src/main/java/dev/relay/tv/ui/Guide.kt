@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,10 +72,14 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val density = LocalDensity.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    // Rows reload their listings every 15 minutes while the guide stays open.
+    var reload by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
+        var minutes = 0
         while (true) {
             delay(60_000)
             now = System.currentTimeMillis() / 1000
+            if (++minutes % 15 == 0) reload++
         }
     }
     val windowStart = remember { (now - HOURS_BACK * 3600) / 1800 * 1800 }
@@ -144,6 +149,7 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
                 itemsIndexed(channels) { i, ch ->
                     GuideRow(
                         ch = ch,
+                        reload = reload,
                         windowStart = windowStart,
                         windowEnd = windowEnd,
                         now = now,
@@ -179,6 +185,7 @@ private fun NowLine(x: androidx.compose.ui.unit.Dp) {
 @Composable
 private fun GuideRow(
     ch: Channel,
+    reload: Int,
     windowStart: Long,
     windowEnd: Long,
     now: Long,
@@ -193,9 +200,15 @@ private fun GuideRow(
     val ctx = LocalContext.current
     app.store.version.intValue
     var entries by remember(ch.id) { mutableStateOf<List<EpgEntry>?>(null) }
-    LaunchedEffect(ch.id) {
+    var failed by remember(ch.id) { mutableStateOf(false) }
+    var retry by remember(ch.id) { mutableIntStateOf(0) }
+    LaunchedEffect(ch.id, reload, retry) {
         delay(120) // let fast scrolling skip rows before asking the provider
-        entries = app.catalog.gridEpg(ch, windowStart, windowEnd)
+        val fresh = reload > 0 || retry > 0
+        val got = app.catalog.gridEpgOrNull(ch, windowStart, windowEnd, fresh)
+        // A failed reload keeps what's already on screen.
+        if (got != null) entries = got
+        failed = got == null && entries == null
     }
     val (tag, title) = remember(ch.name) { splitChannelName(ch.name) }
 
@@ -237,6 +250,15 @@ private fun GuideRow(
                 val list = entries
                 val nowX = ((now - windowStart) / 60f * DP_PER_MIN).dp
                 when {
+                    list == null && failed -> {
+                        val s = ((now - windowStart) / 60f).coerceAtLeast(0f)
+                        val w = 180f
+                        Focusable({ failed = false; retry++ }, Modifier.offset(x = (s * DP_PER_MIN).dp).width((w * DP_PER_MIN).dp).fillMaxHeight(), key = "gfail:${ch.id}", shape = RoundedCornerShape(6.dp), scaleOnFocus = 1f, onFocused = { onReveal(s, s + w) }) { f ->
+                            Box(Modifier.fillMaxSize().background(if (f) Palette.surface2 else Palette.surface).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
+                                Text("Couldn't load guide · OK to retry", color = Palette.danger, fontSize = 13.sp, maxLines = 1)
+                            }
+                        }
+                    }
                     list == null -> Text("Loading…", color = Palette.dim, fontSize = 12.sp, modifier = Modifier.offset(x = nowX + 8.dp, y = 20.dp))
                     list.isEmpty() -> {
                         val s = ((now - windowStart) / 60f).coerceAtLeast(0f)

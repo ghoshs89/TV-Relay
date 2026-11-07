@@ -216,7 +216,9 @@ fun ProfilesScreen(onPick: (Profile) -> Unit) {
     val profiles = store.profiles
     var adding by remember { mutableStateOf(false) }
     var pinFor by remember { mutableStateOf<Profile?>(null) }
+    var askParentPin by remember { mutableStateOf(false) }
     val first = remember { FocusRequester() }
+    val gate = rememberParentGate()
 
     LaunchedEffect(Unit) {
         if (store.profiles.isEmpty()) {
@@ -224,6 +226,14 @@ fun ProfilesScreen(onPick: (Profile) -> Unit) {
         }
         if (!app.session.autoPickDone) {
             app.session.autoPickDone = true
+            // Kids lock: with a parent PIN set, a kids profile used last reopens directly;
+            // leaving it needs the parent PIN (Settings → Switch profile).
+            val last = store.profiles.firstOrNull { it.id == store.lastProfileId }
+            if (store.hasParentPin && last?.kids == true) {
+                AppLog.i("Access", "Kids lock: reopening ${last.name}")
+                onPick(last)
+                return@LaunchedEffect
+            }
             val only = store.profiles.singleOrNull()
             if (only != null && only.pin.isNullOrEmpty()) onPick(only)
         }
@@ -249,7 +259,7 @@ fun ProfilesScreen(onPick: (Profile) -> Unit) {
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Focusable({ adding = true }, Modifier.size(132.dp), shape = CircleShape) { f ->
+                Focusable({ gate.run("Parent PIN to add a profile") { adding = true } }, Modifier.size(132.dp), shape = CircleShape) { f ->
                     Box(
                         Modifier.fillMaxSize().background(if (f) Palette.surface2 else Palette.surface),
                         contentAlignment = Alignment.Center,
@@ -270,7 +280,15 @@ fun ProfilesScreen(onPick: (Profile) -> Unit) {
             onSave = { p ->
                 store.profiles = store.profiles + p
                 adding = false
+                if (p.kids && !store.hasParentPin) askParentPin = true
             },
+        )
+    }
+    if (askParentPin) {
+        ParentPinDialog(
+            onDismiss = { askParentPin = false },
+            intro = "Set a parent PIN so the kids profile can't be left or changed without you. " +
+                "With one set, Relay reopens the kids profile when it was the last one used.",
         )
     }
     pinFor?.let { p ->

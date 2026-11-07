@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,9 +61,13 @@ fun MovieDetailScreen(m: Movie) {
     val pid = app.session.profileId
 
     var info by remember { mutableStateOf<MovieInfo?>(null) }
+    var failed by remember { mutableStateOf(false) }
+    var attempt by remember { mutableIntStateOf(0) }
     var tmdb by remember { mutableStateOf<Tmdb.Info?>(null) }
-    LaunchedEffect(m.id) {
+    LaunchedEffect(m.id, attempt) {
+        failed = false
         info = runCatching { app.api.vodInfo(m.id) }.getOrNull()
+        failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, false, info?.tmdbId ?: m.tmdbId, m.name, info?.year ?: m.year)
     }
@@ -117,7 +122,10 @@ fun MovieDetailScreen(m: Movie) {
                 }
                 Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
                 val plot = tmdb?.overview ?: info?.plot
-                if (info == null) {
+                if (failed) {
+                    // Play still works from the list's information; only the extra details are missing.
+                    LoadFailed("Couldn't load details.", key = "md:retry") { attempt++ }
+                } else if (info == null) {
                     CircularProgressIndicator(Modifier.size(22.dp), color = Palette.accent, strokeWidth = 2.dp)
                 } else if (!plot.isNullOrBlank()) {
                     Text(plot, color = Palette.text, fontSize = if (compact) 15.sp else 17.sp, lineHeight = if (compact) 22.sp else 25.sp)
@@ -141,9 +149,11 @@ fun SeriesDetailScreen(s: Series) {
 
     var info by remember { mutableStateOf<SeriesInfo?>(null) }
     var failed by remember { mutableStateOf(false) }
+    var attempt by remember { mutableIntStateOf(0) }
     var tmdb by remember { mutableStateOf<Tmdb.Info?>(null) }
     var season by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(s.id) {
+    LaunchedEffect(s.id, attempt) {
+        failed = false
         info = runCatching { app.api.seriesInfo(s.id) }.getOrNull()
         failed = info == null
         val key = store.settings.tmdbKey
@@ -214,7 +224,10 @@ fun SeriesDetailScreen(s: Series) {
                             focusRequester = if (nextEp == null) playFocus else null,
                         )
                     }
-                    if (failed) Text("Couldn't load episodes. Try again later.", color = Palette.danger, modifier = Modifier.padding(top = 10.dp))
+                    if (failed) {
+                        Spacer(Modifier.height(10.dp))
+                        LoadFailed("Couldn't load episodes.", key = "sd:retry") { attempt++ }
+                    }
                     Spacer(Modifier.height(if (compact) 12.dp else 16.dp))
                     val plot = tmdb?.overview ?: info?.plot ?: s.plot
                     if (!plot.isNullOrBlank()) {
@@ -267,6 +280,16 @@ fun SeriesDetailScreen(s: Series) {
                 }
             }
         }
+    }
+}
+
+/** Failure text with a Retry button, used instead of a spinner that never ends. */
+@Composable
+fun LoadFailed(text: String, key: String? = null, onRetry: () -> Unit) {
+    Column {
+        Text(text, color = Palette.danger, fontSize = 15.sp)
+        Spacer(Modifier.height(8.dp))
+        PillButton("Retry", onRetry, icon = Icons.Filled.Refresh, key = key)
     }
 }
 

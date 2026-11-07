@@ -80,6 +80,16 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
     fun allowed(categoryId: String, restrict: Boolean) = !restrict || categoryId !in adultCats
 
+    /** The single playback restriction check for a profile (see [Restrictions]). */
+    fun restrictions(restrict: Boolean): Restrictions =
+        if (!restrict) Restrictions.NONE
+        else Restrictions(
+            true, adultCats,
+            channelCat = { channelById[it]?.categoryId },
+            movieCat = { movieById[it]?.categoryId },
+            seriesCat = { seriesById[it]?.categoryId },
+        )
+
     suspend fun load(force: Boolean = false) {
         mutex.withLock {
             loading = true
@@ -264,15 +274,23 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
     // ---------- Guide ----------
 
-    suspend fun shortEpg(id: Int): List<EpgEntry> {
+    suspend fun shortEpg(id: Int): List<EpgEntry> = shortEpgOrNull(id).orEmpty()
+
+    /**
+     * Now and next for a channel. Null when the provider failed and the external guide has nothing
+     * either, so screens can offer Retry instead of claiming there's no guide. Failures aren't cached.
+     */
+    suspend fun shortEpgOrNull(id: Int, fresh: Boolean = false): List<EpgEntry>? {
         val now = System.currentTimeMillis()
-        epgCache[id]?.let { if (now - it.first < 10 * 60_000L) return it.second }
+        if (!fresh) epgCache[id]?.let { if (now - it.first < 10 * 60_000L) return it.second }
+        var failed = false
         val provider = try {
             api.epg(id, full = false, limit = 10)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             AppLog.w("Epg", "Guide unavailable for stream $id", e)
+            failed = true
             emptyList()
         }
         val nowSec = now / 1000
@@ -280,26 +298,35 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             // Provider has nothing for this channel: fall back to the external XMLTV guide.
             shift(guide?.entries(id).orEmpty()).filter { it.end > nowSec }.take(10)
         }
+        if (failed && list.isEmpty()) return null
         epgCache[id] = now to list
         epgVersion++
         return list
     }
 
-    suspend fun archive(id: Int): List<EpgEntry> = try {
+    suspend fun archive(id: Int): List<EpgEntry> = archiveOrNull(id).orEmpty()
+
+    /** Catch-up listings; null when the provider couldn't be reached. */
+    suspend fun archiveOrNull(id: Int): List<EpgEntry>? = try {
         shift(api.epg(id, full = true))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        emptyList()
+        AppLog.w("Epg", "Catch-up list unavailable for stream $id", e)
+        null
     }
 
     // Guide grid: wider window per channel, cached, with a cap on parallel requests to the provider.
     private val gridCache = ConcurrentHashMap<Int, Pair<Long, List<EpgEntry>>>()
     private val gridGate = kotlinx.coroutines.sync.Semaphore(4)
 
-    suspend fun gridEpg(ch: Channel, from: Long, to: Long): List<EpgEntry> {
+    suspend fun gridEpg(ch: Channel, from: Long, to: Long): List<EpgEntry> = gridEpgOrNull(ch, from, to).orEmpty()
+
+    /** Null when the provider failed and there's no external guide data for the channel. */
+    suspend fun gridEpgOrNull(ch: Channel, from: Long, to: Long, fresh: Boolean = false): List<EpgEntry>? {
         val now = System.currentTimeMillis()
-        gridCache[ch.id]?.let { if (now - it.first < 15 * 60_000L) return it.second.filter { e -> e.end > from && e.start < to } }
+        if (!fresh) gridCache[ch.id]?.let { if (now - it.first < 15 * 60_000L) return it.second.filter { e -> e.end > from && e.start < to } }
+        var failed = false
         val list = gridGate.withPermit {
             val provider = try {
                 // Catch-up channels: the full table includes past shows; others only have what's next.
@@ -308,10 +335,12 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                 throw e
             } catch (e: Exception) {
                 AppLog.w("Epg", "Grid guide unavailable for ${ch.id}", e)
+                failed = true
                 emptyList()
             }
             shift(provider).ifEmpty { shift(guide?.entries(ch.id).orEmpty()) }
         }
+        if (failed && list.isEmpty()) return null
         gridCache[ch.id] = now to list
         return list.filter { it.end > from && it.start < to }
     }

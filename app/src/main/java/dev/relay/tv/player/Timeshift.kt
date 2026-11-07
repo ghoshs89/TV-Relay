@@ -17,6 +17,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.io.RandomAccessFile
+import java.util.concurrent.TimeUnit
 
 /**
  * Pause and rewind for live TV. One connection records the channel into rotating segment files;
@@ -26,11 +27,16 @@ import java.io.RandomAccessFile
  */
 class TimeshiftBuffer(
     private val dir: File,
-    private val http: OkHttpClient,
+    client: OkHttpClient,
     private val urls: List<String>,
     private val userAgent: String,
     private val bufferMinutes: Int,
+    private val clock: () -> Long = { SystemClock.elapsedRealtime() },
+    private val retryDelayMs: Long = 1_000,
+    firstDataTimeoutMs: Long = RecorderPolicy.FIRST_DATA_TIMEOUT_MS,
 ) {
+    // A connection that sends nothing for this long is treated as failed.
+    private val http = client.newBuilder().readTimeout(firstDataTimeoutMs, TimeUnit.MILLISECONDS).build()
     private val lock = Object()
 
     /** Total bytes recorded since start; also the global offset of the live edge. */
@@ -42,7 +48,8 @@ class TimeshiftBuffer(
         private set
 
     @Volatile private var closed = false
-    @Volatile private var failure: String? = null
+    @Volatile var failure: String? = null
+        private set
     @Volatile private var call: Call? = null
     private var startedAt = 0L
     private var out: FileOutputStream? = null
@@ -50,7 +57,7 @@ class TimeshiftBuffer(
 
     val bytesPerSecond: Double
         get() {
-            val secs = (SystemClock.elapsedRealtime() - startedAt) / 1000.0
+            val secs = (clock() - startedAt) / 1000.0
             return if (startedAt == 0L || secs < 2 || written <= 0) 0.0 else written / secs
         }
 
@@ -74,43 +81,62 @@ class TimeshiftBuffer(
     fun segFile(i: Long) = File(dir, "s$i.ts")
 
     private fun run() {
-        var attempt = 0
-        var failures = 0
+        val policy = RecorderPolicy(urls.size, clock)
+        val buf = ByteArray(64 * 1024)
         while (!closed) {
-            val url = urls[attempt % urls.size]
+            val url = urls[policy.host % urls.size]
+            val began = clock()
+            var bytes = 0L
+            var error = false
             try {
                 val c = http.newCall(Request.Builder().url(url).header("User-Agent", userAgent).build())
                 call = c
                 c.execute().use { r ->
                     if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
                     val input = r.body?.byteStream() ?: throw IOException("Empty stream")
-                    val buf = ByteArray(64 * 1024)
                     while (!closed) {
                         val n = input.read(buf)
                         if (n < 0) break
+                        if (bytes == 0L && TimeshiftSupport.looksLikePlaylist(buf, n)) {
+                            // An HLS playlist, not a transport stream: this channel must play directly.
+                            giveUp("The server sent a playlist, not MPEG-TS")
+                            return
+                        }
                         append(buf, n)
-                        failures = 0
+                        bytes += n
                     }
                 }
             } catch (e: Exception) {
                 if (closed) break
-                failures++
-                attempt++
-                AppLog.w("Timeshift", "Stream interrupted (attempt $failures)", e)
+                error = true
+                AppLog.w("Timeshift", "Connection to ${hostOf(url)} failed after ${bytes / 1024} KB", e)
             }
             if (closed) break
-            if (failures >= urls.size * 3) {
-                failure = "Stream unavailable"
-                synchronized(lock) { lock.notifyAll() }
-                break
+            when (val d = policy.onEnded(bytes, clock() - began, error)) {
+                RecorderPolicy.Decision.Retry ->
+                    AppLog.i("Timeshift", "Stream closed after ${bytes / 1024} KB; reconnecting")
+                RecorderPolicy.Decision.NextHost ->
+                    AppLog.w("Timeshift", "Trying server ${policy.host + 1} of ${urls.size} (failure ${policy.failures})")
+                is RecorderPolicy.Decision.GiveUp -> {
+                    giveUp(d.reason)
+                    break
+                }
             }
             try {
-                Thread.sleep(1_000)
+                Thread.sleep(retryDelayMs)
             } catch (_: InterruptedException) {
                 break
             }
         }
     }
+
+    private fun giveUp(reason: String) {
+        AppLog.e("Timeshift", "Recorder stopped: $reason")
+        failure = reason
+        synchronized(lock) { lock.notifyAll() }
+    }
+
+    private fun hostOf(url: String): String = url.substringAfter("://").substringBefore('/')
 
     private fun append(b: ByteArray, n: Int) {
         var off = 0
@@ -128,7 +154,7 @@ class TimeshiftBuffer(
             off += k
             synchronized(lock) {
                 written += k
-                if (startedAt == 0L) startedAt = SystemClock.elapsedRealtime()
+                if (startedAt == 0L) startedAt = clock().coerceAtLeast(1L)
                 lock.notifyAll()
             }
         }

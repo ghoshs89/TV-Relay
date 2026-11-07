@@ -76,14 +76,17 @@ fun AppRoot() {
 
     BackHandler(enabled = nav.stack.size > 1) { nav.pop(ui.focus) }
 
-    CompositionLocalProvider(LocalNav provides nav, LocalFocusMemory provides ui.focus) {
+    CompositionLocalProvider(LocalNav provides nav) {
         Box(Modifier.fillMaxSize().background(Palette.bg)) {
             val top = nav.stack.lastIndex
             nav.stack.forEachIndexed { i, route ->
                 // Home stays composed underneath detail pages so its scroll and focus survive "back".
                 if (i == top || route == Route.Home) {
                     key(i) {
-                        CompositionLocalProvider(LocalFocusEnabled provides (i == top)) {
+                        CompositionLocalProvider(
+                            LocalFocusEnabled provides (i == top),
+                            LocalFocusMemory provides nav.memory(i, ui.focus),
+                        ) {
                             Box(Modifier.fillMaxSize().background(Palette.bg)) {
                                 when (route) {
                                     Route.Login -> LoginScreen(

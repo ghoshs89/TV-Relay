@@ -34,7 +34,9 @@ Android also needs Relay allowed to install apps, once per TV. Either run `adb s
 
 ## Build
 
-Every push to `main` builds an APK in GitHub Actions.
+Every push to `main` builds an APK in GitHub Actions. The build runs the unit tests and lint first; a failing test, or a lint issue that would crash on a device (such as calling an Android API newer than the TV supports), stops it before anything is published. Test and lint reports are attached to each run as `reports-1.0.N`.
+
+To build locally: `./gradlew :app:assembleRelease` (tests: `./gradlew :app:testReleaseUnitTest`).
 
 1. Open the repo's **Actions** tab, select the latest **Build APK** run.
 2. Download the `Relay-1.0.N` artifact (a zip containing the APK).
@@ -101,6 +103,8 @@ Settings → Diagnostics. Recent activity is always kept in memory (500 lines, n
 - **Relay keyboard**: a D-pad friendly on-screen keyboard (default on TVs) with a voice key; Settings → Keyboard switches between Relay and the system keyboard.
 - **Live TV browsing**: categories grouped by country, sort per category, filters (catch-up, HD/4K, has guide), find in list, pinned categories, A–Z jump.
 - **Pause & rewind live TV**: one connection records the channel to a capped buffer (15/30/60 minutes, max 1.5 GB, deleted when you change channel or leave). If a channel doesn't work that way, Relay falls back to direct playback for it.
+- **Parent PIN** (Settings → Profiles): once set, it's needed to add or remove profiles, leave a kids profile, show adult categories, restore a backup, change servers or sign out. A kids profile used last reopens directly when Relay starts. Kids profiles can't reach adult titles by any route, including typing a channel number.
+- **Stream recovery**: live TV reconnects (moving through your backup servers) when a channel stalls for 20 seconds, and movies and episodes for 30 seconds, resuming at the same position. After three tries a live channel shows Retry and Next channel instead of buffering forever. Pause & rewind is used only with the MPEG-TS format; HLS channels play directly.
 - **Reminders**: set from the guide grid; they pop up while Relay is open (Android TV doesn't reliably show notifications from closed apps).
 - **Lip-sync adjustment**, **subtitle style**, **start on last channel**, **neutral black theme**, **channel groups and renames**, **external XMLTV guide** and **guide time offset** are in Settings.
 

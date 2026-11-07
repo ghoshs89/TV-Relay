@@ -133,7 +133,7 @@ object AppLog {
         return r
     }
 
-    private val QUERY_SECRET = Regex("(?i)\\b(username|password|api_key|token)=[^&\\s]+")
+    private val QUERY_SECRET = Regex("(?i)\\b(username|password|api_key|apikey|token)=[^&\\s]+")
     private val BEARER = Regex("(?i)Bearer\\s+\\S+")
 
     private fun installCrashHandler() {

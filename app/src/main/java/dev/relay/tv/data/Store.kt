@@ -58,6 +58,16 @@ class Store(ctx: Context) {
         get() = prefs.getString("last_profile", null)
         set(v) { prefs.edit().putString("last_profile", v).apply() }
 
+    /** Salted hash of the parent PIN (see [ParentPin]); null when none is set. Never backed up. */
+    var parentPin: String?
+        get() = prefs.getString(PARENT_PIN, null)
+        set(v) {
+            if (v == null) prefs.edit().remove(PARENT_PIN).apply() else prefs.edit().putString(PARENT_PIN, v).apply()
+            version.intValue++
+        }
+
+    val hasParentPin: Boolean get() = !parentPin.isNullOrEmpty()
+
     // ---------- Favourites ----------
 
     fun favs(pid: String): List<FavItem> = read<List<FavItem>>("fav_$pid", emptyList())
@@ -127,7 +137,7 @@ class Store(ctx: Context) {
     /** Everything except the login, as one JSON document. */
     fun exportJson(): String {
         val map = prefs.all
-            .filterKeys { it != "account" && it != "active_host" }
+            .filterKeys { it != "account" && it != "active_host" && it != PARENT_PIN }
             .mapValues { (_, v) -> kotlinx.serialization.json.JsonPrimitive(v?.toString()) }
         val root = kotlinx.serialization.json.buildJsonObject {
             put("app", kotlinx.serialization.json.JsonPrimitive("relay"))
@@ -146,7 +156,7 @@ class Store(ctx: Context) {
         val edit = prefs.edit()
         var n = 0
         for ((k, v) in data) {
-            if (k == "account" || k == "active_host") continue
+            if (k == "account" || k == "active_host" || k == PARENT_PIN) continue
             val value = v.str() ?: continue
             edit.putString(k, value)
             n++
@@ -155,6 +165,10 @@ class Store(ctx: Context) {
         cache.clear()
         version.intValue++
         return n
+    }
+
+    companion object {
+        const val PARENT_PIN = "parent_pin"
     }
 
     fun deleteProfile(pid: String) {

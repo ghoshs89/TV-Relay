@@ -2,7 +2,9 @@ package dev.relay.tv.player
 
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import dev.relay.tv.RelayApp
+import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Channel
 import dev.relay.tv.data.EpgEntry
 import dev.relay.tv.data.Episode
@@ -17,8 +19,16 @@ object Playback {
     private val app get() = RelayApp.instance
     private val pid get() = app.session.profileId
 
+    /** Every play request passes the profile's restrictions here; blocked items never reach the player. */
     private fun launch(ctx: Context, req: PlayRequest) {
-        app.pendingPlay = req
+        val r = app.catalog.restrictions(app.session.restrict(app.store.settings))
+        val ok = r.admit(req)
+        if (ok == null) {
+            AppLog.i("Access", "Blocked on this profile: ${req.items.getOrNull(req.index)?.kind}")
+            Toast.makeText(ctx, "Not available on this profile", Toast.LENGTH_SHORT).show()
+            return
+        }
+        app.pendingPlay = ok
         ctx.startActivity(Intent(ctx, PlayerActivity::class.java))
     }
 

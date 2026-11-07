@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -388,12 +389,26 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
     val pid = app.session.profileId
     run {
         var epg by remember(ch.id) { mutableStateOf<List<EpgEntry>?>(null) }
+        var epgFailed by remember(ch.id) { mutableStateOf(false) }
+        var epgRetry by remember(ch.id) { mutableIntStateOf(0) }
         var archive by remember(ch.id) { mutableStateOf<List<EpgEntry>?>(null) }
+        var archiveFailed by remember(ch.id) { mutableStateOf(false) }
         var showArchive by remember(ch.id) { mutableStateOf(false) }
         var options by remember(ch.id) { mutableStateOf(false) }
-        LaunchedEffect(ch.id) {
+        LaunchedEffect(ch.id, epgRetry) {
             delay(250)
-            epg = app.catalog.shortEpg(ch.id)
+            epgFailed = false
+            val got = app.catalog.shortEpgOrNull(ch.id, fresh = epgRetry > 0)
+            epg = got
+            epgFailed = got == null
+        }
+        val loadArchive: () -> Unit = {
+            archiveFailed = false
+            scope.launch {
+                val got = app.catalog.archiveOrNull(ch.id)
+                archive = got
+                archiveFailed = got == null
+            }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -418,7 +433,7 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
             if (ch.hasArchive) {
                 PillButton(if (showArchive) "Guide" else "Catch-up", {
                     showArchive = !showArchive
-                    if (archive == null) scope.launch { archive = app.catalog.archive(ch.id) }
+                    if (archive == null) loadArchive()
                 }, key = "pa:${ch.id}")
             }
             PillButton("Options", { options = true }, key = "po:${ch.id}")
@@ -430,6 +445,7 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
         if (!showArchive) {
             val list = epg
             when {
+                list == null && epgFailed -> LoadFailed("Couldn't load the guide.", key = "pr:${ch.id}") { epgRetry++ }
                 list == null -> Text("Loading guide…", color = Palette.dim)
                 list.none { it.end > nowSec } -> Text("No guide data for this channel.", color = Palette.dim)
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -455,6 +471,7 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
             val past = list?.filter { it.end <= nowSec && (it.hasArchive || it.start >= oldest) }
                 ?.sortedByDescending { it.start }
             when {
+                past == null && archiveFailed -> LoadFailed("Couldn't load catch-up.", key = "prc:${ch.id}") { loadArchive() }
                 past == null -> Text("Loading catch-up…", color = Palette.dim)
                 past.isEmpty() -> Text("No recorded programmes available.", color = Palette.dim)
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {

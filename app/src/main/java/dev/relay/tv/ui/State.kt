@@ -58,6 +58,10 @@ class UiState {
     }
 }
 
+/**
+ * Where focus was on one screen. Each screen in the navigation stack has its own, so a detail
+ * page's buttons can't overwrite the position Home returns to.
+ */
 class FocusMemory {
     var lastKey: String? = null
     var restoreTick by mutableIntStateOf(0)
@@ -73,21 +77,31 @@ sealed interface Route {
 
 class Nav(start: Route) {
     val stack = mutableStateListOf(start)
+    private val memories = mutableListOf(FocusMemory())
+
+    /** Focus memory for the screen at [index]; Home uses [home] so it survives profile changes. */
+    fun memory(index: Int, home: FocusMemory): FocusMemory =
+        if (stack.getOrNull(index) == Route.Home) home else memories.getOrElse(index) { FocusMemory() }
 
     fun push(r: Route) {
         stack.add(r)
+        memories.add(FocusMemory())
     }
 
-    fun pop(memory: FocusMemory) {
+    /** Closes the top screen and asks the one underneath to put focus back where it was. */
+    fun pop(home: FocusMemory) {
         if (stack.size > 1) {
             stack.removeAt(stack.lastIndex)
-            memory.restoreTick++
+            memories.removeAt(memories.lastIndex)
+            memory(stack.lastIndex, home).restoreTick++
         }
     }
 
     fun reset(r: Route) {
         stack.clear()
         stack.add(r)
+        memories.clear()
+        memories.add(FocusMemory())
     }
 }
 

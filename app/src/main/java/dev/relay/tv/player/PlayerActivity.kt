@@ -122,6 +122,23 @@ class PlayerActivity : ComponentActivity() {
     private var reminderShown: Reminder? = null
     private val hideReminder = Runnable { dismissReminder() }
 
+    // Stuck-buffering recovery, and the panel shown when a stream can't be recovered.
+    private val liveWatch = StallWatchdog(StallWatchdog.LIVE_MS) { SystemClock.elapsedRealtime() }
+    private val vodWatch = StallWatchdog(StallWatchdog.VOD_MS) { SystemClock.elapsedRealtime() }
+    private var liveStalls = 0
+    private var vodStalls = 0
+    private var failPos = 0L
+    private lateinit var failPanel: LinearLayout
+    private lateinit var failText: TextView
+    private lateinit var failRetry: TextView
+    private lateinit var failNext: TextView
+    private val watchdog = object : Runnable {
+        override fun run() {
+            checkStall()
+            handler.postDelayed(this, 1_000)
+        }
+    }
+
     private val handler = Handler(Looper.getMainLooper())
     private val hideOverlay = Runnable { overlay.visibility = View.GONE }
     private val hideInfo = Runnable { infoView.visibility = View.GONE }
@@ -160,13 +177,16 @@ class PlayerActivity : ComponentActivity() {
             snapshotFlow { ReminderCenter.due }.collect { r -> if (r != null && r != reminderShown) showReminder(r) }
         }
         handler.post(tsTicker)
+        handler.post(watchdog)
     }
 
     // ---------- Setup ----------
 
     private fun buildPlayer() {
         val s = app.store.settings
-        val dataSource = OkHttpDataSource.Factory(app.http).setUserAgent(s.userAgent.ifBlank { "RelayTV/1.0" })
+        // Streams give up after 15 s without data (menus keep the longer default) so recovery starts sooner.
+        val streamHttp = app.http.newBuilder().readTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
+        val dataSource = OkHttpDataSource.Factory(streamHttp).setUserAgent(s.userAgent.ifBlank { "RelayTV/1.0" })
         val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
@@ -359,9 +379,140 @@ class PlayerActivity : ComponentActivity() {
                 Gravity.TOP or Gravity.END,
             ).apply { setMargins(48, 110, 48, 0) },
         )
+        buildFailPanel(root)
         root.addView(channelsView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
         view.requestFocus()
+    }
+
+    private fun buildFailPanel(root: FrameLayout) {
+        fun button(label: String, onClick: () -> Unit) = TextView(this).apply {
+            text = label
+            textSize = 18f
+            setPadding(40, 20, 40, 20)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(0xFF1E2B45.toInt())
+            isFocusable = true
+            setOnFocusChangeListener { v, focused ->
+                v.setBackgroundColor(if (focused) 0xFF3DDC97.toInt() else 0xFF1E2B45.toInt())
+                (v as TextView).setTextColor(if (focused) Color.BLACK else Color.WHITE)
+            }
+            setOnClickListener { onClick() }
+        }
+        failText = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 28)
+        }
+        failRetry = button("Retry") { retryAfterFailure() }
+        failNext = button("Next channel") {
+            hideFailure()
+            switchLive(liveIndex + 1)
+        }
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            addView(failRetry)
+            addView(failNext, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = 28 })
+        }
+        failPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(56, 44, 56, 44)
+            setBackgroundColor(0xEE0B1220.toInt())
+            visibility = View.GONE
+            addView(failText)
+            addView(buttons)
+        }
+        root.addView(
+            failPanel,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER),
+        )
+    }
+
+    private val failing: Boolean get() = ::failPanel.isInitialized && failPanel.visibility == View.VISIBLE
+
+    /** Stops trying and offers Retry (and Next channel on live TV). */
+    private fun showFailure(message: String) {
+        AppLog.e("Player", "Gave up: $message (${currentItem()?.title})")
+        failPos = if (req.live) 0L else player.currentPosition
+        player.stop()
+        stopTimeshift()
+        overlay.visibility = View.GONE
+        view.hideController()
+        failText.text = message
+        failNext.visibility = if (req.live && req.items.size > 1) View.VISIBLE else View.GONE
+        failPanel.visibility = View.VISIBLE
+        failRetry.requestFocus()
+    }
+
+    private fun hideFailure() {
+        failPanel.visibility = View.GONE
+        view.requestFocus()
+    }
+
+    private fun retryAfterFailure() {
+        hideFailure()
+        val item = currentItem() ?: return
+        AppLog.i("Player", "Retry requested for ${item.title}")
+        if (req.live) {
+            playLive(liveIndex)
+            return
+        }
+        hostAttempt = 0
+        vodStalls = 0
+        val idx = player.currentMediaItemIndex
+        player.replaceMediaItem(idx, mediaItem(item, 0))
+        player.seekTo(idx, failPos)
+        player.prepare()
+        player.playWhenReady = true
+    }
+
+    /** Runs every second: reconnects when playback has been stuck buffering too long. */
+    private fun checkStall() {
+        if (!::player.isInitialized || failing || stoppedInBackground) return
+        val buffering = player.playWhenReady && player.playbackState == Player.STATE_BUFFERING
+        val watch = if (req.live) liveWatch else vodWatch
+        if (watch.tick(buffering)) onStall()
+    }
+
+    private fun onStall() {
+        val item = currentItem() ?: return
+        val urls = urlsFor(item)
+        if (req.live) {
+            liveStalls++
+            AppLog.w("Player", "Live '${item.title}' stuck buffering (reconnect $liveStalls of ${StallWatchdog.LIVE_TRIES})")
+            if (liveStalls > StallWatchdog.LIVE_TRIES) {
+                showFailure("This channel isn't responding")
+                return
+            }
+            if (timeshift != null) {
+                // The recorder may be stuck too: play this channel directly from now on.
+                tsDisabled += item.key
+                stopTimeshift()
+            }
+            hostAttempt = if (urls.isEmpty()) 0 else (hostAttempt + 1) % urls.size
+            showOverlay("Reconnecting…")
+            player.setMediaItem(mediaItem(item, hostAttempt))
+            player.prepare()
+            player.playWhenReady = true
+            return
+        }
+        vodStalls++
+        AppLog.w("Player", "'${item.title}' stuck buffering (attempt $vodStalls of ${urls.size})")
+        if (vodStalls > urls.size.coerceAtLeast(1)) {
+            showFailure("This video isn't responding")
+            return
+        }
+        hostAttempt = if (urls.isEmpty()) 0 else (hostAttempt + 1) % urls.size
+        val idx = player.currentMediaItemIndex
+        val pos = player.currentPosition
+        player.replaceMediaItem(idx, mediaItem(item, hostAttempt))
+        player.seekTo(idx, pos)
+        player.prepare()
+        player.playWhenReady = true
+        showOverlay(if (urls.size > 1) "Trying backup server…" else "Reconnecting…")
     }
 
     private fun applySubtitleStyle() {
@@ -433,10 +584,14 @@ class PlayerActivity : ComponentActivity() {
         liveIndex = ((index % n) + n) % n
         hostAttempt = 0
         liveRetries = 0
+        liveStalls = 0
+        liveWatch.reset()
+        if (failing) hideFailure()
         val item = req.items[liveIndex]
         stopTimeshift()
         val s = app.store.settings
-        if (s.timeshift && item.key !in tsDisabled && urlsFor(item).isNotEmpty()) {
+        // The pause buffer records MPEG-TS; HLS channels play directly.
+        if (s.timeshift && item.key !in tsDisabled && TimeshiftSupport.supports(urlsFor(item))) {
             val ts = TimeshiftBuffer(
                 java.io.File(cacheDir, "timeshift"), app.http, urlsFor(item),
                 s.userAgent.ifBlank { "RelayTV/1.0" }, s.timeshiftMinutes,
@@ -629,12 +784,21 @@ class PlayerActivity : ComponentActivity() {
                 if (liveRetries > 0 || hostAttempt > 0) AppLog.i("Player", "Recovered after retry")
                 AppLog.d("Player", "Ready: ${currentItem()?.title} via ${hostOf(currentItem()?.let { urlsFor(it).getOrNull(hostAttempt) })}")
                 liveRetries = 0
+                liveStalls = 0
+                vodStalls = 0
                 if (player.duration != C.TIME_UNSET) lastDuration = player.duration
                 onReady()
             }
             if (state == Player.STATE_ENDED) {
                 if (req.live) {
-                    reconnectLive()
+                    // The server closed the stream. Reconnect, but not forever.
+                    if (liveRetries < 3) {
+                        liveRetries++
+                        AppLog.w("Player", "Live stream ended; reconnecting ($liveRetries of 3)")
+                        reconnectLive()
+                    } else {
+                        showFailure("This channel isn't responding")
+                    }
                 } else {
                     saveProgress(finished = true)
                     finish()
@@ -706,15 +870,20 @@ class PlayerActivity : ComponentActivity() {
             liveRetries++
             hostAttempt = 0
             showOverlay("Reconnecting…")
-            handler.postDelayed({ reconnectLive() }, 2_000)
+            handler.postDelayed({ if (!failing) reconnectLive() }, 2_000)
             return
         }
-        showOverlay("Can't play this stream (${e.errorCodeName})", 8_000)
+        showFailure(if (req.live) "This channel isn't responding" else "Can't play this video (${e.errorCodeName})")
     }
 
     // ---------- Back ----------
 
     private fun onBack() {
+        if (failing) {
+            saveProgress(finished = false)
+            finish()
+            return
+        }
         if (reminderShown != null) {
             dismissReminder()
             return
@@ -778,13 +947,15 @@ class PlayerActivity : ComponentActivity() {
             switchLive(inList)
             return
         }
-        val ch = app.catalog.channels.firstOrNull { it.num == num }
+        // Restricted profiles can't reach a channel by number that they couldn't browse to.
+        val access = app.catalog.restrictions(app.session.restrict(app.store.settings))
+        val ch = access.findByNumber(app.catalog.channels, num)
         if (ch == null) {
             showOverlay("No channel $num")
             return
         }
         // Switch to that channel's category so Up/Down keep making sense.
-        val list = app.catalog.channelsByCat[ch.categoryId].orEmpty().ifEmpty { listOf(ch) }
+        val list = app.catalog.channelsByCat[ch.categoryId].orEmpty().filter { access.allowsCategory(it.categoryId) }.ifEmpty { listOf(ch) }
         val ext = app.store.settings.liveExt
         val items = list.map {
             PlayItem(
@@ -803,6 +974,10 @@ class PlayerActivity : ComponentActivity() {
     // ---------- Keys ----------
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (failing && event.keyCode != KeyEvent.KEYCODE_BACK) {
+            // Retry / Next channel buttons take the remote while the failure panel is up.
+            return super.dispatchKeyEvent(event)
+        }
         if (channelOverlayOpen) {
             // The overlay handles navigation; Back is routed through onBack().
             return super.dispatchKeyEvent(event)
