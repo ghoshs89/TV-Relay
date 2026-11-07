@@ -64,7 +64,7 @@ Updates: install the newer APK the same way. Because it's signed with the same k
 ## First run
 
 1. Enter a playlist name, the primary server URL, any backup server URLs (comma separated), username and password.
-2. Relay checks the login, then downloads your channel and library lists. Large playlists can take a minute the first time; after that it loads from cache and refreshes every 6 hours in the background.
+2. Relay checks the login, then downloads your channel and library lists. Large playlists can take a minute the first time; after that it loads from cache and refreshes once the lists are 6 hours old, including while Relay stays open. A refresh is checked before it replaces anything: if the server sends an error page, a cut-off list, or suddenly no channels, movies or series, your saved library is kept and a message says so.
 3. If the primary server stops answering, Relay tries the backups automatically, both for browsing and during playback.
 
 If your provider gives you separate URLs for VPN and non-VPN use, put the ones that match how the TV connects in the server fields. You can change them later in Settings → Change servers or login.
@@ -96,7 +96,7 @@ Settings → Diagnostics. Recent activity is always kept in memory (500 lines, n
 ## Other features
 
 - **Phone companion** (Settings → Backup & phone, and on the TV sign-in screen): scan the QR code with a phone on the same Wi-Fi to sign in, download a backup, or restore one. The page only exists while that screen is open and its address contains a random code.
-- **Backup and restore**: profiles, favourites, history, channel groups and settings, without your login. Phones can also save to a file.
+- **Backup and restore**: profiles, favourites, history, channel groups, sort choices, series tracks, reminders and settings. Backups never contain your login, any PIN, or API keys. A restore checks the whole file first (nothing changes if it's damaged or from a newer Relay), then replaces those items on the TV; PINs already set on the TV are kept, and it lists any profiles that need a PIN set again. Older backups still restore, without their PINs. Phones can also save to a file.
 - **Refresh-rate matching** (TVs): switches the TV to match the video's frame rate; the screen may blank briefly when it changes.
 - **Stream info**: resolution, HDR, codecs, frame rate and network speed for 5 seconds when playback starts.
 - **Per-series audio and subtitles**: the language you pick in a series is reused for its other episodes.
@@ -107,6 +107,15 @@ Settings → Diagnostics. Recent activity is always kept in memory (500 lines, n
 - **Stream recovery**: live TV reconnects (moving through your backup servers) when a channel stalls for 20 seconds, and movies and episodes for 30 seconds, resuming at the same position. After three tries a live channel shows Retry and Next channel instead of buffering forever. Pause & rewind is used only with the MPEG-TS format; HLS channels play directly.
 - **Reminders**: set from the guide grid; they pop up while Relay is open (Android TV doesn't reliably show notifications from closed apps).
 - **Lip-sync adjustment**, **subtitle style**, **start on last channel**, **neutral black theme**, **channel groups and renames**, **external XMLTV guide** and **guide time offset** are in Settings.
+
+## Optional: Rotten Tomatoes scores
+
+Settings → Rotten Tomatoes scores. Add a free MDBList key (mdblist.com: sign in, then Preferences → API Access) and movie and series pages show the Rotten Tomatoes critics and audience scores when they exist. Titles without a score show nothing extra.
+
+- Lookups happen only when you open a title, after the page appears, and never delay Play. Scores are saved: titles from this year are checked again after a day, older ones after a week, titles with no score after three days.
+- The free key allows 1,000 lookups a day; Relay stops at 900 and shows saved scores until the next day.
+- **Scores on posters** (on by default) shows the critics score on posters of titles you've already opened. It never makes extra lookups.
+- Titles are matched by their TMDB ID (from your provider or TMDB). Without one, Relay searches by title and year and shows a score only when there's exactly one match.
 
 ## Optional: TMDB
 

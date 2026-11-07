@@ -90,6 +90,9 @@ data class Settings(
     val keyboard: String = "auto", // auto | relay | system
     val timeshift: Boolean = true,
     val timeshiftMinutes: Int = 30,
+    // Batch 3
+    val ratingsKey: String = "", // MDBList, for Rotten Tomatoes scores
+    val posterScores: Boolean = true,
 )
 
 /** A programme the viewer wants to be told about when it starts. Times are as shown in the guide. */

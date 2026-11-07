@@ -61,9 +61,11 @@ fun MoviesTab() {
         items = items,
         empty = if (ui.movieCat == UiState.FAV) "Movies you add to My list show up here." else "Nothing here.",
     ) { m ->
+        val rt = posterScore("m", m.id)
         PosterCard(
             m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "mv:${m.id}",
             subtitle = listOfNotNull(m.year, m.rating.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString("  "),
+            badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
     }
 }
@@ -102,9 +104,11 @@ fun SeriesTab() {
         items = items,
         empty = if (ui.seriesCat == UiState.FAV) "Series you add to My list show up here." else "Nothing here.",
     ) { s ->
+        val rt = posterScore("s", s.id)
         PosterCard(
             s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "sr:${s.id}",
             subtitle = listOfNotNull(s.year, s.rating.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString("  "),
+            badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
     }
 }

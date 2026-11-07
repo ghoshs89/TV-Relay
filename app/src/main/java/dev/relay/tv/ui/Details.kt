@@ -64,12 +64,17 @@ fun MovieDetailScreen(m: Movie) {
     var failed by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
     var tmdb by remember { mutableStateOf<Tmdb.Info?>(null) }
+    var score by remember { mutableStateOf(app.ratings.saved("m:${m.id}")) }
     LaunchedEffect(m.id, attempt) {
         failed = false
         info = runCatching { app.api.vodInfo(m.id) }.getOrNull()
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, false, info?.tmdbId ?: m.tmdbId, m.name, info?.year ?: m.year)
+        val rk = store.settings.ratingsKey
+        if (rk.isNotBlank()) {
+            score = app.ratings.lookup(rk, "m:${m.id}", false, info?.tmdbId ?: m.tmdbId ?: tmdb?.id, m.name, info?.year ?: m.year)
+        }
     }
 
     val entry = store.entry(pid, "movie:${m.id}")
@@ -104,6 +109,10 @@ fun MovieDetailScreen(m: Movie) {
                 )
                 Spacer(Modifier.height(8.dp))
                 if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = 15.sp)
+                if (store.settings.ratingsKey.isNotBlank() && score?.none == false) {
+                    Spacer(Modifier.height(8.dp))
+                    RtScores(score)
+                }
                 Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PillButton(
@@ -151,6 +160,7 @@ fun SeriesDetailScreen(s: Series) {
     var failed by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
     var tmdb by remember { mutableStateOf<Tmdb.Info?>(null) }
+    var score by remember { mutableStateOf(app.ratings.saved("s:${s.id}")) }
     var season by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(s.id, attempt) {
         failed = false
@@ -158,6 +168,10 @@ fun SeriesDetailScreen(s: Series) {
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, true, info?.tmdbId ?: s.tmdbId, s.name, info?.year ?: s.year)
+        val rk = store.settings.ratingsKey
+        if (rk.isNotBlank()) {
+            score = app.ratings.lookup(rk, "s:${s.id}", true, info?.tmdbId ?: s.tmdbId ?: tmdb?.id, s.name, info?.year ?: s.year)
+        }
     }
 
     val seasons = info?.seasons.orEmpty()
@@ -206,6 +220,10 @@ fun SeriesDetailScreen(s: Series) {
                     )
                     Spacer(Modifier.height(8.dp))
                     if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = 15.sp)
+                    if (store.settings.ratingsKey.isNotBlank() && score?.none == false) {
+                        Spacer(Modifier.height(8.dp))
+                        RtScores(score)
+                    }
                     Spacer(Modifier.height(if (compact) 12.dp else 18.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (nextEp != null) {

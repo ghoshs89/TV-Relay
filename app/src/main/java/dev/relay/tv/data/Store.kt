@@ -134,41 +134,80 @@ class Store(ctx: Context) {
 
     // ---------- Backup ----------
 
-    /** Everything except the login, as one JSON document. */
-    fun exportJson(): String {
-        val map = prefs.all
-            .filterKeys { it != "account" && it != "active_host" && it != PARENT_PIN }
-            .mapValues { (_, v) -> kotlinx.serialization.json.JsonPrimitive(v?.toString()) }
-        val root = kotlinx.serialization.json.buildJsonObject {
-            put("app", kotlinx.serialization.json.JsonPrimitive("relay"))
-            put("version", kotlinx.serialization.json.JsonPrimitive(1))
-            put("data", kotlinx.serialization.json.JsonObject(map))
-        }
-        return root.toString()
+    /** Everything a backup holds (format 2), without the login, PINs or keys. */
+    fun exportJson(appVersion: String): String {
+        val ps = profiles
+        val b = BackupFile(
+            appVersion = appVersion,
+            created = System.currentTimeMillis(),
+            profiles = ps,
+            lockedProfiles = ps.filter { !it.pin.isNullOrEmpty() }.map { it.id },
+            favourites = ps.associate { it.id to favs(it.id) }.filterValues { it.isNotEmpty() },
+            history = ps.associate { it.id to history(it.id) }.filterValues { it.isNotEmpty() },
+            settings = settings,
+            channels = channelCustom,
+            pinnedCategories = pinnedCats,
+            liveSort = read<Map<String, Int>>("livesort", emptyMap()),
+            seriesTracks = prefs.all.keys.filter { it.startsWith("trk_") }
+                .mapNotNull { k -> k.removePrefix("trk_").toIntOrNull()?.let { id -> trackPref(id)?.let { id to it } } }
+                .toMap(),
+            reminders = reminders,
+        )
+        return Backups.encode(b)
     }
 
-    /** Restores a backup made by [exportJson]. Returns the number of entries restored. */
-    fun importJson(text: String): Int {
-        val root = Jsons.json.parseToJsonElement(text)
-        if (root.at("app").str() != "relay") throw IllegalArgumentException("Not a Relay backup file")
-        val data = root.at("data") as? kotlinx.serialization.json.JsonObject
-            ?: throw IllegalArgumentException("Backup has no data")
+    /**
+     * Restores a backup, replacing profiles, favourites, history, channel groups, sort choices,
+     * series tracks, reminders and settings. The file is fully read and checked first; if it's
+     * not valid nothing changes. PINs stay for profiles that already exist on this device; the
+     * login, the parent PIN and API keys on this device are kept.
+     */
+    fun importJson(text: String): RestoreResult {
+        val b = Backups.decode(text)
+        val oldPins = profiles.associate { it.id to it.pin }
+        val newProfiles = b.profiles.map { it.copy(pin = oldPins[it.id]) }
+        val ids = newProfiles.map { it.id }.toSet()
+        val local = settings
+        val newSettings = b.settings.copy(tmdbKey = local.tmdbKey, ratingsKey = local.ratingsKey, logUntil = local.logUntil)
+
         val edit = prefs.edit()
-        var n = 0
-        for ((k, v) in data) {
-            if (k == "account" || k == "active_host" || k == PARENT_PIN) continue
-            val value = v.str() ?: continue
-            edit.putString(k, value)
-            n++
-        }
-        edit.apply()
+        prefs.all.keys
+            .filter { k ->
+                k in REPLACED || REPLACED_PREFIXES.any { p -> k.startsWith(p) }
+            }
+            .forEach { edit.remove(it) }
+        fun put(key: String, json: String) = edit.putString(key, json)
+        val j = Jsons.json
+        put("profiles", j.encodeToString(newProfiles))
+        put("settings", j.encodeToString(newSettings))
+        put("chcustom", j.encodeToString(b.channels))
+        put("pincats", j.encodeToString(b.pinnedCategories))
+        put("livesort", j.encodeToString(b.liveSort))
+        put("reminders", j.encodeToString(b.reminders))
+        b.favourites.filterKeys { it in ids }.forEach { (pid, list) -> put("fav_$pid", j.encodeToString(list)) }
+        b.history.filterKeys { it in ids }.forEach { (pid, list) -> put("hist_$pid", j.encodeToString(list)) }
+        b.seriesTracks.forEach { (sid, t) -> put("trk_$sid", j.encodeToString(t)) }
+        if (lastProfileId !in ids) edit.remove("last_profile")
+        // Applied in one write so a restore can't stop halfway.
+        if (!edit.commit()) throw java.io.IOException("Couldn't save the restored data")
         cache.clear()
         version.intValue++
-        return n
+
+        return RestoreResult(
+            profiles = newProfiles.size,
+            favourites = b.favourites.filterKeys { it in ids }.values.sumOf { it.size },
+            history = b.history.filterKeys { it in ids }.values.sumOf { it.size },
+            groups = b.channels.groups.size,
+            needPin = newProfiles.filter { it.id in b.lockedProfiles && it.pin.isNullOrEmpty() }.map { it.name },
+        )
     }
 
     companion object {
         const val PARENT_PIN = "parent_pin"
+
+        /** Keys a restore replaces as a whole; anything else (login, parent PIN) is left alone. */
+        private val REPLACED = setOf("profiles", "settings", "chcustom", "pincats", "livesort", "reminders")
+        private val REPLACED_PREFIXES = listOf("fav_", "hist_", "trk_", "lastcat_")
     }
 
     fun deleteProfile(pid: String) {

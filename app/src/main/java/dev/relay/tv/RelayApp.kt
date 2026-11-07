@@ -11,6 +11,7 @@ import coil.memory.MemoryCache
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Catalog
 import dev.relay.tv.data.PlayRequest
+import dev.relay.tv.data.Ratings
 import dev.relay.tv.data.Store
 import dev.relay.tv.data.Tmdb
 import dev.relay.tv.data.XtreamApi
@@ -31,6 +32,7 @@ class RelayApp : Application(), ImageLoaderFactory {
     lateinit var api: XtreamApi
     lateinit var catalog: Catalog
     lateinit var tmdb: Tmdb
+    lateinit var ratings: Ratings
 
     val session = Session()
 
@@ -54,7 +56,11 @@ class RelayApp : Application(), ImageLoaderFactory {
         store = Store(this)
         AppLog.secrets = {
             val acc = store.account
-            listOfNotNull(acc?.username, acc?.password, BuildConfig.UPDATE_TOKEN.ifBlank { null }, store.settings.tmdbKey.ifBlank { null })
+            val s = store.settings
+            listOfNotNull(
+                acc?.username, acc?.password, BuildConfig.UPDATE_TOKEN.ifBlank { null },
+                s.tmdbKey.ifBlank { null }, s.ratingsKey.ifBlank { null },
+            )
         }
         AppLog.saveUntil = store.settings.logUntil
         AppLog.init(this)
@@ -72,6 +78,7 @@ class RelayApp : Application(), ImageLoaderFactory {
         Palette.neutral = store.settings.neutralTheme
         ReminderCenter.start(appScope)
         tmdb = Tmdb(http)
+        ratings = Ratings(http, java.io.File(filesDir, "ratings.json"))
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

@@ -15,10 +15,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.json.DecodeSequenceMode
-import kotlinx.serialization.json.decodeToSequence
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -56,6 +52,17 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     var updatedAt by mutableLongStateOf(0L); private set
     var epgVersion by mutableIntStateOf(0); private set
 
+    /** Bumped every minute while Relay is open so "now playing" text moves on as shows end. */
+    var minute by mutableIntStateOf(0); private set
+
+    fun tickMinute() {
+        minute++
+    }
+
+    /** True when the saved library is over 6 hours old (or missing). */
+    fun libraryDue(now: Long = System.currentTimeMillis()): Boolean =
+        !cacheComplete() || Freshness.libraryDue(file("get_live_streams").lastModified(), now)
+
     private val epgCache = ConcurrentHashMap<Int, Pair<Long, List<EpgEntry>>>()
 
     /** Channels exactly as the provider sent them; [channels] has the user's renames applied. */
@@ -68,14 +75,10 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     private val mutex = Mutex()
     private val dir: File get() = File(ctx.filesDir, "catalog").also { it.mkdirs() }
 
-    private val actions = listOf(
-        "get_live_categories", "get_vod_categories", "get_series_categories",
-        "get_live_streams", "get_vod_streams", "get_series",
-    )
+    private val actions = CatalogParser.ACTIONS
 
     private fun file(action: String) = File(dir, "$action.json")
     private fun cacheComplete() = actions.all { file(it).exists() && file(it).length() > 0 }
-    private fun cacheAgeMs() = System.currentTimeMillis() - file("get_live_streams").lastModified()
     val isEmpty: Boolean get() = channels.isEmpty() && movies.isEmpty() && series.isEmpty()
 
     fun allowed(categoryId: String, restrict: Boolean) = !restrict || categoryId !in adultCats
@@ -96,18 +99,10 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             error = null
             val started = System.currentTimeMillis()
             try {
-                if (isEmpty && cacheComplete()) parse()
-                if (force || !cacheComplete() || cacheAgeMs() > REFRESH_MS) {
+                if (isEmpty && cacheComplete()) applyParsed(withContext(Dispatchers.Default) { CatalogParser.parse(dir, strict = false) })
+                if (force || libraryDue()) {
                     try {
-                        coroutineScope {
-                            actions.map { a -> async { api.download(a, file(a)) } }.awaitAll()
-                        }
-                        parse()
-                        AppLog.i(
-                            "Catalog",
-                            "Refreshed in ${(System.currentTimeMillis() - started) / 1000}s: ${channels.size} channels, " +
-                                "${movies.size} movies, ${series.size} series",
-                        )
+                        refresh(started)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -126,6 +121,40 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             }
             refreshGuideIfNeeded(force = false)
             Unit
+        }
+    }
+
+    /**
+     * Downloads all six lists into a staging folder, checks every one parses as a complete list
+     * and that nothing went from full to empty, and only then replaces the saved library with
+     * them. A failed or suspicious refresh leaves the saved library untouched.
+     */
+    private suspend fun refresh(started: Long) {
+        val staging = File(dir, "staging")
+        staging.deleteRecursively()
+        staging.mkdirs()
+        try {
+            coroutineScope {
+                actions.map { a -> async { api.download(a, File(staging, "$a.json")) } }.awaitAll()
+            }
+            val fresh = withContext(Dispatchers.Default) { CatalogParser.parse(staging, strict = true) }
+            val old = CatalogCounts(rawChannels.size, movies.size, series.size)
+            val verdict = RefreshGuard.check(old, fresh.counts)
+            verdict.warnings.forEach { AppLog.w("Catalog", "Large drop after refresh: $it") }
+            if (!verdict.accept) {
+                AppLog.w("Catalog", "Refresh rejected: ${verdict.message} (${fresh.counts})")
+                error = verdict.message
+                return
+            }
+            withContext(Dispatchers.IO) { CatalogParser.commit(staging, dir) }
+            applyParsed(fresh)
+            AppLog.i(
+                "Catalog",
+                "Refreshed in ${(System.currentTimeMillis() - started) / 1000}s: ${channels.size} channels, " +
+                    "${movies.size} movies, ${series.size} series",
+            )
+        } finally {
+            staging.deleteRecursively()
         }
     }
 
@@ -159,83 +188,29 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         dir.deleteRecursively()
     }
 
-    private class Parsed(
-        val lc: List<Category>, val vc: List<Category>, val sc: List<Category>,
-        val ch: List<Channel>, val mv: List<Movie>, val sr: List<Series>,
-        val mvAdded: List<Movie>, val mvRated: List<Movie>,
-        val srAdded: List<Series>, val srRated: List<Series>,
-        val mvByCat: Map<String, List<Movie>>,
-        val srByCat: Map<String, List<Series>>,
-    )
+    private class Indexes(p: ParsedCatalog) {
+        val mvAdded = p.movies.sortedByDescending { it.added }
+        val mvRated = p.movies.filter { it.rating > 0 }.sortedByDescending { it.rating }
+        val srAdded = p.series.sortedByDescending { it.added }
+        val srRated = p.series.filter { it.rating > 0 }.sortedByDescending { it.rating }
+        val mvByCat = p.movies.groupBy { it.categoryId }
+        val srByCat = p.series.groupBy { it.categoryId }
+        val mvById = p.movies.associateBy { it.id }
+        val srById = p.series.associateBy { it.id }
+    }
 
-    private suspend fun parse() {
-        val p = withContext(Dispatchers.Default) {
-            val lc = parseCats(file("get_live_categories"))
-            val vc = parseCats(file("get_vod_categories"))
-            val sc = parseCats(file("get_series_categories"))
-            val ch = parseList(file("get_live_streams"), LiveDto.serializer()) { d ->
-                val id = d.stream_id.int() ?: return@parseList null
-                Channel(
-                    id = id,
-                    num = d.num.int() ?: 0,
-                    name = d.name.str() ?: "Channel $id",
-                    logo = d.stream_icon.str(),
-                    categoryId = d.category_id.str() ?: "",
-                    epgId = d.epg_channel_id.str(),
-                    archiveDays = if (d.tv_archive.flag()) (d.tv_archive_duration.int() ?: 1) else 0,
-                )
-            }
-            val mv = parseList(file("get_vod_streams"), VodDto.serializer()) { d ->
-                val id = d.stream_id.int() ?: return@parseList null
-                val name = d.name.str() ?: return@parseList null
-                Movie(
-                    id = id,
-                    name = name,
-                    poster = d.stream_icon.str(),
-                    categoryId = d.category_id.str() ?: "",
-                    rating = d.rating.dbl() ?: 0.0,
-                    ext = d.container_extension.str() ?: "mp4",
-                    added = d.added.long() ?: 0L,
-                    tmdbId = d.tmdb.str(),
-                    year = d.year.str() ?: yearIn(name),
-                )
-            }
-            val sr = parseList(file("get_series"), SeriesDto.serializer()) { d ->
-                val id = d.series_id.int() ?: return@parseList null
-                val name = d.name.str() ?: return@parseList null
-                Series(
-                    id = id,
-                    name = name,
-                    cover = d.cover.str(),
-                    categoryId = d.category_id.str() ?: "",
-                    rating = d.rating.dbl() ?: 0.0,
-                    plot = d.plot.str(),
-                    year = (d.year.str() ?: d.releaseDate.str() ?: d.release_date.str())?.take(4) ?: yearIn(name),
-                    genre = d.genre.str(),
-                    added = d.last_modified.long() ?: 0L,
-                    tmdbId = d.tmdb.str(),
-                )
-            }
-            Parsed(
-                lc, vc, sc, ch, mv, sr,
-                mvAdded = mv.sortedByDescending { it.added },
-                mvRated = mv.filter { it.rating > 0 }.sortedByDescending { it.rating },
-                srAdded = sr.sortedByDescending { it.added },
-                srRated = sr.filter { it.rating > 0 }.sortedByDescending { it.rating },
-                mvByCat = mv.groupBy { it.categoryId },
-                srByCat = sr.groupBy { it.categoryId },
-            )
-        }
-        movieById = p.mv.associateBy { it.id }
-        seriesById = p.sr.associateBy { it.id }
-        adultCats = (p.lc + p.vc + p.sc).filter { it.adult }.map { it.id }.toSet()
-        liveCats = p.lc; vodCats = p.vc; seriesCats = p.sc
-        movies = p.mv; series = p.sr
-        moviesByCat = p.mvByCat; seriesByCat = p.srByCat
-        rawChannels = p.ch
+    private suspend fun applyParsed(p: ParsedCatalog) {
+        val sorted = withContext(Dispatchers.Default) { Indexes(p) }
+        movieById = sorted.mvById
+        seriesById = sorted.srById
+        adultCats = (p.liveCats + p.vodCats + p.seriesCats).filter { it.adult }.map { it.id }.toSet()
+        liveCats = p.liveCats; vodCats = p.vodCats; seriesCats = p.seriesCats
+        movies = p.movies; series = p.series
+        moviesByCat = sorted.mvByCat; seriesByCat = sorted.srByCat
+        rawChannels = p.channels
         applyCustom()
-        moviesByAdded = p.mvAdded; moviesByRating = p.mvRated
-        seriesByAdded = p.srAdded; seriesByRating = p.srRated
+        moviesByAdded = sorted.mvAdded; moviesByRating = sorted.mvRated
+        seriesByAdded = sorted.srAdded; seriesByRating = sorted.srRated
         updatedAt = file("get_live_streams").lastModified()
     }
 
@@ -249,28 +224,6 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     }
 
     fun groupChannels(g: ChannelGroup): List<Channel> = g.channelIds.mapNotNull { channelById[it] }
-
-    private fun parseCats(f: File): List<Category> =
-        parseList(f, CategoryDto.serializer()) { d ->
-            val id = d.category_id.str() ?: return@parseList null
-            val name = d.category_name.str() ?: "Category $id"
-            Category(id, name, ADULT.containsMatchIn(name))
-        }
-
-    @OptIn(ExperimentalSerializationApi::class)
-    private fun <T, R> parseList(f: File, ser: KSerializer<T>, map: (T) -> R?): List<R> {
-        if (!f.exists()) return emptyList()
-        return try {
-            f.inputStream().buffered(256 * 1024).use { input ->
-                Jsons.json.decodeToSequence(input, ser, DecodeSequenceMode.ARRAY_WRAPPED)
-                    .mapNotNull { map(it) }
-                    .toList()
-            }
-        } catch (e: Exception) {
-            AppLog.e("Catalog", "Couldn't parse ${f.name}", e)
-            emptyList()
-        }
-    }
 
     // ---------- Guide ----------
 
@@ -358,14 +311,12 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     }
 
     fun nowPlaying(id: Int): String? {
+        minute // read so callers recompose each minute
         val nowSec = System.currentTimeMillis() / 1000
         return epgCache[id]?.second?.firstOrNull { nowSec in it.start until it.end }?.title
     }
 
     companion object {
-        private const val REFRESH_MS = 6 * 3600_000L
-        private val ADULT = Regex("(?i)(adult|xxx|18\\+|porn|for adults)")
-        private val YEAR = Regex("[(\\[](19|20)(\\d{2})[)\\]]")
-        fun yearIn(name: String): String? = YEAR.find(name)?.let { it.groupValues[1] + it.groupValues[2] }
+        fun yearIn(name: String): String? = CatalogParser.yearIn(name)
     }
 }

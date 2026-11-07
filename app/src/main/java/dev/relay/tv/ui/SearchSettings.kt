@@ -156,12 +156,20 @@ fun SearchTab() {
         }
         item {
             Rail("Movies", r.movies) { m ->
-                PosterCard(m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "s:mv:${m.id}", subtitle = m.year)
+                val rt = posterScore("m", m.id)
+                PosterCard(
+                    m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "s:mv:${m.id}", subtitle = m.year,
+                    badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
+                )
             }
         }
         item {
             Rail("Series", r.series) { s ->
-                PosterCard(s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "s:sr:${s.id}", subtitle = s.year)
+                val rt = posterScore("s", s.id)
+                PosterCard(
+                    s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "s:sr:${s.id}", subtitle = s.year,
+                    badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
+                )
             }
         }
     }
@@ -216,7 +224,7 @@ fun SearchTab() {
 
 // ---------------- Settings ----------------
 
-private enum class Edit { TMDB, AUDIO, SUBS, UA, XMLTV }
+private enum class Edit { TMDB, RATINGS, AUDIO, SUBS, UA, XMLTV }
 
 @Composable
 fun SettingsTab() {
@@ -237,6 +245,7 @@ fun SettingsTab() {
     var pinGate by remember { mutableStateOf(false) }
     var addingProfile by remember { mutableStateOf(false) }
     var tmdbStatus by remember { mutableStateOf<String?>(null) }
+    var ratingsStatus by remember { mutableStateOf<String?>(null) }
     var viewingLog by remember { mutableStateOf(false) }
     var logNote by remember { mutableStateOf<String?>(null) }
     var backupNote by remember { mutableStateOf<String?>(null) }
@@ -249,12 +258,13 @@ fun SettingsTab() {
     val newGroupPrompt = remember { mutableStateOf(false) }
     val gate = rememberParentGate()
     var parentPinDialog by remember { mutableStateOf(false) }
+    var pinFor by remember { mutableStateOf<Profile?>(null) }
 
     // Phones: back up to / restore from a file through Android's file picker.
     val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         backupNote = try {
-            ctx.contentResolver.openOutputStream(uri)?.use { it.write(store.exportJson().toByteArray()) }
+            ctx.contentResolver.openOutputStream(uri)?.use { it.write(store.exportJson(BuildConfig.VERSION_NAME).toByteArray()) }
             AppLog.i("Backup", "Saved backup file")
             "Backup saved."
         } catch (e: Exception) {
@@ -265,11 +275,11 @@ fun SettingsTab() {
         if (uri == null) return@rememberLauncherForActivityResult
         backupNote = try {
             val text = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
-            val n = store.importJson(text)
+            val r = store.importJson(text)
             app.catalog.applyCustom()
             Palette.neutral = store.settings.neutralTheme
-            AppLog.i("Backup", "Restored $n entries from file")
-            "Restored $n settings."
+            AppLog.i("Backup", "Restored from file: ${r.profiles} profiles, ${r.favourites} favourites")
+            r.summary()
         } catch (e: Exception) {
             "Couldn't restore: ${e.message}"
         }
@@ -465,7 +475,7 @@ fun SettingsTab() {
             }
         }
         item {
-            Setting("Back up to a file", "Not including your login", false) {
+            Setting("Back up to a file", "Not including your login, PINs or API keys", false) {
                 try {
                     createDoc.launch("relay-backup.json")
                 } catch (e: Exception) {
@@ -490,6 +500,20 @@ fun SettingsTab() {
         item {
             Setting("TMDB API key (optional)", tmdbStatus ?: if (s.tmdbKey.isBlank()) "Not set" else "Set", kidsLocked) {
                 edit = Edit.TMDB
+            }
+        }
+        item {
+            Setting(
+                "Rotten Tomatoes scores (MDBList key)",
+                ratingsStatus ?: if (s.ratingsKey.isBlank()) "Not set" else "Set · ${app.ratings.cache.usedToday} lookups today",
+                kidsLocked,
+            ) { edit = Edit.RATINGS }
+        }
+        if (s.ratingsKey.isNotBlank()) {
+            item {
+                Setting("Scores on posters", if (s.posterScores) "On (titles you've opened)" else "Off", false) {
+                    store.settings = s.copy(posterScores = !s.posterScores)
+                }
             }
         }
         item {
@@ -528,6 +552,13 @@ fun SettingsTab() {
             item {
                 Setting("Remove profile \"${p.name}\"", if (p.kids) "Kids" else "", kidsLocked, danger = true) {
                     gate.run("Parent PIN to remove a profile") { deleting = p }
+                }
+            }
+        }
+        store.profiles.forEach { p ->
+            item {
+                Setting("PIN for ${p.name}", if (p.pin.isNullOrEmpty()) "None" else "Set", kidsLocked) {
+                    gate.run("Parent PIN to change a profile PIN") { pinFor = p }
                 }
             }
         }
@@ -667,6 +698,21 @@ fun SettingsTab() {
             },
             hint = "Free at themoviedb.org → Settings → API. Use the 32 character API key.",
         )
+        Edit.RATINGS -> TextEditDialog(
+            "MDBList API key", s.ratingsKey, { edit = null },
+            onSave = { k ->
+                store.settings = s.copy(ratingsKey = k)
+                edit = null
+                if (k.isNotBlank()) {
+                    ratingsStatus = "Checking…"
+                    scope.launch { ratingsStatus = if (app.ratings.validate(k)) "Key works" else "Key rejected" }
+                } else {
+                    ratingsStatus = null
+                }
+            },
+            hint = "Free at mdblist.com: sign in, then Preferences → API Access. Adds Rotten Tomatoes critics " +
+                "and audience scores to movie and series pages (up to 1,000 lookups a day).",
+        )
         Edit.AUDIO -> TextEditDialog(
             "Audio language", s.audioLang, { edit = null },
             onSave = { store.settings = s.copy(audioLang = it.lowercase()); edit = null },
@@ -709,6 +755,18 @@ fun SettingsTab() {
         )
     }
     if (parentPinDialog) ParentPinDialog(onDismiss = { parentPinDialog = false })
+    pinFor?.let { p ->
+        TextEditDialog(
+            "PIN for ${p.name}", "", { pinFor = null },
+            onSave = { v ->
+                val digits = v.filter(Char::isDigit).take(8)
+                store.profiles = store.profiles.map { if (it.id == p.id) it.copy(pin = digits.ifBlank { null }) else it }
+                pinFor = null
+            },
+            hint = "Digits only. Leave empty to remove the PIN.",
+            password = true,
+        )
+    }
 
     deleting?.let { p ->
         ConfirmDialog(

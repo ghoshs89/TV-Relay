@@ -22,6 +22,7 @@ class Tmdb(private val http: OkHttpClient) {
         val year: String?,
         val genres: List<String>,
         val cast: List<String>,
+        val id: String? = null,
     )
 
     private val cache = ConcurrentHashMap<String, Info>()
@@ -57,6 +58,7 @@ class Tmdb(private val http: OkHttpClient) {
                     year = (d.at("release_date").str() ?: d.at("first_air_date").str())?.take(4),
                     genres = d.at("genres").arr()?.mapNotNull { it.at("name").str() } ?: emptyList(),
                     cast = d.at("credits").at("cast").arr()?.take(6)?.mapNotNull { it.at("name").str() } ?: emptyList(),
+                    id = id,
                 )
                 cache[cacheKey] = info
                 info

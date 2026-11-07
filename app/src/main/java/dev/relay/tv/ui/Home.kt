@@ -62,6 +62,40 @@ fun HomeScreen() {
     LaunchedEffect(Unit) { catalog.load() }
     InitialFocus(tabFocus)
 
+    // While Relay is in front, refresh the library once it's 6 hours old (the external guide
+    // looks after its own 12 hours). Nothing runs while the player is open on top.
+    val activity = LocalContext.current as? androidx.activity.ComponentActivity
+    LaunchedEffect(Unit) {
+        var minutes = 0
+        while (true) {
+            delay(60_000)
+            catalog.tickMinute()
+            if (++minutes % 30 != 0) continue
+            val inFront = activity?.lifecycle?.currentState?.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) ?: true
+            if (!inFront || catalog.loading) continue
+            if (catalog.libraryDue()) {
+                AppLog.i("Catalog", "Library is over 6 hours old; refreshing")
+                catalog.load()
+            } else {
+                catalog.refreshGuideIfNeeded(force = false)
+            }
+        }
+    }
+
+    // A restore can remove or change the current profile: pick up the change, or go back to the picker.
+    val nav = LocalNav.current
+    LaunchedEffect(app.store.version.intValue) {
+        val current = app.session.profile ?: return@LaunchedEffect
+        val now = app.store.profiles.firstOrNull { it.id == current.id }
+        if (now == null) {
+            app.session.profile = null
+            app.ui = UiState()
+            nav.reset(Route.Profiles)
+        } else if (now != current) {
+            app.session.profile = now
+        }
+    }
+
     // Poll GitHub for new builds while Relay is open; announce each new version once.
     LaunchedEffect(Unit) {
         while (true) {
@@ -298,13 +332,21 @@ fun HomeTab() {
         item {
             val list = catalog.moviesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) }.take(30).toList()
             Rail("Recently added movies", list) { m ->
-                PosterCard(m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "ram:${m.id}", subtitle = m.year)
+                val rt = posterScore("m", m.id)
+                PosterCard(
+                    m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "ram:${m.id}", subtitle = m.year,
+                    badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
+                )
             }
         }
         item {
             val list = catalog.seriesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) }.take(30).toList()
             Rail("Recently updated series", list) { s ->
-                PosterCard(s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "ras:${s.id}", subtitle = s.year)
+                val rt = posterScore("s", s.id)
+                PosterCard(
+                    s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "ras:${s.id}", subtitle = s.year,
+                    badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
+                )
             }
         }
         item {

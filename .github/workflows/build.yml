@@ -29,7 +29,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Unit tests
-        run: ./gradlew :app:testReleaseUnitTest --stacktrace --no-daemon
+        run: |
+          set +e
+          ./gradlew :app:testReleaseUnitTest --stacktrace --no-daemon
+          STATUS=$?
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          t = f = 0
+          for p in glob.glob("app/build/test-results/testReleaseUnitTest/*.xml"):
+              r = ET.parse(p).getroot()
+              n, bad = int(r.get("tests", 0)), int(r.get("failures", 0)) + int(r.get("errors", 0))
+              t += n; f += bad
+              print(f"{r.get('name')}: {n} tests, {bad} failed")
+              for c in r.iter("testcase"):
+                  for x in list(c.findall("failure")) + list(c.findall("error")):
+                      print(f"::error::{c.get('classname')}.{c.get('name')}: {(x.get('message') or '')[:300]}")
+          print(f"Total: {t} tests, {f} failed")
+          PY
+          exit $STATUS
 
       - name: Lint
         run: |

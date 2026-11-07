@@ -274,6 +274,7 @@ fun PosterCard(
     subtitle: String? = null,
     progress: Float? = null,
     badge: String? = null,
+    badgeColor: Color = Palette.accent,
     fit: Boolean = false,
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
@@ -304,7 +305,7 @@ fun PosterCard(
                             .padding(6.dp)
                             .background(Color(0xCC000000), RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp),
-                        color = Palette.accent, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                        color = badgeColor, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                     )
                 }
                 if (progress != null) {

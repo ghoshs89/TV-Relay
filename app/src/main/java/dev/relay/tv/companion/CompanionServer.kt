@@ -2,6 +2,7 @@ package dev.relay.tv.companion
 
 import android.os.Handler
 import android.os.Looper
+import dev.relay.tv.BuildConfig
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AppLog
 import java.io.BufferedInputStream
@@ -127,7 +128,7 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
             }
 
             method == "GET" && action == "backup.json" -> {
-                val json = onMain { RelayApp.instance.store.exportJson() }
+                val json = onMain { RelayApp.instance.store.exportJson(BuildConfig.VERSION_NAME) }
                 AppLog.i("Companion", "Backup downloaded")
                 respond(
                     sock, 200, "application/json", json.toByteArray(),
@@ -139,9 +140,10 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
                 val text = String(body, Charsets.UTF_8)
                 val result = onMain {
                     try {
-                        val n = RelayApp.instance.store.importJson(text)
+                        val r = RelayApp.instance.store.importJson(text)
                         RelayApp.instance.catalog.applyCustom()
-                        "Restored $n settings. Your TV has the backup now."
+                        dev.relay.tv.ui.Palette.neutral = RelayApp.instance.store.settings.neutralTheme
+                        r.summary()
                     } catch (e: Exception) {
                         "Couldn't restore: ${e.message}"
                     }
@@ -230,11 +232,11 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
         </form></section>
 
         <section><h2>Backup</h2>
-        <p class="hint">Profiles, favourites, history, channel groups and settings. Your login isn't included.</p>
+        <p class="hint">Profiles, favourites, history, channel groups and settings. Your login, PINs and API keys aren't included.</p>
         <a class="button" href="/$token/backup.json" download="relay-backup.json">Download backup</a></section>
 
         <section><h2>Restore</h2>
-        <p class="hint">Choose a relay-backup.json file. It replaces this TV's profiles, favourites and settings.</p>
+        <p class="hint">Choose a relay-backup.json file. It replaces this TV's profiles, favourites, history, channel groups and settings. The file is checked first; if it isn't valid, nothing changes. PINs already set on this TV are kept.</p>
         <input type="file" id="file" accept=".json,application/json">
         <button id="restore" type="button">Restore to TV</button>
         <p id="result" class="hint"></p></section>
