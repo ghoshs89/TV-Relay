@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlinx.serialization.builtins.serializer
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -242,8 +243,19 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     private var mvLang: Map<Int, String> = emptyMap()
     private var srLang: Map<Int, String> = emptyMap()
 
-    /** Original languages learned from TMDB when a title is opened; they correct the guesses. */
-    private val learned = ConcurrentHashMap<String, String>()
+    /** Original languages learned from TMDB when a title is opened; they correct the guesses. Saved. */
+    private val learnedFile: File get() = File(ctx.filesDir, "learned_langs.json")
+    private val learned: ConcurrentHashMap<String, String> by lazy {
+        ConcurrentHashMap<String, String>().also { m ->
+            try {
+                if (learnedFile.exists()) {
+                    m.putAll(Jsons.json.decodeFromString(LANG_MAP, learnedFile.readText()))
+                }
+            } catch (e: Exception) {
+                AppLog.w("Catalog", "Saved title languages unreadable", e)
+            }
+        }
+    }
 
     var langVersion by mutableIntStateOf(0); private set
     var indexMs = 0L; private set
@@ -265,7 +277,16 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             null, "" -> return
             else -> Langs.OTHER
         }
-        if (learned.put(key, g) != g) langVersion++
+        if (learned.put(key, g) != g) {
+            langVersion++
+            try {
+                // Capped so it can't grow without limit.
+                val keep = if (learned.size > 5000) learned.entries.take(5000).associate { it.key to it.value } else HashMap(learned)
+                learnedFile.writeText(Jsons.json.encodeToString(LANG_MAP, keep))
+            } catch (e: Exception) {
+                AppLog.w("Catalog", "Couldn't save title languages", e)
+            }
+        }
     }
 
     /** Library size, how long indexing took and memory in use, for the report and the log. */
@@ -428,3 +449,5 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 private fun langOf(cats: List<Category>): Map<String, String> = buildMap {
     cats.forEach { c -> LanguageDetector.ofCategory(c.name)?.let { put(c.id, it) } }
 }
+
+private val LANG_MAP = kotlinx.serialization.builtins.MapSerializer(String.serializer(), String.serializer())

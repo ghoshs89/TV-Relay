@@ -11,7 +11,10 @@ import org.junit.Test
 class BackupTest {
 
     private val dad = Profile("p1", "Dad", pin = "1234")
-    private val kid = Profile("p2", "Kid", kids = true)
+    private val kid = Profile(
+        "p2", "Kid", kids = true, langOrder = listOf("bn", "en"), langFeatured = listOf("bn"),
+        homeRows = listOf("continue", "lang:bn"), dailyLimitMin = 90, bedtime = "20:30", wakeTime = "07:00",
+    )
 
     private val full = BackupFile(
         appVersion = "1.0.20",
@@ -20,7 +23,11 @@ class BackupTest {
         lockedProfiles = listOf("p1"),
         favourites = mapOf("p1" to listOf(FavItem("live", 7, "News"))),
         history = mapOf("p2" to listOf(WatchEntry("movie:1", "movie", "Film", streamId = "1", ext = "mp4", position = 60_000, duration = 600_000))),
-        settings = Settings(tmdbKey = "tmdb-secret", ratingsKey = "mdb-secret", logUntil = 99L, audioLang = "fr", timeshiftMinutes = 60),
+        settings = Settings(
+            tmdbKey = "tmdb-secret", ratingsKey = "mdb-secret", logUntil = 99L, audioLang = "fr", timeshiftMinutes = 60,
+            langOrder = listOf("hi", "en"), hiddenCats = setOf("livegroup:AR", "vod:12"), pinnedVod = listOf("3"),
+            setupDone = true, startScreen = "guide", mergeVariants = false,
+        ),
         channels = ChannelCustom(renames = mapOf(7 to "My News"), groups = listOf(ChannelGroup("g", "Sport", listOf(7, 8)))),
         pinnedCategories = listOf("1"),
         liveSort = mapOf("1" to 2),

@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.relay.tv.BuildConfig
 import dev.relay.tv.RelayApp
+import dev.relay.tv.data.HomeLayout
+import dev.relay.tv.data.Langs
 import dev.relay.tv.data.AccountInfo
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Channel
@@ -118,11 +120,16 @@ fun SearchTab() {
             return@LaunchedEffect
         }
         searching = true
+        val rank = app.session.langRank(app.store.settings)
         results = withContext(Dispatchers.Default) {
+            // Gather more than shown, then put your languages first.
             Results(
-                channels = catalog.channels.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }.take(40).toList(),
-                movies = catalog.movies.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }.take(60).toList(),
-                series = catalog.series.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }.take(60).toList(),
+                channels = catalog.channels.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }
+                    .take(400).toList().sortedBy { rank.rank(catalog.channelLang(it.id)) }.take(40),
+                movies = catalog.movies.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }
+                    .take(600).toList().sortedBy { rank.rank(catalog.movieLang(it.id)) }.take(60),
+                series = catalog.series.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }
+                    .take(600).toList().sortedBy { rank.rank(catalog.seriesLang(it.id)) }.take(60),
             )
         }
         searching = false
@@ -259,6 +266,9 @@ fun SettingsTab() {
     val gate = rememberParentGate()
     var parentPinDialog by remember { mutableStateOf(false) }
     var reportOpen by remember { mutableStateOf(false) }
+    var langsOpen by remember { mutableStateOf(false) }
+    var homeOpen by remember { mutableStateOf(false) }
+    var catsOpen by remember { mutableStateOf(false) }
     var pinFor by remember { mutableStateOf<Profile?>(null) }
 
     // Phones: back up to / restore from a file through Android's file picker.
@@ -353,8 +363,14 @@ fun SettingsTab() {
                 store.settings = s.copy(liveExt = if (s.liveExt == "ts") "m3u8" else "ts")
             }
         }
-        item { Setting("Preferred audio language", s.audioLang.ifBlank { "Device default" }, false) { edit = Edit.AUDIO } }
-        item { Setting("Preferred subtitle language", s.subtitleLang.ifBlank { "Off" }, false) { edit = Edit.SUBS } }
+        item {
+            Setting(
+                "Audio language order",
+                s.audioLangs.ifBlank { "Follow my languages (" + app.session.langOrder(s).take(3).joinToString(", ") { Langs.label(it) } + ")" },
+                false,
+            ) { edit = Edit.AUDIO }
+        }
+        item { Setting("Subtitle languages", s.subtitleLang.ifBlank { "Off" }, false) { edit = Edit.SUBS } }
         item { Setting("Player user agent", s.userAgent, kidsLocked) { edit = Edit.UA } }
         item {
             Setting("Match TV refresh rate to video", if (s.matchFrameRate) "On (TVs only)" else "Off", false) {
@@ -498,6 +514,40 @@ fun SettingsTab() {
         backupNote?.let { n -> item { Info("", n) } }
 
         item { Section("Library") }
+        item {
+            Setting("My languages", app.session.langOrder(s).joinToString(" · ") { Langs.label(it) }, false) { langsOpen = true }
+        }
+        item {
+            val rows = HomeLayout.resolve(current?.homeRows, app.session.langFeatured(s))
+            Setting("Home screen", "${rows.size} rows" + if (current?.homeRows == null) " (default)" else "", false) { homeOpen = true }
+        }
+        item {
+            Setting("Manage categories", if (s.hiddenCats.isEmpty()) "Hide, show or pin categories" else "${s.hiddenCats.size} hidden", kidsLocked) {
+                catsOpen = true
+            }
+        }
+        item {
+            Setting(
+                "Start screen",
+                when (s.startScreen) {
+                    "live" -> "Live TV"
+                    "guide" -> "Live TV guide"
+                    else -> "Home"
+                },
+                false,
+            ) {
+                store.settings = s.copy(
+                    startScreen = when (s.startScreen) {
+                        "home" -> "live"
+                        "live" -> "guide"
+                        else -> "home"
+                    },
+                )
+            }
+        }
+        item {
+            Setting("Set up my library again", "Languages and Live TV countries", kidsLocked) { nav.push(Route.Setup) }
+        }
         item {
             Setting("TMDB API key (optional)", tmdbStatus ?: if (s.tmdbKey.isBlank()) "Not set" else "Set", kidsLocked) {
                 edit = Edit.TMDB
@@ -716,14 +766,14 @@ fun SettingsTab() {
                 "and audience scores to movie and series pages (up to 1,000 lookups a day).",
         )
         Edit.AUDIO -> TextEditDialog(
-            "Audio language", s.audioLang, { edit = null },
-            onSave = { store.settings = s.copy(audioLang = it.lowercase()); edit = null },
-            hint = "Two letter code, e.g. en, hi, bn, fr. Leave empty for the stream default.",
+            "Audio language order", s.audioLangs, { edit = null },
+            onSave = { store.settings = s.copy(audioLangs = it.lowercase().trim()); edit = null },
+            hint = "Codes in order, e.g. en, hi, bn. On films with several audio tracks the first one available plays. Leave empty to follow your language order.",
         )
         Edit.SUBS -> TextEditDialog(
-            "Subtitle language", s.subtitleLang, { edit = null },
+            "Subtitle languages", s.subtitleLang, { edit = null },
             onSave = { store.settings = s.copy(subtitleLang = it.lowercase()); edit = null },
-            hint = "Two letter code to turn subtitles on automatically. Leave empty for off.",
+            hint = "Codes in order, e.g. en, bn, to turn subtitles on automatically. Leave empty for off.",
         )
         Edit.UA -> TextEditDialog(
             "User agent", s.userAgent, { edit = null },
@@ -758,6 +808,9 @@ fun SettingsTab() {
     }
     if (parentPinDialog) ParentPinDialog(onDismiss = { parentPinDialog = false })
     if (reportOpen) LibraryReportDialog(onDismiss = { reportOpen = false })
+    if (langsOpen) MyLanguagesDialog(onDismiss = { langsOpen = false })
+    if (homeOpen) HomeLayoutDialog(onDismiss = { homeOpen = false })
+    if (catsOpen) CategoryManagerDialog(onDismiss = { catsOpen = false })
     pinFor?.let { p ->
         TextEditDialog(
             "PIN for ${p.name}", "", { pinFor = null },

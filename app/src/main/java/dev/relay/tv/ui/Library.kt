@@ -26,6 +26,7 @@ import dev.relay.tv.data.Category
 import dev.relay.tv.data.Movie
 import dev.relay.tv.data.Series
 import dev.relay.tv.data.ProviderNames
+import dev.relay.tv.data.Langs
 import dev.relay.tv.data.TitleParts
 import kotlinx.coroutines.launch
 
@@ -40,18 +41,29 @@ fun MoviesTab() {
     val pid = app.session.profileId
     val restrict = app.session.restrict(store.settings)
 
-    val cats = remember(catalog.vodCats, restrict) {
-        specials() + catalog.vodCats.filter { !(restrict && it.adult) }
+    val s = store.settings
+    val rank = app.session.langRank(s)
+    val featured = app.session.langFeatured(s)
+    val cats = remember(catalog.vodCats, restrict, version, catalog.langVersion) {
+        arrangeCats(catalog.vodCats, "vod", s.pinnedVod, s.hiddenCats, restrict, featured) { rank.rank(catalog.vodCatLang(it)) }
     }
-    val items: List<Movie> = remember(ui.movieCat, catalog.movies, restrict, version) {
-        val base = when (ui.movieCat) {
-            UiState.RECENT -> catalog.moviesByAdded
-            UiState.TOP -> catalog.moviesByRating
-            UiState.FAV -> store.favs(pid).filter { it.kind == "movie" }.mapNotNull { catalog.movieById[it.id] }
-            UiState.ALL -> catalog.movies.sortedBy { it.name.lowercase() }
-            else -> catalog.moviesByCat[ui.movieCat].orEmpty()
+    val items: List<Movie> = remember(ui.movieCat, catalog.movies, restrict, version, catalog.langVersion) {
+        val cat = ui.movieCat
+        val base = when {
+            cat == UiState.RECENT -> catalog.moviesByAdded
+            cat == UiState.TOP -> catalog.moviesByRating
+            cat == UiState.FAV -> store.favs(pid).filter { it.kind == "movie" }.mapNotNull { catalog.movieById[it.id] }
+            cat == UiState.ALL -> catalog.movies.sortedBy { it.name.lowercase() }
+            cat.startsWith(LANG) -> catalog.moviesByAdded.filter { catalog.movieLang(it.id) == cat.removePrefix(LANG) }
+            else -> catalog.moviesByCat[cat].orEmpty()
         }
-        if (restrict) base.filter { catalog.allowed(it.categoryId, true) } else base
+        val allowed = base.filter { catalog.allowed(it.categoryId, restrict) }
+        // Mixed lists: hidden categories stay out, and your languages come first (nothing is removed).
+        if (cat == UiState.RECENT || cat == UiState.TOP || cat == UiState.ALL) {
+            allowed.filter { "vod:${it.categoryId}" !in s.hiddenCats }.sortedBy { rank.rank(catalog.movieLang(it.id)) }
+        } else {
+            allowed
+        }
     }
     Browser(
         cats = cats,
@@ -84,18 +96,28 @@ fun SeriesTab() {
     val pid = app.session.profileId
     val restrict = app.session.restrict(store.settings)
 
-    val cats = remember(catalog.seriesCats, restrict) {
-        specials() + catalog.seriesCats.filter { !(restrict && it.adult) }
+    val s = store.settings
+    val rank = app.session.langRank(s)
+    val featured = app.session.langFeatured(s)
+    val cats = remember(catalog.seriesCats, restrict, version, catalog.langVersion) {
+        arrangeCats(catalog.seriesCats, "series", s.pinnedSeries, s.hiddenCats, restrict, featured) { rank.rank(catalog.seriesCatLang(it)) }
     }
-    val items: List<Series> = remember(ui.seriesCat, catalog.series, restrict, version) {
-        val base = when (ui.seriesCat) {
-            UiState.RECENT -> catalog.seriesByAdded
-            UiState.TOP -> catalog.seriesByRating
-            UiState.FAV -> store.favs(pid).filter { it.kind == "series" }.mapNotNull { catalog.seriesById[it.id] }
-            UiState.ALL -> catalog.series.sortedBy { it.name.lowercase() }
-            else -> catalog.seriesByCat[ui.seriesCat].orEmpty()
+    val items: List<Series> = remember(ui.seriesCat, catalog.series, restrict, version, catalog.langVersion) {
+        val cat = ui.seriesCat
+        val base = when {
+            cat == UiState.RECENT -> catalog.seriesByAdded
+            cat == UiState.TOP -> catalog.seriesByRating
+            cat == UiState.FAV -> store.favs(pid).filter { it.kind == "series" }.mapNotNull { catalog.seriesById[it.id] }
+            cat == UiState.ALL -> catalog.series.sortedBy { it.name.lowercase() }
+            cat.startsWith(LANG) -> catalog.seriesByAdded.filter { catalog.seriesLang(it.id) == cat.removePrefix(LANG) }
+            else -> catalog.seriesByCat[cat].orEmpty()
         }
-        if (restrict) base.filter { catalog.allowed(it.categoryId, true) } else base
+        val allowed = base.filter { catalog.allowed(it.categoryId, restrict) }
+        if (cat == UiState.RECENT || cat == UiState.TOP || cat == UiState.ALL) {
+            allowed.filter { "series:${it.categoryId}" !in s.hiddenCats }.sortedBy { rank.rank(catalog.seriesLang(it.id)) }
+        } else {
+            allowed
+        }
     }
     Browser(
         cats = cats,
@@ -115,6 +137,30 @@ fun SeriesTab() {
             badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
     }
+}
+
+const val LANG = "__lang:"
+
+/**
+ * Category list for Movies or Series: Relay's own lists, one per featured language, pinned
+ * categories, then the rest with your languages first. Hidden categories are left out.
+ */
+private fun arrangeCats(
+    cats: List<Category>,
+    type: String,
+    pinned: List<String>,
+    hidden: Set<String>,
+    restrict: Boolean,
+    featured: List<String>,
+    rank: (String) -> Int,
+): List<Category> {
+    val visible = cats.filter { !(restrict && it.adult) && "$type:${it.id}" !in hidden }
+    val byId = visible.associateBy { it.id }
+    val top = pinned.mapNotNull { byId[it] }
+    val topIds = top.map { it.id }.toSet()
+    val rest = visible.filter { it.id !in topIds }.sortedBy { rank(it.id) }
+    return specials() + featured.map { Category("$LANG$it", Langs.label(it)) } +
+        top.map { it.copy(name = "📌 ${ProviderNames.clean(it.name)}") } + rest
 }
 
 private fun specials() = listOf(

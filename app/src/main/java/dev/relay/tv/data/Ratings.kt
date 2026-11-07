@@ -21,8 +21,10 @@ data class Score(
     val fetched: Long = 0L,
     /** Release year, so recent titles are refreshed sooner. */
     val year: Int? = null,
+    /** IMDb rating out of 10, shown when Rotten Tomatoes has no score (common for Indian films). */
+    val imdb: Double? = null,
 ) {
-    val none: Boolean get() = critics == null && audience == null
+    val none: Boolean get() = critics == null && audience == null && imdb == null
     val fresh: Boolean get() = (critics ?: 0) >= 60
 }
 
@@ -31,7 +33,7 @@ object MdbList {
     const val BASE = "https://api.mdblist.com"
 
     sealed interface Reply {
-        data class Found(val critics: Int?, val audience: Int?) : Reply
+        data class Found(val critics: Int?, val audience: Int?, val imdb: Double? = null) : Reply
         data object NotFound : Reply
         data object LimitReached : Reply
         data class Failed(val reason: String) : Reply
@@ -54,14 +56,17 @@ object MdbList {
         val ratings = root.at("ratings").arr() ?: return Reply.Found(null, null)
         var critics: Int? = null
         var audience: Int? = null
+        var imdb: Double? = null
         for (r in ratings) {
-            val v = r.at("value").dbl()?.toInt()?.takeIf { it in 1..100 }
+            val raw = r.at("value").dbl()
+            val v = raw?.toInt()?.takeIf { it in 1..100 }
             when (r.at("source").str()?.lowercase()) {
                 "tomatoes" -> critics = critics ?: v
                 "popcorn", "tomatoesaudience" -> audience = audience ?: v
+                "imdb" -> imdb = imdb ?: raw?.takeIf { it > 0.0 && it <= 10.0 }
             }
         }
-        return Reply.Found(critics, audience)
+        return Reply.Found(critics, audience, imdb)
     }
 
     /**
@@ -236,8 +241,8 @@ class Ratings(client: OkHttpClient, cacheFile: File?, private val clock: () -> L
                 val (code, root) = get("$base/tmdb/$type/$id?apikey=$apiKey")
                 when (val r = MdbList.parseItem(code, root)) {
                     is MdbList.Reply.Found -> {
-                        AppLog.d("Ratings", "$key (tmdb $type $id): critics ${r.critics ?: "-"}, audience ${r.audience ?: "-"}")
-                        keep(key, Score(r.critics, r.audience, clock(), y))
+                        AppLog.d("Ratings", "$key (tmdb $type $id): critics ${r.critics ?: "-"}, audience ${r.audience ?: "-"}, imdb ${r.imdb ?: "-"}")
+                        keep(key, Score(r.critics, r.audience, clock(), y, r.imdb))
                     }
                     MdbList.Reply.NotFound -> keep(key, Score(fetched = clock(), year = y))
                     MdbList.Reply.LimitReached -> {

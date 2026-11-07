@@ -35,6 +35,14 @@ data class Profile(
     val pin: String? = null,
     val kids: Boolean = false,
     val color: Int = 0,
+    // Batch 5: per-profile language order (null = household default) and Home layout.
+    val langOrder: List<String>? = null,
+    val langFeatured: List<String>? = null,
+    val homeRows: List<String>? = null,
+    // Batch 7: kids viewing limits. 0 / "" = no limit.
+    val dailyLimitMin: Int = 0,
+    val bedtime: String = "",
+    val wakeTime: String = "",
 )
 
 @Serializable
@@ -93,6 +101,19 @@ data class Settings(
     // Batch 3
     val ratingsKey: String = "", // MDBList, for Rotten Tomatoes scores
     val posterScores: Boolean = true,
+    // Batch 5: household language defaults, library setup, hidden categories ("live:12", "vod:7",
+    // "series:3", or "livegroup:IN" for a whole country), ordered audio and subtitle languages.
+    val langOrder: List<String> = listOf("en", "hi", "bn", "south", "bd"),
+    val langFeatured: List<String> = listOf("en", "hi", "bn"),
+    val setupDone: Boolean = false,
+    val hiddenCats: Set<String> = emptySet(),
+    val audioLangs: String = "", // "" = follow my languages
+    val pinnedVod: List<String> = emptyList(),
+    val pinnedSeries: List<String> = emptyList(),
+    // Batch 6
+    val mergeVariants: Boolean = true,
+    val startScreen: String = "home", // home | live | guide
+    val fullGuideSearch: Boolean = false,
 )
 
 /** A programme the viewer wants to be told about when it starts. Times are as shown in the guide. */

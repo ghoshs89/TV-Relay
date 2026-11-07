@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.relay.tv.RelayApp
+import dev.relay.tv.data.HomeLayout
 import dev.relay.tv.data.Episode
 import dev.relay.tv.data.WatchEntry
 import dev.relay.tv.player.Playback
@@ -84,6 +85,22 @@ fun HomeScreen() {
 
     // A restore can remove or change the current profile: pick up the change, or go back to the picker.
     val nav = LocalNav.current
+
+    // Offer library setup once (not on kids profiles). Then honour the chosen start screen.
+    LaunchedEffect(Unit) {
+        val st = app.store.settings
+        if (!st.setupDone && app.session.profile?.kids != true) {
+            nav.push(Route.Setup)
+        } else if (!app.session.autoStartDone) {
+            when (st.startScreen) {
+                "live" -> app.ui.tab = 1
+                "guide" -> {
+                    app.ui.tab = 1
+                    app.ui.liveGrid = true
+                }
+            }
+        }
+    }
     LaunchedEffect(app.store.version.intValue) {
         val current = app.session.profile ?: return@LaunchedEffect
         val now = app.store.profiles.firstOrNull { it.id == current.id }
@@ -295,77 +312,116 @@ fun HomeTab() {
         return
     }
 
+    val st = store.settings
+    val featured = app.session.langFeatured(st)
+    val rows = HomeLayout.resolve(app.session.profile?.homeRows, featured)
+    val hidden = st.hiddenCats
+
     LazyColumn(Modifier.fillMaxSize().fadeEdges(), state = app.ui.homeList, contentPadding = PaddingValues(top = 20.dp, bottom = 48.dp)) {
-        item {
-            Rail("Continue watching", continueWatching) { e ->
-                PosterCard(
-                    e.title, e.image, { resume(e) }, key = "cw:${e.key}", width = 260.dp, aspect = 16f / 9f,
-                    subtitle = e.subtitle ?: "${fmtDuration(e.duration - e.position)} left",
-                    progress = e.position.toFloat() / e.duration.coerceAtLeast(1),
-                )
+        rows.forEach { row ->
+            item(key = row) {
+                when {
+                    row == HomeLayout.CONTINUE -> Rail(HomeLayout.label(row), continueWatching) { e ->
+                        PosterCard(
+                            e.title, e.image, { resume(e) }, key = "cw:${e.key}", width = 260.dp, aspect = 16f / 9f,
+                            subtitle = e.subtitle ?: "${fmtDuration(e.duration - e.position)} left",
+                            progress = e.position.toFloat() / e.duration.coerceAtLeast(1),
+                        )
+                    }
+                    row == HomeLayout.FAV_CHANNELS -> Rail(HomeLayout.label(row), favChannels) { ch ->
+                        ChannelTile(
+                            ch, { Playback.live(ctx, favChannels, favChannels.indexOf(ch)) },
+                            key = "fc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
+                        )
+                    }
+                    row == HomeLayout.RECENT_CHANNELS -> Rail(HomeLayout.label(row), recentChannels) { ch ->
+                        ChannelTile(
+                            ch, { Playback.live(ctx, recentChannels, recentChannels.indexOf(ch)) },
+                            key = "rc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
+                        )
+                    }
+                    row == HomeLayout.MY_LIST -> Rail(HomeLayout.label(row), myList) { f ->
+                        PosterCard(f.name, f.image, {
+                            if (f.kind == "movie") catalog.movieById[f.id]?.let { nav.push(Route.MovieDetail(it)) }
+                            else catalog.seriesById[f.id]?.let { nav.push(Route.SeriesDetail(it)) }
+                        }, key = "ml:${f.kind}:${f.id}")
+                    }
+                    row.startsWith(HomeLayout.LANG) -> {
+                        val lang = row.removePrefix(HomeLayout.LANG)
+                        val list = remember(lang, catalog.movies, catalog.series, restrict, catalog.langVersion, hidden) {
+                            newIn(catalog, lang, restrict, hidden)
+                        }
+                        Rail(HomeLayout.label(row), list) { t -> TitleCard(t, "nl:$lang") }
+                    }
+                    row == HomeLayout.NEW_MOVIES -> {
+                        val list = catalog.moviesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
+                        Rail(HomeLayout.label(row), list) { m -> TitleCard(HomeTitle.M(m), "ram") }
+                    }
+                    row == HomeLayout.NEW_SERIES -> {
+                        val list = catalog.seriesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
+                        Rail(HomeLayout.label(row), list) { x -> TitleCard(HomeTitle.S(x), "ras") }
+                    }
+                    row == HomeLayout.TOP_MOVIES -> {
+                        val list = catalog.moviesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
+                        Rail(HomeLayout.label(row), list) { m ->
+                            PosterCard(m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "trm:${m.id}", badge = "★ %.1f".format(m.rating))
+                        }
+                    }
+                    row == HomeLayout.TOP_SERIES -> {
+                        val list = catalog.seriesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
+                        Rail(HomeLayout.label(row), list) { x ->
+                            PosterCard(x.name, x.cover, { nav.push(Route.SeriesDetail(x)) }, key = "trs:${x.id}", badge = "★ %.1f".format(x.rating))
+                        }
+                    }
+                }
             }
         }
-        item {
-            Rail("Favourite channels", favChannels) { ch ->
-                ChannelTile(
-                    ch, { Playback.live(ctx, favChannels, favChannels.indexOf(ch)) },
-                    key = "fc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
-                )
-            }
+    }
+}
+
+/** A movie or a series in a mixed row. */
+sealed interface HomeTitle {
+    val added: Long
+
+    data class M(val movie: dev.relay.tv.data.Movie) : HomeTitle {
+        override val added get() = movie.added
+    }
+
+    data class S(val series: dev.relay.tv.data.Series) : HomeTitle {
+        override val added get() = series.added
+    }
+}
+
+/** Newest movies and series in one language group, mixed by date. */
+fun newIn(catalog: dev.relay.tv.data.Catalog, lang: String, restrict: Boolean, hidden: Set<String>): List<HomeTitle> {
+    val m = catalog.moviesByAdded.asSequence()
+        .filter { catalog.movieLang(it.id) == lang && catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }
+        .take(30).map { HomeTitle.M(it) }
+    val s = catalog.seriesByAdded.asSequence()
+        .filter { catalog.seriesLang(it.id) == lang && catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }
+        .take(30).map { HomeTitle.S(it) }
+    return (m + s).sortedByDescending { it.added }.take(30).toList()
+}
+
+@Composable
+private fun TitleCard(t: HomeTitle, keyPrefix: String) {
+    val nav = LocalNav.current
+    when (t) {
+        is HomeTitle.M -> {
+            val m = t.movie
+            val rt = posterScore("m", m.id)
+            PosterCard(
+                m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "$keyPrefix:m:${m.id}", subtitle = m.year,
+                badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
+            )
         }
-        item {
-            Rail("Recently watched channels", recentChannels) { ch ->
-                ChannelTile(
-                    ch, { Playback.live(ctx, recentChannels, recentChannels.indexOf(ch)) },
-                    key = "rc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
-                )
-            }
-        }
-        item {
-            Rail("My list", myList) { f ->
-                PosterCard(f.name, f.image, {
-                    if (f.kind == "movie") catalog.movieById[f.id]?.let { nav.push(Route.MovieDetail(it)) }
-                    else catalog.seriesById[f.id]?.let { nav.push(Route.SeriesDetail(it)) }
-                }, key = "ml:${f.kind}:${f.id}")
-            }
-        }
-        item {
-            val list = catalog.moviesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) }.take(30).toList()
-            Rail("Recently added movies", list) { m ->
-                val rt = posterScore("m", m.id)
-                PosterCard(
-                    m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "ram:${m.id}", subtitle = m.year,
-                    badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
-                )
-            }
-        }
-        item {
-            val list = catalog.seriesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) }.take(30).toList()
-            Rail("Recently updated series", list) { s ->
-                val rt = posterScore("s", s.id)
-                PosterCard(
-                    s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "ras:${s.id}", subtitle = s.year,
-                    badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
-                )
-            }
-        }
-        item {
-            val list = catalog.moviesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) }.take(30).toList()
-            Rail("Top rated movies", list) { m ->
-                PosterCard(
-                    m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "trm:${m.id}",
-                    badge = "★ %.1f".format(m.rating),
-                )
-            }
-        }
-        item {
-            val list = catalog.seriesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) }.take(30).toList()
-            Rail("Top rated series", list) { s ->
-                PosterCard(
-                    s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "trs:${s.id}",
-                    badge = "★ %.1f".format(s.rating),
-                )
-            }
+        is HomeTitle.S -> {
+            val x = t.series
+            val rt = posterScore("s", x.id)
+            PosterCard(
+                x.name, x.cover, { nav.push(Route.SeriesDetail(x)) }, key = "$keyPrefix:s:${x.id}", subtitle = x.year,
+                badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
+            )
         }
     }
 }

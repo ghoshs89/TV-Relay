@@ -1,6 +1,9 @@
 package dev.relay.tv.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -23,6 +26,7 @@ import dev.relay.tv.data.Score
 val RtRed = Color(0xFFE5482D)
 val RtGreen = Color(0xFF5BB85D)
 private val Popcorn = Color(0xFFF5C451)
+private val ImdbYellow = Color(0xFFF5C518)
 
 /** "Critics 93%   Audience 88%   Rotten Tomatoes" under a title. Shows nothing without a score. */
 @Composable
@@ -41,7 +45,19 @@ fun RtScores(score: Score?) {
             Text("Audience $a%", color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(18.dp))
         }
-        Text("Rotten Tomatoes", color = Palette.dim, fontSize = 12.sp)
+        if (score.critics != null || score.audience != null) {
+            Text("Rotten Tomatoes", color = Palette.dim, fontSize = 12.sp)
+        } else {
+            score.imdb?.let { i ->
+                // No Rotten Tomatoes score (common for Hindi and Bengali films): show IMDb instead.
+                Text(
+                    "IMDb", Modifier.background(ImdbYellow, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
+                    color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("%.1f".format(i), color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
 }
 

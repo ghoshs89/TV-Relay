@@ -23,6 +23,9 @@ class Tmdb(private val http: OkHttpClient) {
         val genres: List<String>,
         val cast: List<String>,
         val id: String? = null,
+        /** Original language ("hi", "bn", "en", "ta"...) and first production country, for language groups. */
+        val language: String? = null,
+        val country: String? = null,
     )
 
     private val cache = ConcurrentHashMap<String, Info>()
@@ -59,6 +62,9 @@ class Tmdb(private val http: OkHttpClient) {
                     genres = d.at("genres").arr()?.mapNotNull { it.at("name").str() } ?: emptyList(),
                     cast = d.at("credits").at("cast").arr()?.take(6)?.mapNotNull { it.at("name").str() } ?: emptyList(),
                     id = id,
+                    language = d.at("original_language").str(),
+                    country = d.at("production_countries").arr()?.firstOrNull().at("iso_3166_1").str()
+                        ?: d.at("origin_country").arr()?.firstOrNull().str(),
                 )
                 cache[cacheKey] = info
                 info
@@ -90,7 +96,7 @@ class Tmdb(private val http: OkHttpClient) {
         private val TAGS = Regex("(?i)\\b(4k|uhd|fhd|hd|sd|hevc|h265|multi|vostfr|sub|dub)\\b")
         private val YEAR = Regex("[(\\[]\\s*(19|20)\\d{2}\\s*[)\\]]")
 
-        fun cleanTitle(raw: String): String = raw
+        fun cleanTitle(raw: String): String = TitleParts.parse(raw).title
             .replace(PREFIX, "")
             .replace(YEAR, "")
             .replace(TAGS, "")

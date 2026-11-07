@@ -27,6 +27,14 @@ object Langs {
         else -> "Unclassified"
     }
 
+    /** Order for the "By language" view: the profile's order, with Bangladesh right under Bengali. */
+    fun viewOrder(order: List<String>): List<String> {
+        val base = (order + GROUPS).distinct().filter { it != BD }.toMutableList()
+        val i = base.indexOf(BN)
+        if (i >= 0) base.add(i + 1, BD) else base.add(BD)
+        return base
+    }
+
     /** Audio and subtitle track codes for a group, for the player's ordered preferences. */
     fun trackCodes(key: String): List<String> = when (key) {
         EN -> listOf("en")
@@ -38,7 +46,7 @@ object Langs {
 }
 
 /** Ranks a language group by a profile's order: its groups first, then unclassified, then others. */
-class LangRank(private val order: List<String>) {
+data class LangRank(val order: List<String>) {
     private val index = order.withIndex().associate { it.value to it.index }
     fun rank(lang: String?): Int = when {
         lang == null -> order.size

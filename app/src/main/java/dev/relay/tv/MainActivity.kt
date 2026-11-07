@@ -40,6 +40,7 @@ import dev.relay.tv.ui.ReminderDialog
 import dev.relay.tv.ui.RelayTheme
 import dev.relay.tv.ui.Route
 import dev.relay.tv.ui.SeriesDetailScreen
+import dev.relay.tv.ui.SetupScreen
 import dev.relay.tv.ui.SplashScreen
 import dev.relay.tv.ui.UiState
 import kotlinx.coroutines.launch
@@ -125,6 +126,7 @@ fun AppRoot() {
                                     Route.Home -> HomeScreen()
                                     is Route.MovieDetail -> MovieDetailScreen(route.movie)
                                     is Route.SeriesDetail -> SeriesDetailScreen(route.series)
+                                    Route.Setup -> SetupScreen(onDone = { nav.pop(ui.focus) })
                                 }
                             }
                         }

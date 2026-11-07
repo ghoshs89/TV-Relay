@@ -29,7 +29,14 @@ class RatingsTest {
             """{"title":"Film","year":2019,"ratings":[{"source":"imdb","value":7.9},
                {"source":"tomatoes","value":93,"votes":300},{"source":"popcorn","value":88}]}""",
         ))
-        assertEquals(MdbList.Reply.Found(93, 88), r)
+        assertEquals(MdbList.Reply.Found(93, 88, 7.9), r)
+    }
+
+    @Test
+    fun imdbIsKeptForTitlesWithoutRottenTomatoes() {
+        val r = MdbList.parseItem(200, json("""{"ratings":[{"source":"imdb","value":8.1},{"source":"tomatoes","value":null}]}"""))
+        assertEquals(MdbList.Reply.Found(null, null, 8.1), r)
+        assertFalse(Score(imdb = 8.1).none)
     }
 
     @Test

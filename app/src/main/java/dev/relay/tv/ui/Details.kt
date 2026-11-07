@@ -72,6 +72,7 @@ fun MovieDetailScreen(m: Movie) {
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, false, info?.tmdbId ?: m.tmdbId, m.name, info?.year ?: m.year)
+        tmdb?.let { app.catalog.learnLanguage("m:${m.id}", it.language, it.country) }
         val rk = store.settings.ratingsKey
         if (rk.isNotBlank()) {
             score = app.ratings.lookup(rk, "m:${m.id}", false, info?.tmdbId ?: m.tmdbId ?: tmdb?.id, m.name, info?.year ?: m.year)
@@ -171,6 +172,7 @@ fun SeriesDetailScreen(s: Series) {
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, true, info?.tmdbId ?: s.tmdbId, s.name, info?.year ?: s.year)
+        tmdb?.let { app.catalog.learnLanguage("s:${s.id}", it.language, it.country) }
         val rk = store.settings.ratingsKey
         if (rk.isNotBlank()) {
             score = app.ratings.lookup(rk, "s:${s.id}", true, info?.tmdbId ?: s.tmdbId ?: tmdb?.id, s.name, info?.year ?: s.year)

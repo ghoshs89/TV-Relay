@@ -50,6 +50,8 @@ import dev.relay.tv.data.Channel
 import dev.relay.tv.data.EpgEntry
 import dev.relay.tv.data.FavItem
 import dev.relay.tv.data.ProviderNames
+import dev.relay.tv.data.LanguageDetector
+import dev.relay.tv.data.Langs
 import dev.relay.tv.player.Playback
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -91,8 +93,30 @@ fun LiveTab() {
 
     val groups = store.channelCustom.groups
     val pinned = store.pinnedCats
-    val providerCats = remember(catalog.liveCats, restrict) { catalog.liveCats.filter { !(restrict && it.adult) } }
-    val countries = remember(providerCats) { LiveBrowse.group(providerCats) }
+    val st = store.settings
+    val rank = app.session.langRank(st)
+    val hidden = st.hiddenCats
+    val allCats = remember(catalog.liveCats, restrict) { catalog.liveCats.filter { !(restrict && it.adult) } }
+    val allGroups = remember(allCats) { LiveBrowse.group(allCats) }
+    // Categories hidden one by one or with their whole country (Settings → Manage categories).
+    val hiddenIds: Set<String> = remember(allCats, allGroups, hidden) {
+        buildSet {
+            allCats.forEach { if ("live:${it.id}" in hidden) add(it.id) }
+            allGroups?.forEach { g -> if ("livegroup:${g.key}" in hidden) g.cats.forEach { add(it.id) } }
+        }
+    }
+    val providerCats = remember(allCats, hiddenIds) { allCats.filter { it.id !in hiddenIds } }
+    // Countries and categories in your languages first; nothing else is removed.
+    val countries = remember(allGroups, hiddenIds, rank, catalog.langVersion) {
+        allGroups
+            ?.filter { g -> "livegroup:${g.key}" !in hidden }
+            ?.map { g -> g.copy(cats = g.cats.filter { it.id !in hiddenIds }.sortedBy { rank.rank(catalog.liveCatLang(it.id)) }) }
+            ?.filter { it.cats.isNotEmpty() }
+            ?.sortedBy { g -> rank.rank(LanguageDetector.ofCode(g.key) ?: LanguageDetector.ofCategory(g.label)) }
+    }
+    val langCounts = remember(catalog.channels, catalog.langVersion) {
+        catalog.channels.groupingBy { catalog.channelLang(it.id) }.eachCount()
+    }
     val shortName: Map<String, String> = remember(providerCats, countries) {
         countries?.flatMap { g -> g.cats.map { it.id to it.name } }?.toMap() ?: providerCats.associate { it.id to it.name }
     }
@@ -116,6 +140,11 @@ fun LiveTab() {
         }
         groups.forEach { add(CatRow.Item("${ChannelEdits.GROUP}${it.id}", "▸ ${it.name}", it.channelIds.size)) }
         add(CatRow.Item(UiState.ALL, "All channels", catalog.channels.size))
+        // By language: Bangladesh sits right under Bengali.
+        Langs.viewOrder(app.session.langOrder(st)).forEach { k ->
+            val n = langCounts[k] ?: 0
+            if (n > 0) add(CatRow.Item("$LANG$k", "🗣 ${Langs.label(k)}", n))
+        }
         if (countries == null) {
             providerCats.forEach { add(CatRow.Item(it.id, ProviderNames.clean(it.name), catalog.channelsByCat[it.id]?.size)) }
         } else {
@@ -127,13 +156,20 @@ fun LiveTab() {
         }
     }
 
-    val base: List<Channel> = remember(ui.liveCat, catalog.channels, restrict, version) {
+    val base: List<Channel> = remember(ui.liveCat, catalog.channels, restrict, version, hiddenIds, rank, catalog.langVersion) {
         when (ui.liveCat) {
             UiState.FAV -> store.favs(pid).filter { it.kind == "live" }.mapNotNull { catalog.channelById[it.id] }
             UiState.HISTORY -> store.history(pid).filter { it.kind == "live" }
                 .mapNotNull { e -> e.streamId.toIntOrNull()?.let { catalog.channelById[it] } }
-            UiState.ALL -> if (restrict) catalog.channels.filter { catalog.allowed(it.categoryId, true) } else catalog.channels
-            else -> if (ui.liveCat.startsWith(ChannelEdits.GROUP)) {
+            UiState.ALL -> catalog.channels
+                .filter { catalog.allowed(it.categoryId, restrict) && it.categoryId !in hiddenIds }
+                .sortedBy { rank.rank(catalog.channelLang(it.id)) }
+            else -> if (ui.liveCat.startsWith(LANG)) {
+                val k = ui.liveCat.removePrefix(LANG)
+                catalog.channels.filter {
+                    catalog.channelLang(it.id) == k && catalog.allowed(it.categoryId, restrict) && it.categoryId !in hiddenIds
+                }
+            } else if (ui.liveCat.startsWith(ChannelEdits.GROUP)) {
                 groups.firstOrNull { "${ChannelEdits.GROUP}${it.id}" == ui.liveCat }
                     ?.let { catalog.groupChannels(it) }.orEmpty()
                     .filter { catalog.allowed(it.categoryId, restrict) }

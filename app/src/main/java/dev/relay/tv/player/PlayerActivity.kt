@@ -211,8 +211,8 @@ class PlayerActivity : ComponentActivity() {
         val selector = DefaultTrackSelector(this).apply {
             setParameters(
                 buildUponParameters()
-                    .setPreferredAudioLanguage(s.audioLang.ifBlank { null })
-                    .setPreferredTextLanguage(s.subtitleLang.ifBlank { null }),
+                    .setPreferredAudioLanguages(*audioOrder().toTypedArray())
+                    .setPreferredTextLanguages(*textOrder().toTypedArray()),
             )
         }
         val load = DefaultLoadControl.Builder()
@@ -486,6 +486,20 @@ class PlayerActivity : ComponentActivity() {
             }
         }
     }
+
+    /**
+     * Audio languages in order of preference: the codes typed in Settings, or else the profile's
+     * language order (English, Hindi, Bengali...). Dual-audio films pick the first one available.
+     */
+    private fun audioOrder(): List<String> {
+        val s = app.store.settings
+        val typed = s.audioLangs.split(',', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        if (typed.isNotEmpty()) return typed
+        return (app.session.langOrder(s).flatMap { dev.relay.tv.data.Langs.trackCodes(it) } + listOfNotNull(s.audioLang.ifBlank { null })).distinct()
+    }
+
+    private fun textOrder(): List<String> =
+        app.store.settings.subtitleLang.split(',', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
 
     private fun httpCodeOf(e: Throwable?): Int? {
         var c = e
@@ -786,8 +800,8 @@ class PlayerActivity : ComponentActivity() {
         applyingPrefs = true
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .clearOverrides()
-            .setPreferredAudioLanguage(pref.audio ?: s.audioLang.ifBlank { null })
-            .setPreferredTextLanguage(pref.text)
+            .setPreferredAudioLanguages(*(listOfNotNull(pref.audio) + audioOrder()).distinct().toTypedArray())
+            .setPreferredTextLanguages(*(listOfNotNull(pref.text) + textOrder()).distinct().toTypedArray())
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, pref.textOff)
             .build()
         applyingPrefs = false

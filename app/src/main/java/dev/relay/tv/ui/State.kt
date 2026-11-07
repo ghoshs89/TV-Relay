@@ -22,6 +22,14 @@ class Session {
     var autoStartDone = false
     val profileId: String get() = profile?.id ?: "default"
     fun restrict(settings: Settings): Boolean = profile?.kids == true || settings.hideAdult
+
+    /** This profile's language order, or the household default. */
+    fun langOrder(settings: Settings): List<String> = profile?.langOrder ?: settings.langOrder
+
+    /** Languages with their own Home rows ("New in Hindi"...). */
+    fun langFeatured(settings: Settings): List<String> = profile?.langFeatured ?: settings.langFeatured
+
+    fun langRank(settings: Settings): dev.relay.tv.data.LangRank = dev.relay.tv.data.LangRank(langOrder(settings))
 }
 
 /** Browsing state that survives opening a detail page and coming back. */
@@ -73,6 +81,7 @@ sealed interface Route {
     data object Home : Route
     data class MovieDetail(val movie: Movie) : Route
     data class SeriesDetail(val series: Series) : Route
+    data object Setup : Route
 }
 
 class Nav(start: Route) {
