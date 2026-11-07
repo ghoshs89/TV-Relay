@@ -2,6 +2,7 @@ package dev.relay.tv
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -41,6 +42,7 @@ import dev.relay.tv.ui.RelayTheme
 import dev.relay.tv.ui.Route
 import dev.relay.tv.ui.SeriesDetailScreen
 import dev.relay.tv.ui.SetupScreen
+import dev.relay.tv.tv.WatchNext
 import dev.relay.tv.ui.SplashScreen
 import dev.relay.tv.ui.UiState
 import kotlinx.coroutines.launch
@@ -48,9 +50,20 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) takeResumeLink(intent)
         setContent {
             RelayTheme { AppRoot() }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takeResumeLink(intent)
+    }
+
+    /** "Continue watching" on the TV home screen opens relay://resume links. */
+    private fun takeResumeLink(intent: Intent?) {
+        WatchNext.parse(intent?.data)?.let { RelayApp.instance.pendingResume = it }
     }
 }
 

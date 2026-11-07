@@ -44,6 +44,9 @@ class RelayApp : Application(), ImageLoaderFactory {
     /** Handed to PlayerActivity in memory; channel lists can be too big for an Intent. */
     var pendingPlay: PlayRequest? = null
 
+    /** A relay://resume link from the home screen: (profile id, history key), handled by Home. */
+    var pendingResume by mutableStateOf<Pair<String, String>?>(null)
+
     override fun onCreate() {
         super.onCreate()
         instance = this

@@ -41,11 +41,12 @@ Relay signs in to an Xtream Codes account and plays what that account provides. 
 
 <table>
   <tr><td><b>Watch</b></td><td>Live TV with pause and rewind, catch-up, movies and series with resume, next episode, picture-in-picture on phones</td></tr>
-  <tr><td><b>Find</b></td><td>Timeline guide, categories grouped by country, filters, A–Z jump, search, favourites, channel groups and renames</td></tr>
-  <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, a parent PIN for anything that changes access</td></tr>
-  <tr><td><b>Reliability</b></td><td>Backup servers used automatically, stalled streams reconnect on their own, a library refresh that can't wipe your saved lists</td></tr>
+  <tr><td><b>Your languages</b></td><td>English, Hindi and Bengali first by default, then South Indian and Bangladesh; every other language still there, lower down. Order, Home rows and audio follow each profile</td></tr>
+  <tr><td><b>Find</b></td><td>Timeline guide with now and next in every list, search that also finds programmes on TV, categories by country and by language, hide or pin categories, favourites, channel groups and renames</td></tr>
+  <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, daily viewing time and bedtime for kids, a parent PIN for anything that changes access</td></tr>
+  <tr><td><b>Reliability</b></td><td>One entry per channel with automatic fallback to its other versions, backup servers, stalled streams reconnect on their own, failures explained in plain words, a library refresh that can't wipe your saved lists</td></tr>
   <tr><td><b>Picture and sound</b></td><td>Refresh-rate matching, Dolby and DTS audio, lip-sync adjustment, subtitle style, stream info on start</td></tr>
-  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores, TMDB artwork, programme reminders, phone companion, backup and restore, in-app updates</td></tr>
+  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates</td></tr>
 </table>
 
 ## Install
@@ -90,6 +91,7 @@ Open the APK from the Releases page and allow your browser to install apps when 
 1. Enter a name for the playlist, the server address, any backup servers (comma separated), your username and password. A phone can fill this in for you: scan the QR code on the sign-in screen.
 2. Relay checks the login and downloads your channels, movies and series. A large playlist takes about a minute the first time; after that it opens from its saved copy.
 3. Pick or create a profile.
+4. Set up your library (once, skippable): put your languages in order and untick Live TV countries you never watch. Both can be changed later in Settings → Library.
 
 If your provider gives separate addresses for VPN and non-VPN use, enter the ones that match how this device connects. You can change them later in Settings → Account.
 
@@ -122,18 +124,34 @@ If your provider gives separate addresses for VPN and non-VPN use, enter the one
 | Where | What |
 |---|---|
 | **Profiles** | Kids profiles, profile PINs, and the **parent PIN**. Once set, it's needed to add or remove profiles, leave a kids profile, show adult categories, restore a backup, change servers or sign out. A kids profile used last reopens directly when Relay starts. |
-| **Playback** | Live stream format, pause & rewind buffer (15, 30 or 60 minutes, up to 1.5 GB, deleted when you leave the channel), refresh-rate matching, lip-sync, start on last channel |
+| **Profiles** › Viewing time | For each kids profile: minutes per day, bedtime and wake-up time, and **Allow 30 more minutes now**. Only time spent playing counts. |
+| **Playback** | Live stream format, pause & rewind buffer (15, 30 or 60 minutes, up to 1.5 GB, deleted when you leave the channel), refresh-rate matching, lip-sync, start on last channel, Continue watching on the TV home screen, audio language order |
 | **Subtitles** | Size, colour and background |
-| **Channels & guide** | Channel groups, an external XMLTV guide, guide time offset, reminders |
+| **Channels & guide** | Channel groups, an external XMLTV guide, guide time offset, reminders, **Show each channel once**, **Search the whole TV guide** |
 | **Backup & phone** | Phone companion, backup to a file, restore |
-| **Library** | TMDB key and Rotten Tomatoes scores (both optional, below) |
-| **Diagnostics** | Recent activity, saved logs, sharing logs |
+| **Library** | **My languages**, **Home screen** rows, **Manage categories** (hide, show, pin, whole countries), start screen, set up my library again, TMDB key and Rotten Tomatoes scores (both optional, below) |
+| **Diagnostics** | Recent activity, saved logs, sharing logs, **Library and language report** (what Relay recognised in your playlist) |
+
+<details>
+<summary><b>How languages work</b></summary>
+
+Relay sorts everything into five groups: **English**, **Hindi**, **Bengali** (Indian Bengali only), **South Indian** (Tamil, Telugu, Malayalam and Kannada, including Hindi-dubbed South films) and **Bangladesh**. Everything else is *Other*, and titles Relay can't place are *Unclassified*.
+
+- It reads title tags (`HI - `, `SO-IN - `), category names (`HINDI MOVIES`, `BANGLADESH`), well-known channel names (Star Jalsha, Channel i, Sun TV) and country tags. With a TMDB key, a title's original language is learned the first time you open it.
+- Your order decides what comes first in lists, search and the guide. Nothing is filtered out; other languages sit lower down.
+- Languages marked **Home row** get a *New in …* row on Home. Live TV has a **By language** section, with Bangladesh directly under Bengali.
+- Each profile can have its own order (Settings → Library → My languages); profiles without one use the household order chosen during setup.
+- If a lot lands in Unclassified, the Library and language report lists the tags and categories it didn't recognise.
+
+</details>
 
 <details>
 <summary><b>How Relay stays up when your provider doesn't</b></summary>
 
 - **Backup servers** are tried automatically, both for browsing and during playback.
+- **Several versions of a channel** (HD, FHD, HEVC, backup) show as one entry. Your chosen version plays first, otherwise the best quality. If it fails to start, or keeps stalling, Relay switches to the next version on its own. **Versions** in the channel panel lists them all and lets you pick the main one.
 - **Stalled streams:** live TV reconnects after 20 seconds of buffering and movies after 30, resuming at the same position. After three tries a channel shows **Retry** and **Next channel** instead of buffering forever.
+- **When something fails**, the player says why in plain words after checking your account: login rejected, subscription expired, all your connections in use, the server refusing the stream, or a format the TV can't decode.
 - **Pause & rewind** records MPEG-TS channels only; HLS channels play directly. If a channel doesn't work with the buffer, Relay plays it directly instead.
 - **Library refresh** happens once your lists are six hours old, including while Relay stays open. A refresh is checked before it replaces anything: an error page, a cut-off list, or a sudden empty list is rejected and your saved library is kept.
 
@@ -148,7 +166,16 @@ A restore checks the whole file first, so nothing changes if it's damaged or fro
 
 Treat backup files as personal: they include your viewing history, and an external guide address can contain your provider login if the provider builds it that way.
 
-The phone companion (Settings → Backup & phone, or the sign-in screen) is a page a phone on the same Wi-Fi opens by scanning a QR code. It can sign the TV in, download a backup and restore one. It exists only while that screen is open, and its address includes a random code.
+The phone companion (Settings → Backup & phone, or the sign-in screen) is a page a phone on the same Wi-Fi opens by scanning a QR code. It can sign the TV in, download a backup and restore one, and **edit your library** with the phone's keyboard: hide, show or pin categories and whole countries, reorder or remove favourite channels, and rename channels. It exists only while that screen is open, and its address includes a random code.
+
+</details>
+
+<details>
+<summary><b>Guide search, start over and the home screen</b></summary>
+
+- **Search** shows an *On TV* row: programmes on now (OK to watch) and later (OK sets a reminder). By default it covers channels whose guide Relay has already loaded. **Search the whole TV guide** downloads your provider's full guide for your languages and favourite channels (up to 1,500) every 12 hours. An external XMLTV guide, if set, is searched instead.
+- **Start over** in the channel panel plays the current programme from its beginning on channels with catch-up.
+- **Continue watching on the home screen** (Google TV and Android TV): movies and episodes you're partway through appear on the TV's own home screen. Choosing one opens Relay and resumes it on the same profile. Kids profiles and adult categories never appear there.
 
 </details>
 
@@ -220,7 +247,7 @@ Each build checks that the token can read this repo's releases before building i
 
 Every push to `main` that changes the app builds it in GitHub Actions and publishes it as release `v1.0.N`. Changes that touch only documentation or tools (`README.md`, `docs/`, `tools/`) don't make a release. You can also start a build from the Actions tab with **Run workflow**.
 
-Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. Test and lint reports are attached to each run as `reports-1.0.N`.
+Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. The release APK is shrunk with R8, then started on an Android emulator; if it crashes on launch, nothing is published. Test and lint reports are attached to each run as `reports-1.0.N`.
 
 To build locally (JDK 17 and the Android SDK):
 
@@ -249,10 +276,12 @@ app/src/main/java/dev/relay/tv/
   RelayApp.kt       app-wide singletons: HTTP client, store, API, catalog, ratings
   MainActivity.kt   navigation root and splash
   data/             Xtream client with server failover, catalog, local store,
-                    backups, restrictions, TMDB and Rotten Tomatoes
+                    backups, restrictions, languages, channel versions,
+                    kids limits, TMDB and Rotten Tomatoes
   ui/               Compose screens for TV and phone
   player/           Media3 player, pause-buffer recorder, stream recovery
-  companion/        phone companion web page
+  companion/        phone companion web page and library editor
+  tv/               Google TV home screen (Continue watching)
   update/           in-app updater
 app/src/test/       unit tests
 tools/icon/         icon and banner generator

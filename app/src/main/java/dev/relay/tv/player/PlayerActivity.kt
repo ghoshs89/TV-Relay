@@ -62,6 +62,9 @@ import dev.relay.tv.data.PlayItem
 import dev.relay.tv.data.PlayRequest
 import dev.relay.tv.data.TrackPref
 import dev.relay.tv.data.WatchEntry
+import dev.relay.tv.data.KidsLimits
+import dev.relay.tv.tv.WatchNext
+import kotlinx.coroutines.Dispatchers
 import dev.relay.tv.ui.RelayTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -142,8 +145,60 @@ class PlayerActivity : ComponentActivity() {
     private val watchdog = object : Runnable {
         override fun run() {
             checkStall()
+            trackViewing()
             handler.postDelayed(this, 1_000)
         }
+    }
+
+    // ---------- Kids viewing limits ----------
+
+    private val kidsProfile by lazy { app.store.profiles.firstOrNull { it.id == req.profileId }?.kids == true }
+    private var usageSince = 0L
+    private var usagePending = 0L
+    private var limitWarned = false
+    private var limitReached = false
+
+    /** Counts time actually playing on kids profiles and stops at the daily limit or bedtime. */
+    private fun trackViewing() {
+        if (!::req.isInitialized || !kidsProfile || limitReached) return
+        val now = SystemClock.elapsedRealtime()
+        val playing = ::player.isInitialized && player.isPlaying
+        if (playing && usageSince > 0) usagePending += now - usageSince
+        usageSince = if (playing) now else 0L
+        if (usagePending < 30_000) return
+        flushUsage()
+        when (val v = app.store.viewingVerdict(req.profileId)) {
+            is KidsLimits.Verdict.Blocked -> stopForLimit(v.reason)
+            is KidsLimits.Verdict.Allowed -> {
+                val left = v.minutesLeft
+                if (left != null && left <= 5 && !limitWarned) {
+                    limitWarned = true
+                    showOverlay(if (left <= 1) "About a minute of watching left" else "$left minutes of watching left", 6_000)
+                }
+            }
+        }
+    }
+
+    private fun flushUsage() {
+        if (usagePending > 0 && ::req.isInitialized) app.store.addUsage(req.profileId, usagePending)
+        usagePending = 0
+    }
+
+    private fun stopForLimit(reason: String) {
+        limitReached = true
+        AppLog.i("Access", "Viewing limit reached while playing: $reason")
+        saveProgress(finished = false)
+        player.stop()
+        stopTimeshift()
+        diagnoseJob?.cancel()
+        overlay.visibility = View.GONE
+        view.hideController()
+        failText.text = "Time's up"
+        failHint.text = "$reason A parent can add time in Settings."
+        failRetry.text = "Close"
+        failNext.visibility = View.GONE
+        failPanel.visibility = View.VISIBLE
+        failRetry.requestFocus()
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -518,6 +573,10 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun retryAfterFailure() {
+        if (limitReached) {
+            finish()
+            return
+        }
         hideFailure()
         val item = currentItem() ?: return
         AppLog.i("Player", "Retry requested for ${item.title}")
@@ -1196,14 +1255,15 @@ class PlayerActivity : ComponentActivity() {
 
     private fun record(item: PlayItem, position: Long, duration: Long) {
         if (item.kind != "movie" && item.kind != "episode") return
-        app.store.record(
-            req.profileId,
-            WatchEntry(
-                key = item.key, kind = item.kind, title = item.title, subtitle = item.subtitle,
-                image = item.image, streamId = item.streamId, ext = item.ext, seriesId = item.seriesId,
-                position = position, duration = duration, updated = System.currentTimeMillis(),
-            ),
+        val entry = WatchEntry(
+            key = item.key, kind = item.kind, title = item.title, subtitle = item.subtitle,
+            image = item.image, streamId = item.streamId, ext = item.ext, seriesId = item.seriesId,
+            position = position, duration = duration, updated = System.currentTimeMillis(),
         )
+        app.store.record(req.profileId, entry)
+        val pid = req.profileId
+        val ctx = applicationContext
+        app.appScope.launch(Dispatchers.IO) { WatchNext.update(ctx, pid, entry) }
     }
 
     private fun hostOf(url: String?): String = url?.let { android.net.Uri.parse(it).host } ?: "?"
@@ -1233,6 +1293,8 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        flushUsage()
+        usageSince = 0L
         if (::player.isInitialized) {
             saveProgress(finished = false)
             player.pause()

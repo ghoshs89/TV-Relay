@@ -116,6 +116,9 @@ data class Settings(
     val preferredVersions: Map<String, Int> = emptyMap(),
     val startScreen: String = "home", // home | live | guide
     val fullGuideSearch: Boolean = false,
+    // Batch 7
+    /** Movies and episodes in progress on the Google TV home screen. */
+    val watchNext: Boolean = true,
 )
 
 /** A programme the viewer wants to be told about when it starts. Times are as shown in the guide. */

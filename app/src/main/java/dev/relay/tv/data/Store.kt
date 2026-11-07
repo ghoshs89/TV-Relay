@@ -72,6 +72,8 @@ class Store(ctx: Context) {
 
     fun favs(pid: String): List<FavItem> = read<List<FavItem>>("fav_$pid", emptyList())
 
+    fun setFavs(pid: String, list: List<FavItem>) = write("fav_$pid", list)
+
     fun isFav(pid: String, kind: String, id: Int) = favs(pid).any { it.kind == kind && it.id == id }
 
     fun toggleFav(pid: String, item: FavItem) {
@@ -125,6 +127,38 @@ class Store(ctx: Context) {
     fun trackPref(seriesId: Int): TrackPref? = read<TrackPref?>("trk_$seriesId", null)
 
     fun setTrackPref(seriesId: Int, p: TrackPref) = write("trk_$seriesId", p)
+
+    // ---------- Kids viewing time ----------
+    // Plain prefs, not write(): the player adds to this every half minute and nothing on screen
+    // needs to redraw for it.
+
+    private fun today(): String = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+
+    /** Milliseconds watched today on a profile. */
+    fun usedToday(pid: String): Long {
+        val v = prefs.getString("use_$pid", null) ?: return 0L
+        return if (v.substringBefore('|') == today()) v.substringAfter('|').toLongOrNull() ?: 0L else 0L
+    }
+
+    fun addUsage(pid: String, ms: Long) {
+        if (ms <= 0) return
+        prefs.edit().putString("use_$pid", "${today()}|${usedToday(pid) + ms}").apply()
+    }
+
+    fun allowUntil(pid: String): Long = prefs.getLong("allow_$pid", 0L)
+
+    /** A parent's extra time: [minutes] from now, lifting the daily limit and bedtime. */
+    fun allowExtra(pid: String, minutes: Int) {
+        prefs.edit().putLong("allow_$pid", System.currentTimeMillis() + minutes * 60_000L).apply()
+        version.intValue++
+    }
+
+    fun viewingVerdict(pid: String): KidsLimits.Verdict {
+        val p = profiles.firstOrNull { it.id == pid } ?: return KidsLimits.Verdict.Allowed(null)
+        val cal = java.util.Calendar.getInstance()
+        val nowMin = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+        return KidsLimits.check(p.kids, p.dailyLimitMin, p.bedtime, p.wakeTime, usedToday(pid), nowMin, System.currentTimeMillis(), allowUntil(pid))
+    }
 
     // ---------- Channel customisation ----------
 

@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import dev.relay.tv.BuildConfig
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.HomeLayout
+import dev.relay.tv.data.KidsLimits
+import dev.relay.tv.tv.WatchNext
 import dev.relay.tv.data.ProviderNames
 import dev.relay.tv.data.EpgEntry
 import android.widget.Toast
@@ -313,6 +315,7 @@ fun SettingsTab() {
     var langsOpen by remember { mutableStateOf(false) }
     var homeOpen by remember { mutableStateOf(false) }
     var catsOpen by remember { mutableStateOf(false) }
+    var limitsFor by remember { mutableStateOf<Profile?>(null) }
     var pinFor by remember { mutableStateOf<Profile?>(null) }
 
     // Phones: back up to / restore from a file through Android's file picker.
@@ -397,6 +400,19 @@ fun SettingsTab() {
         }
 
         item { Section("Playback") }
+        if (WatchNext.supported(ctx)) {
+            item {
+                Setting(
+                    "Continue watching on the TV home screen",
+                    if (s.watchNext) "On · movies and episodes in progress (not kids profiles)" else "Off",
+                    kidsLocked,
+                ) {
+                    val on = !s.watchNext
+                    store.settings = s.copy(watchNext = on)
+                    if (!on) app.appScope.launch(Dispatchers.IO) { WatchNext.clear(ctx.applicationContext) }
+                }
+            }
+        }
         item {
             Setting("Play next episode automatically", if (s.autoNext) "On" else "Off", false) {
                 store.settings = s.copy(autoNext = !s.autoNext)
@@ -686,6 +702,16 @@ fun SettingsTab() {
                 }
             }
         }
+        store.profiles.filter { it.kids }.forEach { p ->
+            item {
+                // On the kids profile itself this needs a parent PIN to exist, or a child could change it.
+                Setting(
+                    "Viewing time for ${p.name}",
+                    KidsLimits.describe(p.dailyLimitMin, p.bedtime, p.wakeTime),
+                    kidsLocked && !store.hasParentPin,
+                ) { gate.run("Parent PIN for viewing time") { limitsFor = p } }
+            }
+        }
         item {
             Setting("Parent PIN", if (store.hasParentPin) "Set · change or remove" else "Not set", kidsLocked) {
                 gate.run("Current parent PIN") { parentPinDialog = true }
@@ -884,6 +910,7 @@ fun SettingsTab() {
     if (langsOpen) MyLanguagesDialog(onDismiss = { langsOpen = false })
     if (homeOpen) HomeLayoutDialog(onDismiss = { homeOpen = false })
     if (catsOpen) CategoryManagerDialog(onDismiss = { catsOpen = false })
+    limitsFor?.let { p -> KidsLimitsDialog(p.id, onDismiss = { limitsFor = null }) }
     pinFor?.let { p ->
         TextEditDialog(
             "PIN for ${p.name}", "", { pinFor = null },
@@ -925,6 +952,7 @@ fun SettingsTab() {
                 app.api.account = null
                 app.api.host = null
                 app.catalog.clear()
+                app.appScope.launch(Dispatchers.IO) { WatchNext.clear(ctx.applicationContext) }
                 app.session.profile = null
                 app.ui = UiState()
                 nav.reset(Route.Login)
@@ -1014,5 +1042,53 @@ private fun StepperDialog(
             PillButton("Reset", onReset)
             PillButton("Done", onDismiss, primary = true)
         }
+    }
+}
+
+/** Daily viewing time and bedtime for a kids profile, plus extra time for today. */
+@Composable
+private fun KidsLimitsDialog(pid: String, onDismiss: () -> Unit) {
+    val app = RelayApp.instance
+    val store = app.store
+    store.version.intValue
+    val p = store.profiles.firstOrNull { it.id == pid } ?: return
+    val save: (Profile) -> Unit = { updated ->
+        store.profiles = store.profiles.map { if (it.id == pid) updated else it }
+        if (app.session.profile?.id == pid) app.session.profile = updated
+        AppLog.i("Access", "Viewing time for ${updated.name}: ${KidsLimits.describe(updated.dailyLimitMin, updated.bedtime, updated.wakeTime)}")
+    }
+    val first = remember { FocusRequester() }
+    InitialFocus(first)
+    val usedMin = store.usedToday(pid) / 60_000
+    val extraLeft = ((store.allowUntil(pid) - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)
+    TvDialog(onDismiss, width = 600.dp) {
+        Text("Viewing time for ${p.name}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text(
+            "Watched today: ${KidsLimits.label(usedMin.toInt()).let { if (it == "Off") "nothing yet" else it }}" +
+                if (extraLeft > 0) " · extra time: $extraLeft min left" else "",
+            fontSize = 14.sp, color = Palette.dim,
+        )
+        ListRow(
+            "Daily limit", { save(p.copy(dailyLimitMin = KidsLimits.next(KidsLimits.DAILY_CHOICES, p.dailyLimitMin))) },
+            key = "kl:daily", trailing = KidsLimits.label(p.dailyLimitMin), focusRequester = first,
+        )
+        ListRow(
+            "Bedtime", { save(p.copy(bedtime = KidsLimits.next(KidsLimits.BEDTIME_CHOICES, p.bedtime))) },
+            key = "kl:bed", trailing = p.bedtime.ifBlank { "Off" },
+        )
+        if (p.bedtime.isNotBlank()) {
+            ListRow(
+                "Watching opens again at", { save(p.copy(wakeTime = KidsLimits.next(KidsLimits.WAKE_CHOICES, p.wakeTime.ifBlank { KidsLimits.DEFAULT_WAKE }))) },
+                key = "kl:wake", trailing = p.wakeTime.ifBlank { KidsLimits.DEFAULT_WAKE },
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Done", onDismiss, primary = true)
+            PillButton("Allow ${KidsLimits.EXTRA_MINUTES} more minutes now", {
+                store.allowExtra(pid, KidsLimits.EXTRA_MINUTES)
+                AppLog.i("Access", "Extra ${KidsLimits.EXTRA_MINUTES} minutes allowed for ${p.name}")
+            })
+        }
+        Text("Only time spent playing counts. Grown-up profiles have no limits.", fontSize = 13.sp, color = Palette.dim)
     }
 }

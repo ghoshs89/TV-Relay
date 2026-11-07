@@ -86,6 +86,20 @@ fun HomeScreen() {
     // A restore can remove or change the current profile: pick up the change, or go back to the picker.
     val nav = LocalNav.current
 
+    // "Continue watching" on the TV home screen: resume that title if it belongs to this profile.
+    val resumeCtx = LocalContext.current
+    LaunchedEffect(app.pendingResume, app.session.profileId) {
+        val (p, k) = app.pendingResume ?: return@LaunchedEffect
+        app.pendingResume = null
+        if (p != app.session.profileId) {
+            AppLog.i("WatchNext", "Home screen link is for another profile; not resuming")
+            return@LaunchedEffect
+        }
+        val e = app.store.entry(p, k) ?: return@LaunchedEffect
+        AppLog.i("WatchNext", "Resuming from the home screen: ${e.title}")
+        Playback.resume(resumeCtx, e)
+    }
+
     // Offer library setup once (not on kids profiles). Then honour the chosen start screen.
     LaunchedEffect(Unit) {
         val st = app.store.settings

@@ -152,6 +152,26 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
                 respond(sock, 200, "text/plain; charset=utf-8", result.toByteArray())
             }
 
+            method == "GET" && action == "library" -> respond(sock, 200, "text/html; charset=utf-8", LibraryPage.html(token, CSS).toByteArray())
+
+            method == "GET" && action == "api/library" -> {
+                val json = onMain { LibraryPage.snapshot() }
+                respond(sock, 200, "application/json; charset=utf-8", json.toByteArray())
+            }
+
+            method == "POST" && action == "api/library" -> {
+                val text = String(body, Charsets.UTF_8)
+                val result = onMain {
+                    try {
+                        LibraryPage.apply(text)
+                    } catch (e: IllegalArgumentException) {
+                        "Nothing changed: ${e.message}"
+                    }
+                }
+                AppLog.i("Companion", "Library edit from phone: $result")
+                respond(sock, 200, "text/plain; charset=utf-8", result.toByteArray())
+            }
+
             else -> respond(sock, 404, "text/plain", "Not found".toByteArray())
         }
     }
@@ -231,6 +251,10 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
           <button type="submit">Send to TV</button>
         </form></section>
 
+        <section><h2>Edit your library</h2>
+        <p class="hint">Hide, show or pin categories and whole countries, reorder or remove favourite channels and rename channels, with your phone's keyboard.</p>
+        <a class="button" href="/$token/library">Open the editor</a></section>
+
         <section><h2>Backup</h2>
         <p class="hint">Profiles, favourites, history, channel groups and settings. Your login, PINs and API keys aren't included.</p>
         <a class="button" href="/$token/backup.json" download="relay-backup.json">Download backup</a></section>
@@ -261,7 +285,7 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
         private const val PREFERRED_PORT = 8787
         private const val MAX_BODY = 4 * 1024 * 1024
 
-        private const val CSS = """
+        internal const val CSS = """
             body{margin:0;background:#0b1220;color:#e8eef7;font:16px/1.45 system-ui,-apple-system,Roboto,sans-serif}
             main{max-width:560px;margin:0 auto;padding:20px}
             h1{color:#3ddc97;font-size:28px;margin:8px 0 18px}h1 span{color:#8a98b0;font-size:16px;font-weight:400}

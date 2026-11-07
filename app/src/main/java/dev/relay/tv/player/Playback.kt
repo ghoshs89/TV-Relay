@@ -8,6 +8,7 @@ import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Channel
 import dev.relay.tv.data.EpgEntry
 import dev.relay.tv.data.Episode
+import dev.relay.tv.data.KidsLimits
 import dev.relay.tv.data.Movie
 import dev.relay.tv.data.PlayItem
 import dev.relay.tv.data.PlayRequest
@@ -22,6 +23,12 @@ object Playback {
     /** Every play request passes the profile's restrictions here; blocked items never reach the player. */
     private fun launch(ctx: Context, req: PlayRequest) {
         val r = app.catalog.restrictions(app.session.restrict(app.store.settings))
+        val limit = app.store.viewingVerdict(req.profileId)
+        if (limit is KidsLimits.Verdict.Blocked) {
+            AppLog.i("Access", "Viewing limit: ${limit.reason}")
+            Toast.makeText(ctx, limit.reason + " A parent can add time in Settings.", Toast.LENGTH_LONG).show()
+            return
+        }
         val ok = r.admit(req)
         if (ok == null) {
             AppLog.i("Access", "Blocked on this profile: ${req.items.getOrNull(req.index)?.kind}")
