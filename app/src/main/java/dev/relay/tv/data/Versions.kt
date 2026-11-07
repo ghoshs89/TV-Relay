@@ -66,30 +66,47 @@ object ChannelVersions {
     }
 
     /** Your chosen version first, then best quality; ties keep the provider's order. */
-    fun <T> order(items: List<T>, name: (T) -> String, id: (T) -> Int, preferred: Int?): List<T> =
-        items.withIndex()
-            .sortedWith(compareBy<IndexedValue<T>>({ if (id(it.value) == preferred) 0 else 1 }, { -quality(name(it.value)) }, { it.index }))
-            .map { it.value }
+    fun <T> order(items: List<T>, name: (T) -> String, id: (T) -> Int, preferred: Int?): List<T> {
+        // Quality is worked out once per item, not on every comparison.
+        val q = IntArray(items.size) { quality(name(items[it])) }
+        return items.indices
+            .sortedWith(compareBy<Int>({ if (id(items[it]) == preferred) 0 else 1 }, { -q[it] }, { it }))
+            .map { items[it] }
+    }
 
     /**
      * Shows each channel once: the first time a version appears in [list], the best version
      * present in the list takes its place; later versions are dropped. Items without a key stay.
+     * [rankOf] is the item's place among its versions (lower is better), worked out in advance.
      */
-    fun <T> collapse(list: List<T>, keyOf: (T) -> String?, name: (T) -> String, id: (T) -> Int, preferred: (String) -> Int?): List<T> {
-        val byKey = HashMap<String, MutableList<T>>()
-        for (t in list) keyOf(t)?.let { byKey.getOrPut(it) { mutableListOf() } += t }
-        if (byKey.values.none { it.size > 1 }) return list
-        val seen = HashSet<String>()
+    fun <T> collapse(list: List<T>, keyOf: (T) -> String?, rankOf: (T) -> Int, id: (T) -> Int, preferred: (String) -> Int?): List<T> {
+        val best = HashMap<String, T>()
+        val seenTwice = HashSet<String>()
+        for (t in list) {
+            val k = keyOf(t) ?: continue
+            val cur = best[k]
+            if (cur == null) {
+                best[k] = t
+                continue
+            }
+            seenTwice += k
+            val p = preferred(k)
+            val better = when {
+                id(cur) == p -> false
+                id(t) == p -> true
+                else -> rankOf(t) < rankOf(cur)
+            }
+            if (better) best[k] = t
+        }
+        if (seenTwice.isEmpty()) return list
+        val emitted = HashSet<String>()
         val out = ArrayList<T>(list.size)
         for (t in list) {
             val k = keyOf(t)
-            if (k == null) {
-                out += t
-                continue
+            when {
+                k == null || k !in seenTwice -> out += t
+                emitted.add(k) -> out += best.getValue(k)
             }
-            if (!seen.add(k)) continue
-            val group = byKey[k].orEmpty()
-            out += if (group.size > 1) order(group, name, id, preferred(k)).first() else t
         }
         return out
     }

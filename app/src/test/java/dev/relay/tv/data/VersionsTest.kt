@@ -43,10 +43,17 @@ class VersionsTest {
     @Test
     fun collapseKeepsOnePerChannelAtTheFirstPosition() {
         val list = listOf(Ch(1, "UK: Sky News SD"), Ch(2, "UK: BBC One"), Ch(3, "UK: Sky News FHD"), Ch(4, "UK: Sky News HD"))
-        val out = ChannelVersions.collapse(list, { key(it.name) }, { it.name }, { it.id }) { null }
+        val rank = { c: Ch -> -ChannelVersions.quality(c.name) }
+        val out = ChannelVersions.collapse(list, { key(it.name) }, rank, { it.id }) { null }
         assertEquals(listOf(3, 2), out.map { it.id })
-        val chosen = ChannelVersions.collapse(list, { key(it.name) }, { it.name }, { it.id }) { 4 }
+        val chosen = ChannelVersions.collapse(list, { key(it.name) }, rank, { it.id }) { 4 }
         assertEquals(listOf(4, 2), chosen.map { it.id })
+        // A chosen version that isn't in this list falls back to the best one that is.
+        val absent = ChannelVersions.collapse(list, { key(it.name) }, rank, { it.id }) { 99 }
+        assertEquals(listOf(3, 2), absent.map { it.id })
+        // No duplicates: the same list comes back.
+        val single = listOf(Ch(1, "UK: A"), Ch(2, "UK: B"))
+        assertTrue(ChannelVersions.collapse(single, { key(it.name) }, rank, { it.id }) { null } === single)
     }
 
     @Test

@@ -203,7 +203,11 @@ Settings → Library → TMDB API key. A free key from themoviedb.org (Settings 
 
 ## Troubleshooting
 
-**Logs:** Settings → Diagnostics. The last 500 lines are always kept in memory. **Save detailed logs** also writes them to disk for 24 hours, then turns itself off; disk use is capped at about 1 MB. Usernames, passwords, tokens and API keys are removed from every line. **Share logs** works on phones; on a TV, run `adb pull /sdcard/Android/data/dev.relay.tv/files/logs/`.
+**Logs:** Settings → Diagnostics. Important lines (library loads with timings, downloads, errors, playback problems, and the screen freezing) are always saved, so they survive a force-close. **Save detailed logs** adds every detail line for 24 hours, then turns itself off; disk use is capped at about 1 MB. Usernames, passwords, tokens and API keys are removed from every line. Shared logs start with the device's memory and processor, the library size and the main settings.
+
+To get the logs off a **TV**, open the phone companion (Settings → Backup & phone), scan the QR code and press **Download logs** on the phone. **Share logs** works directly on phones. With adb: `adb pull /sdcard/Android/data/dev.relay.tv/files/logs/`.
+
+**Refreshing the playlist:** the top bar shows how far along it is, and Settings → Account shows the step (downloading, checking, preparing). The percentage is based on how big each list was last time, so the very first download shows megabytes instead. A refresh keeps going if you move to another screen.
 
 **Updates stopped arriving:** the update token has probably expired. See *Update token* under Maintaining Relay, then install the next build by hand once.
 

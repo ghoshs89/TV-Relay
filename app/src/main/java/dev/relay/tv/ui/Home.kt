@@ -60,7 +60,9 @@ fun HomeScreen() {
     val catalog = app.catalog
     val tabFocus = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) { catalog.load() }
+    // In the app's scope: opening another screen mustn't cancel a load halfway.
+    LaunchedEffect(Unit) { app.appScope.launch { catalog.load() } }
+    LaunchedEffect(ui.tab) { AppLog.d("Nav", "Tab: ${TABS.getOrNull(ui.tab) ?: ui.tab}") }
     InitialFocus(tabFocus)
 
     // While Relay is in front, refresh the library once it's 6 hours old (the external guide
@@ -76,7 +78,7 @@ fun HomeScreen() {
             if (!inFront || catalog.loading) continue
             if (catalog.libraryDue()) {
                 AppLog.i("Catalog", "Library is over 6 hours old; refreshing")
-                catalog.load()
+                app.appScope.launch { catalog.load() }
             } else {
                 catalog.refreshGuideIfNeeded(force = false)
             }
@@ -193,7 +195,11 @@ fun HomeScreen() {
             Spacer(Modifier.weight(1f))
             if (catalog.loading) {
                 CircularProgressIndicator(Modifier.size(18.dp), color = Palette.accent, strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
+                catalog.progress?.percent?.let {
+                    Text("$it%", color = Palette.dim, fontSize = 14.sp, maxLines = 1)
+                    Spacer(Modifier.width(12.dp))
+                }
             }
             // A 1080p TV is only 960 dp wide, so the update badge takes the name and clock's place.
             if (Updater.pending != null) {
@@ -220,7 +226,8 @@ fun HomeScreen() {
                     CircularProgressIndicator(color = Palette.accent)
                     Spacer(Modifier.height(16.dp))
                     Text("Loading your channels and library…", color = Palette.dim)
-                    Text("Large playlists can take a minute the first time.", color = Palette.dim, fontSize = 13.sp)
+                    catalog.progress?.let { Text(it.text, color = Palette.text, fontSize = 18.sp) }
+                    Text("Large playlists can take a few minutes on a TV the first time.", color = Palette.dim, fontSize = 13.sp)
                 }
             }
             expiryNote?.let { note ->

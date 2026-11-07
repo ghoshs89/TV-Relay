@@ -129,11 +129,16 @@ object LanguageDetector {
     /** " STAR JALSHA HD " style text for whole-word matching. */
     private fun words(s: String): String = " " + ProviderNames.clean(s).uppercase().replace(NON_WORD, " ").trim() + " "
 
-    private fun has(w: String, key: String): Boolean = w.contains(" " + key.uppercase().replace(NON_WORD, " ").trim() + " ")
+    // Keys normalised once, not per name: this runs for every channel and title in the playlist.
+    private fun prepare(table: List<Pair<String, List<String>>>): List<Pair<String, List<String>>> =
+        table.map { (lang, keys) -> lang to keys.map { " " + it.uppercase().replace(NON_WORD, " ").trim() + " " } }
+
+    private val CATEGORY_KEYS by lazy { prepare(CATEGORY_WORDS) }
+    private val CHANNEL_KEYS by lazy { prepare(CHANNEL_WORDS) }
 
     private fun firstMatch(text: String, table: List<Pair<String, List<String>>>): String? {
         val w = words(text)
-        for ((lang, keys) in table) if (keys.any { has(w, it) }) return lang
+        for ((lang, keys) in table) for (k in keys) if (w.contains(k)) return lang
         return null
     }
 
@@ -142,18 +147,18 @@ object LanguageDetector {
 
     /** A provider category: words in its name, else its country or language prefix. */
     fun ofCategory(name: String): String? {
-        firstMatch(name, CATEGORY_WORDS)?.let { return it }
+        firstMatch(name, CATEGORY_KEYS)?.let { return it }
         val prefix = Regex("^\\s*[\\[(|]?\\s*([A-Za-z][A-Za-z\\-]{1,9})\\s*[\\])|]?\\s*[:|\\-–»]").find(name)?.groupValues?.get(1)
         return ofCode(prefix)
     }
 
     /** A movie or series: its title tag wins, then its category. */
     fun ofTitle(rawTitle: String, categoryLang: String?): String? =
-        ofCode(TitleParts.parse(rawTitle).tag) ?: categoryLang
+        ofCode(TitleParts.tagOf(rawTitle)) ?: categoryLang
 
     /** A live channel: known channel names, then its category, then its country tag. */
     fun ofChannel(name: String, categoryLang: String?): String? {
-        firstMatch(name, CHANNEL_WORDS)?.let { return it }
+        firstMatch(name, CHANNEL_KEYS)?.let { return it }
         if (categoryLang != null) return categoryLang
         val tag = Regex("^\\s*[\\[(|]?\\s*([A-Za-z]{2,3})\\s*[\\])|]?\\s*[:|\\-]").find(name)?.groupValues?.get(1)
         return ofCode(tag)

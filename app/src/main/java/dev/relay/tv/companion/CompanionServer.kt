@@ -152,6 +152,17 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
                 respond(sock, 200, "text/plain; charset=utf-8", result.toByteArray())
             }
 
+            method == "GET" && action == "logs" -> {
+                val text = onMain {
+                    AppLog.i("Companion", "Logs downloaded to a phone")
+                    AppLog.bundle(RelayApp.instance).readBytes()
+                }
+                respond(
+                    sock, 200, "text/plain; charset=utf-8", text,
+                    extra = "Content-Disposition: attachment; filename=\"relay-logs.txt\"\r\n",
+                )
+            }
+
             method == "GET" && action == "library" -> respond(sock, 200, "text/html; charset=utf-8", LibraryPage.html(token, CSS).toByteArray())
 
             method == "GET" && action == "api/library" -> {
@@ -254,6 +265,10 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
         <section><h2>Edit your library</h2>
         <p class="hint">Hide, show or pin categories and whole countries, reorder or remove favourite channels and rename channels, with your phone's keyboard.</p>
         <a class="button" href="/$token/library">Open the editor</a></section>
+
+        <section><h2>Logs</h2>
+        <p class="hint">Save the TV's troubleshooting log on this phone, to share it. Logins, passwords and keys are removed.</p>
+        <a class="button" href="/$token/logs">Download logs</a></section>
 
         <section><h2>Backup</h2>
         <p class="hint">Profiles, favourites, history, channel groups and settings. Your login, PINs and API keys aren't included.</p>

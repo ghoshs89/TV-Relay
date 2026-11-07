@@ -81,17 +81,36 @@ class XtreamApi(
     suspend fun getJson(params: Map<String, String>): JsonElement =
         withHosts(params) { r -> Jsons.json.parseToJsonElement(r.body!!.string()) }
 
-    /** Streams a (possibly huge) list response straight to disk. */
-    suspend fun download(action: String, dest: File) {
+    /** Size, source and Content-Length of a downloaded list, for the log. */
+    class Downloaded(val bytes: Long, val host: String, val contentLength: Long?)
+
+    /**
+     * Streams a (possibly huge) list response straight to disk. [progress] gets the bytes so far
+     * and the server's Content-Length when it sends one (many Xtream servers don't).
+     */
+    suspend fun download(action: String, dest: File, progress: (Long, Long?) -> Unit = { _, _ -> }): Downloaded =
         withHosts(mapOf("action" to action)) { r ->
             val tmp = File(dest.parentFile, dest.name + ".tmp")
-            r.body!!.byteStream().use { input ->
-                tmp.outputStream().use { out -> input.copyTo(out, 64 * 1024) }
+            val body = r.body!!
+            val length = body.contentLength().takeIf { it > 0 }
+            var total = 0L
+            progress(0, length)
+            body.byteStream().use { input ->
+                tmp.outputStream().use { out ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        total += n
+                        progress(total, length)
+                    }
+                }
             }
             if (dest.exists()) dest.delete()
             if (!tmp.renameTo(dest)) throw IOException("Couldn't save $action")
+            Downloaded(total, r.request.url.host, length)
         }
-    }
 
     suspend fun authenticate(): AccountInfo {
         val root = getJson(emptyMap())

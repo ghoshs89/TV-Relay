@@ -25,6 +25,7 @@
     <application
         android:name=".RelayApp"
         android:allowBackup="false"
+        android:largeHeap="true"
         android:banner="@drawable/banner"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

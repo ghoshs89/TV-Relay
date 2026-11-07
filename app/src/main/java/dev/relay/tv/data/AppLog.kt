@@ -13,15 +13,16 @@ import java.util.concurrent.Executors
 /**
  * Troubleshooting log with a hard disk budget.
  *
- *  - Always: the last [RING_SIZE] lines in memory (no disk) and logcat.
- *  - When "Save detailed logs" is on: lines are also appended to relay.log. At [MAX_FILE_BYTES]
- *    it rotates to relay.1.log (the older file is deleted), so disk use never exceeds ~1 MB.
- *    Saving switches itself off after 24 hours so a forgotten toggle can't run forever.
+ *  - Always: the last [RING_SIZE] lines in memory and logcat, and information, warning and error
+ *    lines in relay.log, so the story survives a freeze or force-close. At [MAX_FILE_BYTES] it
+ *    rotates to relay.1.log (the older file is deleted), so disk use never exceeds ~1 MB.
+ *  - When "Save detailed logs" is on: debug lines are saved too. That switches itself off after
+ *    24 hours so a forgotten toggle can't run forever.
  *  - Crashes: one crash.txt, overwritten each time, capped at [MAX_CRASH_BYTES].
  *  - Every line is scrubbed of the username, password and tokens before it's stored.
  */
 object AppLog {
-    private const val RING_SIZE = 500
+    private const val RING_SIZE = 1500
     private const val MAX_FILE_BYTES = 512L * 1024
     private const val MAX_CRASH_BYTES = 64 * 1024
     const val SAVE_WINDOW_MS = 24L * 3600_000
@@ -34,6 +35,9 @@ object AppLog {
 
     /** Epoch millis until which lines are saved to disk; 0 = off. */
     @Volatile var saveUntil: Long = 0L
+
+    /** Device and library facts added to shared logs (set by the app at startup). */
+    @Volatile var stateDump: () -> String = { "" }
 
     /** Values that must never reach a log line (set by the app at startup). */
     @Volatile var secrets: () -> List<String> = { emptyList() }
@@ -66,9 +70,13 @@ object AppLog {
             if (ring.size >= RING_SIZE) ring.removeFirst()
             ring.addLast(line)
         }
-        if (!saving) return
-        val stack = if (t != null && level == 'E') {
-            t.stackTrace.take(10).joinToString("") { "\n    at $it" }
+        if (level == 'D' && !saving) return
+        val stack = if (t != null && level != 'I') {
+            // Relay's own frames are the useful ones; keep a few framework frames for context.
+            val frames = t.stackTrace
+            val own = frames.filter { it.className.startsWith("dev.relay") }.take(8)
+            (frames.take(4) + own).distinct().joinToString("") { "\n    at $it" } +
+                (t.cause?.let { "\n    caused by ${it.javaClass.simpleName}: ${redact(it.message.orEmpty())}" } ?: "")
         } else {
             ""
         }
@@ -108,17 +116,22 @@ object AppLog {
             pw.println("Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             pw.println("Created: ${Date()}")
             pw.println("Detailed logging: ${if (saving) "on" else "off"}")
+            try {
+                pw.println("\n===== Device and library =====")
+                pw.println(redact(stateDump()))
+            } catch (e: Throwable) {
+                pw.println("(unavailable: ${e.javaClass.simpleName})")
+            }
             crashFile?.takeIf { it.exists() }?.let {
                 pw.println("\n===== Last crash (${Date(it.lastModified())}) =====")
                 pw.println(it.readText())
             }
             if (saved.isNotEmpty()) {
-                pw.println("\n===== Saved log =====")
+                pw.println("\n===== Saved log (oldest first, includes earlier sessions) =====")
                 saved.forEach { f -> f.forEachLine { pw.println(it) } }
-            } else {
-                pw.println("\n===== Recent activity (memory only) =====")
-                recent().forEach { pw.println(it) }
             }
+            pw.println("\n===== This session, including detail lines =====")
+            recent().forEach { pw.println(it) }
         }
         return out
     }

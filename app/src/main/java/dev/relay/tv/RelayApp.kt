@@ -11,6 +11,7 @@ import coil.memory.MemoryCache
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Catalog
 import dev.relay.tv.data.Channel
+import dev.relay.tv.data.StallWatch
 import dev.relay.tv.data.PlayRequest
 import dev.relay.tv.data.Ratings
 import dev.relay.tv.data.Store
@@ -94,6 +95,38 @@ class RelayApp : Application(), ImageLoaderFactory {
         ReminderCenter.start(appScope)
         tmdb = Tmdb(http)
         ratings = Ratings(http, java.io.File(filesDir, "ratings.json"))
+        AppLog.stateDump = { stateDump() }
+        AppLog.i("App", deviceLine())
+        StallWatch.start()
+    }
+
+    /** Memory and processor facts that explain why a TV behaves differently from a phone. */
+    private fun deviceLine(): String {
+        val am = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+        val mi = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+        val dm = resources.displayMetrics
+        return "Device: ${Runtime.getRuntime().availableProcessors()} cores, RAM ${mi.totalMem / 1_048_576} MB " +
+            "(${mi.availMem / 1_048_576} MB free${if (am.isLowRamDevice) ", low-RAM device" else ""}), " +
+            "app memory limit ${Runtime.getRuntime().maxMemory() / 1_048_576} MB, " +
+            "screen ${dm.widthPixels}x${dm.heightPixels} at ${dm.densityDpi} dpi, " +
+            (if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)) "TV" else "phone or tablet")
+    }
+
+    /** Added to shared logs. No logins, keys or PINs. */
+    private fun stateDump(): String = buildString {
+        appendLine(deviceLine())
+        appendLine(catalog.loadSummary())
+        appendLine("Loading now: ${if (catalog.loading) catalog.progress?.text ?: "yes" else "no"}; last error: ${catalog.error ?: "none"}")
+        appendLine("Library saved: ${if (catalog.updatedAt > 0) java.util.Date(catalog.updatedAt) else "never"}")
+        appendLine("Channels with several versions: ${catalog.versionGroupCount}")
+        val s = store.settings
+        appendLine(
+            "Settings: languages ${session.langOrder(s).joinToString(",")}, show each channel once ${s.mergeVariants}, " +
+                "whole-guide search ${s.fullGuideSearch}, external guide ${if (s.xmltvUrl.isBlank()) "no" else "yes"}, " +
+                "live format ${s.liveExt}, hidden categories ${s.hiddenCats.size}, setup done ${s.setupDone}",
+        )
+        appendLine("Profiles: ${store.profiles.size} (${store.profiles.count { it.kids }} kids); current ${if (session.profile?.kids == true) "kids" else "grown-up"}")
+        appendLine("Servers saved: ${store.account?.hosts?.size ?: 0}; in use ${api.host ?: "none"}")
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

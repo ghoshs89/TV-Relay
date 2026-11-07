@@ -54,7 +54,7 @@ fun LogViewer(onDismiss: () -> Unit) {
     TvDialog(onDismiss, width = 980.dp) {
         Text("Recent activity", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
-            "Newest first. Passwords, usernames and tokens are hidden. Turn on Save detailed logs to keep them across restarts.",
+            "Newest first. Passwords, usernames and tokens are hidden. Important lines are kept across restarts; Save detailed logs keeps everything.",
             fontSize = 13.sp, color = Palette.dim,
         )
         LazyColumn(
@@ -111,7 +111,7 @@ fun LibraryReportDialog(onDismiss: () -> Unit) {
     TvDialog(onDismiss, width = 900.dp) {
         Text("Library and language report", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
-            "Counts only: no login, history or titles you watched. Add it to the log, then use Share logs.",
+            "Counts only: no login, history or titles you watched. Add it to the log, then use Share logs (on a TV, Download logs on the phone companion).",
             fontSize = 13.sp, color = Palette.dim,
         )
         LazyColumn(

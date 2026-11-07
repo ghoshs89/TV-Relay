@@ -92,7 +92,10 @@ fun LiveTab() {
             }
         }
     }
-    LaunchedEffect(ui.liveCat) { store.setLastLiveCat(pid, ui.liveCat) }
+    LaunchedEffect(ui.liveCat) {
+        store.setLastLiveCat(pid, ui.liveCat)
+        AppLog.d("Live", "Category ${ui.liveCat}")
+    }
 
     val groups = store.channelCustom.groups
     val pinned = store.pinnedCats
@@ -160,6 +163,7 @@ fun LiveTab() {
     }
 
     val base: List<Channel> = remember(ui.liveCat, catalog.channels, restrict, version, hiddenIds, rank, catalog.langVersion) {
+        val t = System.currentTimeMillis()
         when (ui.liveCat) {
             UiState.FAV -> store.favs(pid).filter { it.kind == "live" }.mapNotNull { catalog.channelById[it.id] }
             UiState.HISTORY -> store.history(pid).filter { it.kind == "live" }
@@ -179,6 +183,9 @@ fun LiveTab() {
             } else {
                 catalog.channelsByCat[ui.liveCat].orEmpty()
             }
+        }.also {
+            val ms = System.currentTimeMillis() - t
+            if (ms > 150) AppLog.w("Live", "Picking channels for ${ui.liveCat} took $ms ms (${it.size})")
         }
     }
     val sort = remember(ui.liveCat, version) { store.liveSort(ui.liveCat) }
@@ -187,8 +194,13 @@ fun LiveTab() {
     val merge = st.mergeVariants && ui.liveCat != UiState.FAV && ui.liveCat != UiState.HISTORY &&
         !ui.liveCat.startsWith(ChannelEdits.GROUP)
     val channels = remember(base, sort, ui.liveFilters, ui.liveFind, favIds, merge, st.preferredVersions) {
+        val t = System.currentTimeMillis()
         val list = LiveBrowse.apply(base, sort, ui.liveFilters, ui.liveFind, favIds)
-        if (merge) catalog.collapseVersions(list) else list
+        val out = if (merge) catalog.collapseVersions(list) else list
+        val ms = System.currentTimeMillis() - t
+        // Slow list building is what makes a TV feel frozen; log it when it happens.
+        if (ms > 150) AppLog.w("Live", "Channel list for ${ui.liveCat} took $ms ms (${base.size} channels, ${out.size} shown)")
+        out
     }
     var focused by remember { mutableStateOf<Channel?>(null) }
     val isTv = rememberIsTv()
@@ -287,7 +299,7 @@ fun LiveTab() {
                             base.isNotEmpty() -> "No channels match these filters."
                             ui.liveCat == UiState.FAV -> "No favourite channels yet. Open a channel's panel and press Favourite."
                             ui.liveCat == UiState.HISTORY -> "Channels you watch will show up here."
-                            catalog.loading -> "Loading…"
+                            catalog.loading -> "Loading… ${catalog.progress?.text.orEmpty()}"
                             else -> "No channels in this category."
                         },
                         Modifier.weight(1f),

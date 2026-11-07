@@ -27,6 +27,18 @@ class CatalogParserTest {
     }
 
     @Test
+    fun progressRisesToTheEndAndEveryListIsTimed() {
+        val dir = tmp.newFolder()
+        writeAll(dir)
+        val seen = mutableListOf<Float>()
+        val p = CatalogParser.parse(dir, strict = true) { seen += it }
+        assertEquals(1f, seen.last(), 0.0001f)
+        assertEquals(seen, seen.sorted())
+        assertEquals(6, p.timings.size)
+        assertTrue(p.timingText().contains("movie"))
+    }
+
+    @Test
     fun validListsParse() {
         val dir = tmp.newFolder()
         writeAll(dir)

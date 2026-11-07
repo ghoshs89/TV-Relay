@@ -93,6 +93,7 @@ class Nav(start: Route) {
         if (stack.getOrNull(index) == Route.Home) home else memories.getOrElse(index) { FocusMemory() }
 
     fun push(r: Route) {
+        dev.relay.tv.data.AppLog.d("Nav", "Open ${r::class.simpleName}")
         stack.add(r)
         memories.add(FocusMemory())
     }

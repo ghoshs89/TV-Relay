@@ -19,8 +19,12 @@ class ParsedCatalog(
     val channels: List<Channel>,
     val movies: List<Movie>,
     val series: List<Series>,
+    /** How long each list took to read, in ms, for the log. */
+    val timings: Map<String, Long> = emptyMap(),
 ) {
     val counts get() = CatalogCounts(channels.size, movies.size, series.size)
+
+    fun timingText(): String = timings.entries.joinToString(", ") { "${it.key} ${it.value} ms" }
 }
 
 data class CatalogCounts(val channels: Int, val movies: Int, val series: Int)
@@ -42,13 +46,27 @@ object CatalogParser {
         "get_vod_streams" to "movie", "get_series" to "series",
     )
 
-    fun parse(dir: File, strict: Boolean): ParsedCatalog {
+    /** [progress] gets the share of bytes read so far, 0 to 1, across all six lists. */
+    fun parse(dir: File, strict: Boolean, progress: (Float) -> Unit = {}): ParsedCatalog {
         fun f(a: String) = File(dir, "$a.json")
+        val total = ACTIONS.sumOf { f(it).length() }.coerceAtLeast(1L)
+        var before = 0L
+        val timings = LinkedHashMap<String, Long>()
+        // Times each list and moves the byte count on, so progress is smooth even for one huge list.
+        fun <R> timed(a: String, read: (File, (Long) -> Unit) -> R): R {
+            val t = System.currentTimeMillis()
+            val file = f(a)
+            val r = read(file) { n -> progress((before + n).toFloat() / total) }
+            before += file.length()
+            progress(before.toFloat() / total)
+            timings[LABELS[a] ?: a] = System.currentTimeMillis() - t
+            return r
+        }
         return ParsedCatalog(
-            liveCats = parseCats(f("get_live_categories"), strict),
-            vodCats = parseCats(f("get_vod_categories"), strict),
-            seriesCats = parseCats(f("get_series_categories"), strict),
-            channels = parseList(f("get_live_streams"), LiveDto.serializer(), strict) { d ->
+            liveCats = timed("get_live_categories") { file, p -> parseCats(file, strict, p) },
+            vodCats = timed("get_vod_categories") { file, p -> parseCats(file, strict, p) },
+            seriesCats = timed("get_series_categories") { file, p -> parseCats(file, strict, p) },
+            channels = timed("get_live_streams") { file, p -> parseList(file, LiveDto.serializer(), strict, p) { d ->
                 val id = d.stream_id.int() ?: return@parseList null
                 Channel(
                     id = id,
@@ -59,8 +77,8 @@ object CatalogParser {
                     epgId = d.epg_channel_id.str(),
                     archiveDays = if (d.tv_archive.flag()) (d.tv_archive_duration.int() ?: 1) else 0,
                 )
-            },
-            movies = parseList(f("get_vod_streams"), VodDto.serializer(), strict) { d ->
+            } },
+            movies = timed("get_vod_streams") { file, p -> parseList(file, VodDto.serializer(), strict, p) { d ->
                 val id = d.stream_id.int() ?: return@parseList null
                 val name = d.name.str() ?: return@parseList null
                 Movie(
@@ -74,8 +92,8 @@ object CatalogParser {
                     tmdbId = d.tmdb.str(),
                     year = d.year.str() ?: yearIn(name),
                 )
-            },
-            series = parseList(f("get_series"), SeriesDto.serializer(), strict) { d ->
+            } },
+            series = timed("get_series") { file, p -> parseList(file, SeriesDto.serializer(), strict, p) { d ->
                 val id = d.series_id.int() ?: return@parseList null
                 val name = d.name.str() ?: return@parseList null
                 Series(
@@ -90,19 +108,20 @@ object CatalogParser {
                     added = d.last_modified.long() ?: 0L,
                     tmdbId = d.tmdb.str(),
                 )
-            },
+            } },
+            timings = timings,
         )
     }
 
-    private fun parseCats(f: File, strict: Boolean): List<Category> =
-        parseList(f, CategoryDto.serializer(), strict) { d ->
+    private fun parseCats(f: File, strict: Boolean, read: (Long) -> Unit): List<Category> =
+        parseList(f, CategoryDto.serializer(), strict, read) { d ->
             val id = d.category_id.str() ?: return@parseList null
             val name = d.category_name.str() ?: "Category $id"
             Category(id, name, ADULT.containsMatchIn(name))
         }
 
     @OptIn(ExperimentalSerializationApi::class)
-    private fun <T, R> parseList(f: File, ser: KSerializer<T>, strict: Boolean, map: (T) -> R?): List<R> {
+    private fun <T, R> parseList(f: File, ser: KSerializer<T>, strict: Boolean, read: (Long) -> Unit, map: (T) -> R?): List<R> {
         val label = LABELS[f.nameWithoutExtension] ?: f.nameWithoutExtension
         if (!f.exists()) {
             if (strict) throw InvalidListException(label)
@@ -110,7 +129,7 @@ object CatalogParser {
         }
         return try {
             if (strict && !startsWithArray(f)) throw InvalidListException(label)
-            f.inputStream().buffered(256 * 1024).use { input ->
+            CountingStream(f.inputStream(), read).buffered(256 * 1024).use { input ->
                 Jsons.json.decodeToSequence(input, ser, DecodeSequenceMode.ARRAY_WRAPPED)
                     .mapNotNull { map(it) }
                     .toList()
@@ -188,4 +207,23 @@ object Freshness {
     const val CHECK_EVERY_MS = 30 * 60_000L
 
     fun libraryDue(savedAt: Long, now: Long): Boolean = savedAt <= 0L || now - savedAt >= LIBRARY_MS
+}
+
+/** Reports how many bytes have been read, every 256 KB or so. */
+private class CountingStream(input: java.io.InputStream, private val onRead: (Long) -> Unit) : java.io.FilterInputStream(input) {
+    private var count = 0L
+    private var lastReported = 0L
+
+    private fun moved(n: Long) {
+        if (n <= 0) return
+        count += n
+        if (count - lastReported >= 256 * 1024) {
+            lastReported = count
+            onRead(count)
+        }
+    }
+
+    override fun read(): Int = super.read().also { if (it >= 0) moved(1) }
+    override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { moved(it.toLong()) }
+    override fun skip(n: Long): Long = super.skip(n).also { moved(it) }
 }

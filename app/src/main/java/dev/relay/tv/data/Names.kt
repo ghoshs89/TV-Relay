@@ -23,8 +23,27 @@ object ProviderNames {
     private val SPACES = Regex("\\s{2,}")
     private val EDGE_PUNCT = Regex("^[\\s:|\\-–»]+|[\\s:|\\-–»]+$")
 
+    private const val EDGE = " :|-–»"
+
+    /**
+     * Plain ASCII names with nothing to tidy skip the regular expressions; most names in a large
+     * playlist are like that, and this runs for every one of them.
+     */
+    private fun alreadyClean(name: String): Boolean {
+        if (name.isEmpty() || name[0] in EDGE || name[name.length - 1] in EDGE) return false
+        var prev = ' '
+        for (c in name) {
+            if (c.code > 126) return false
+            if (c == ' ' && prev == ' ') return false
+            if ((c == 'p' || c == 'P') && prev.isDigit()) return false
+            prev = c
+        }
+        return true
+    }
+
     /** "OSN+ SERIES ⁴ᴷ ³⁸⁴⁰ᴾ" -> "OSN+ SERIES 4K"; "★ NEWS ★" -> "NEWS". */
     fun clean(name: String): String {
+        if (alreadyClean(name)) return name
         val mapped = buildString(name.length) {
             var prevSuper = false
             for (c in name) {
@@ -66,6 +85,18 @@ data class TitleParts(
         private val TRAIL_YEAR = Regex("\\s*[(\\[]((?:19|20)\\d{2})[)\\]]\\s*$")
         private val TRAIL_REGION = Regex("\\s*[(\\[]([A-Z]{2,3})[)\\]]\\s*$")
         private val TRAIL_DASH_YEAR = Regex("\\s+-\\s+((?:19|20)\\d{2})\\s*$")
+
+        /** Just the leading language tag ("HI", "SO-IN"), cheaply, for indexing whole playlists. */
+        fun tagOf(raw: String): String? {
+            val t = raw.trimStart()
+            if (t.isEmpty()) return null
+            val c = t[0]
+            if (!(c in 'A'..'Z' || c in '0'..'9' || c == '[' || c == '(' || c.code > 126)) return null
+            val s = if (t.take(12).any { it.code > 126 }) ProviderNames.clean(t) else t
+            val m = LEAD.find(s) ?: LEAD_BRACKET.find(s) ?: return null
+            val code = m.groupValues[1]
+            return code.takeIf { it.length <= 8 && it.count { ch -> ch.isLetter() } <= 6 && m.groupValues[2].isNotBlank() }
+        }
 
         fun parse(raw: String, knownYear: String? = null): TitleParts {
             var s = ProviderNames.clean(raw)

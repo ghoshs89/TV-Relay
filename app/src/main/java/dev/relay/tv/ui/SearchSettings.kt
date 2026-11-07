@@ -389,9 +389,16 @@ fun SettingsTab() {
         item {
             Setting(
                 "Refresh channels and library",
-                if (app.catalog.loading) "Refreshing…" else "Last updated ${if (app.catalog.updatedAt > 0) timeFmt.format(Date(app.catalog.updatedAt)) else "never"}",
+                if (app.catalog.loading) app.catalog.progress?.text ?: "Refreshing…"
+                else "Last updated ${if (app.catalog.updatedAt > 0) timeFmt.format(Date(app.catalog.updatedAt)) else "never"}" +
+                    (app.catalog.error?.let { " · $it" } ?: ""),
                 locked = false,
-            ) { scope.launch { app.catalog.load(force = true) } }
+            ) {
+                if (app.catalog.loading) return@Setting
+                AppLog.i("Catalog", "Refresh requested from Settings")
+                // App scope: the refresh keeps going if you leave Settings.
+                app.appScope.launch { app.catalog.load(force = true) }
+            }
         }
         item {
             Setting("Change servers or login", "${acc?.hosts?.size ?: 0} server(s) saved", kidsLocked) {
@@ -724,7 +731,8 @@ fun SettingsTab() {
             val on = until > System.currentTimeMillis()
             Setting(
                 "Save detailed logs",
-                if (on) "On until ${timeFmt.format(Date(until))} · ${AppLog.diskBytes() / 1024} KB" else "Off",
+                if (on) "On until ${timeFmt.format(Date(until))} · ${AppLog.diskBytes() / 1024} KB"
+                else "Off · important lines are always kept (${AppLog.diskBytes() / 1024} KB)",
                 false,
             ) {
                 val next = if (on) 0L else System.currentTimeMillis() + AppLog.SAVE_WINDOW_MS
@@ -737,7 +745,8 @@ fun SettingsTab() {
         item { Setting("Library and language report", "What Relay recognised in your playlist", false) { reportOpen = true } }
         item {
             val crash = AppLog.lastCrash()
-            Setting("Share logs", crash?.let { "Includes crash from ${timeFmt.format(Date(it))}" } ?: "", false) {
+            val how = if (rememberIsTv()) "On a TV: Backup & phone → Phone companion → Download logs" else ""
+            Setting("Share logs", listOfNotNull(crash?.let { "Includes crash from ${timeFmt.format(Date(it))}" }, how.ifEmpty { null }).joinToString(" · "), false) {
                 logNote = LogShare.share(ctx)
             }
         }
@@ -751,7 +760,7 @@ fun SettingsTab() {
         item {
             Info(
                 "Log folder",
-                (AppLog.directory?.absolutePath ?: "unavailable") + "  (max ~1 MB, auto-off after 24 h)",
+                (AppLog.directory?.absolutePath ?: "unavailable") + "  (max ~1 MB; detail lines auto-off after 24 h)",
             )
         }
 
