@@ -51,6 +51,9 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import dev.relay.tv.tv.WatchNext
+import dev.relay.tv.data.ProviderNames
 
 private val TABS = listOf("Home", "Live TV", "Movies", "Series", "Search", "Settings")
 
@@ -254,6 +257,9 @@ fun HomeScreen() {
     }
 }
 
+/** What a long press on a Home card offers: [action] is the title, [title] the item, [run] does it. */
+private class Removal(val action: String, val title: String, val run: () -> Unit)
+
 /** A load problem you can act on: try again, or put the message away. */
 @Composable
 private fun ErrorBar(message: String, onRetry: () -> Unit, onDismiss: () -> Unit) {
@@ -333,6 +339,21 @@ fun HomeTab() {
     }
     val myList = remember(favs) { favs.filter { it.kind != "live" }.distinctBy { it.kind to it.id } }
 
+    // Long press (or the Menu key) on a card offers to take it off its row.
+    var removal by remember { mutableStateOf<Removal?>(null) }
+    removal?.let { r ->
+        val first = remember { FocusRequester() }
+        InitialFocus(first)
+        TvDialog({ removal = null }) {
+            Text(r.action, fontSize = Type.title, fontWeight = FontWeight.Bold, color = Palette.text)
+            Text(r.title, fontSize = Type.bodyLarge, color = Palette.dim, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PillButton("Remove", { r.run(); removal = null }, focusRequester = first, primary = true, key = "rm:ok")
+                PillButton("Cancel", { removal = null }, key = "rm:cancel")
+            }
+        }
+    }
+
     val resume: (WatchEntry) -> Unit = { e ->
         val sid = e.seriesId
         if (e.kind == "episode" && sid != null) {
@@ -371,6 +392,12 @@ fun HomeTab() {
                             e.title, e.image, { resume(e) }, key = "cw:${e.key}", width = 260.dp, aspect = 16f / 9f,
                             subtitle = e.subtitle ?: "${fmtDuration(e.duration - e.position)} left",
                             progress = e.position.toFloat() / e.duration.coerceAtLeast(1),
+                            onLongClick = {
+                                removal = Removal("Remove from Continue watching", e.title) {
+                                    store.removeHistory(pid, e.key)
+                                    app.appScope.launch(Dispatchers.IO) { WatchNext.remove(ctx, pid, e.key) }
+                                }
+                            },
                         )
                     }
                     row == HomeLayout.FAV_CHANNELS -> Rail(HomeLayout.label(row), favChannels, key = { it.id }) { ch ->
@@ -383,6 +410,11 @@ fun HomeTab() {
                         ChannelTile(
                             ch, { Playback.live(ctx, recentChannels, recentChannels.indexOf(ch)) },
                             key = "rc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
+                            onLongClick = {
+                                removal = Removal("Remove from Recently watched", ProviderNames.clean(ch.name)) {
+                                    store.removeChannelHistory(pid, ch.id.toString())
+                                }
+                            },
                         )
                     }
                     row == HomeLayout.MY_LIST -> Rail(HomeLayout.label(row), myList, key = { "${it.kind}:${it.id}" }) { f ->

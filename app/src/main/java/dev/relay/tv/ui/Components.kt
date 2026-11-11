@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -140,6 +141,7 @@ val LocalFocusMemory = staticCompositionLocalOf { FocusMemory() }
  * The single focus primitive for the whole app: scales and outlines on focus, remembers
  * itself by [key] so focus can return here after a detail page is closed.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Focusable(
     onClick: () -> Unit,
@@ -149,6 +151,8 @@ fun Focusable(
     focusRequester: FocusRequester? = null,
     scaleOnFocus: Float = 1.05f,
     onFocused: () -> Unit = {},
+    /** Long tap, or OK held down on a remote (and the Menu key, where the remote has one). */
+    onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     val enabled = LocalFocusEnabled.current
@@ -182,7 +186,25 @@ fun Focusable(
             }
             .clip(shape)
             .border(if (focused) 3.dp else 1.dp, if (focused) Palette.accent else Color.Transparent, shape)
-            .clickable(interactionSource = source, indication = null, enabled = enabled, onClick = onClick),
+            .then(
+                if (onLongClick == null) {
+                    Modifier.clickable(interactionSource = source, indication = null, enabled = enabled, onClick = onClick)
+                } else {
+                    Modifier
+                        .onPreviewKeyEvent { e ->
+                            if (enabled && e.type == KeyEventType.KeyDown && e.key == Key.Menu) {
+                                onLongClick()
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        .combinedClickable(
+                            interactionSource = source, indication = null, enabled = enabled,
+                            onClick = onClick, onLongClick = onLongClick,
+                        )
+                },
+            ),
     ) {
         content(focused)
     }
@@ -311,6 +333,7 @@ fun PosterCard(
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
     parseTitle: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
 ) {
     // Provider names like "ES - Nocturno (2026) (US)" show as "Nocturno" with an "ES" tag on the art.
     val parts = remember(title, parseTitle) { if (parseTitle) dev.relay.tv.data.TitleParts.parse(title) else null }
@@ -319,7 +342,7 @@ fun PosterCard(
     Column(modifier.width(width)) {
         Focusable(
             onClick, Modifier.fillMaxWidth().aspectRatio(aspect), key = key,
-            focusRequester = focusRequester, onFocused = onFocused,
+            focusRequester = focusRequester, onFocused = onFocused, onLongClick = onLongClick,
         ) { _ ->
             Box(Modifier.fillMaxSize().background(Palette.surface2)) {
                 Text(
@@ -610,12 +633,13 @@ fun ChannelTile(
     key: String,
     nowPlaying: String? = null,
     width: Dp = 168.dp,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val (tag, rawTitle) = remember(ch.name) { splitChannelName(ch.name) }
     val title = remember(rawTitle) { dev.relay.tv.data.ProviderNames.clean(rawTitle) }
     var logoOk by remember(ch.logo) { mutableStateOf(false) }
     Column(Modifier.width(width)) {
-        Focusable(onClick, Modifier.fillMaxWidth().aspectRatio(1.25f), key = key, shape = RoundedCornerShape(14.dp)) { f ->
+        Focusable(onClick, Modifier.fillMaxWidth().aspectRatio(1.25f), key = key, shape = RoundedCornerShape(14.dp), onLongClick = onLongClick) { f ->
             Box(
                 Modifier.fillMaxSize().background(
                     androidx.compose.ui.graphics.Brush.verticalGradient(

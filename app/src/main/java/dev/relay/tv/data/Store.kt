@@ -93,7 +93,12 @@ class Store(ctx: Context) {
     }
 
     fun removeHistory(pid: String, key: String) {
-        write("hist_$pid", history(pid).filterNot { it.key == key })
+        write("hist_$pid", HistoryEdits.without(history(pid), key))
+    }
+
+    /** Takes a channel out of "Recently watched". */
+    fun removeChannelHistory(pid: String, streamId: String) {
+        write("hist_$pid", HistoryEdits.withoutChannel(history(pid), streamId))
     }
 
     // ---------- Live TV browsing ----------

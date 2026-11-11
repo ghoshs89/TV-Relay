@@ -61,6 +61,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.material.icons.filled.PlayArrow
 
 private const val DP_PER_MIN = 4f // 1 hour = 240 dp
 private const val HOURS_BACK = 3
@@ -222,6 +224,20 @@ private fun GuideRow(
         failed = got == null && entries == null
     }
     val (tag, title) = remember(ch.name) { splitChannelName(ch.name) }
+    // OK on the programme that is on now: channels with catch-up offer to start it from the beginning.
+    var startOver by remember(ch.id) { mutableStateOf<EpgEntry?>(null) }
+    startOver?.let { e ->
+        val first = remember { FocusRequester() }
+        InitialFocus(first)
+        TvDialog({ startOver = null }) {
+            Text(e.title, fontSize = Type.title, fontWeight = FontWeight.Bold, color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("on $title", fontSize = Type.bodyLarge, color = Palette.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PillButton("Watch live", { startOver = null; onWatch() }, focusRequester = first, primary = true, icon = Icons.Filled.PlayArrow, key = "so:live")
+                PillButton("Start over", { startOver = null; Playback.catchup(ctx, ch, e) }, icon = Icons.Filled.Refresh, key = "so:restart")
+            }
+        }
+    }
 
     Row(Modifier.fillMaxWidth().height(ROW_HEIGHT)) {
         Focusable(onWatch, Modifier.width(CHANNEL_COL - 6.dp).fillMaxHeight(), key = "gch:${ch.id}", shape = RoundedCornerShape(8.dp), scaleOnFocus = 1f) { f ->
@@ -289,7 +305,7 @@ private fun GuideRow(
                         Focusable(
                             onClick = {
                                 when {
-                                    live -> onWatch()
+                                    live -> { if (ch.hasArchive) startOver = e else onWatch() }
                                     past -> if (canCatchUp) Playback.catchup(ctx, ch, e) else onMessage("This show isn't available on catch-up")
                                     else -> onMessage(ReminderCenter.toggle(ch, e))
                                 }

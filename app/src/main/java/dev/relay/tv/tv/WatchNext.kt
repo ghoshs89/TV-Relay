@@ -76,6 +76,21 @@ object WatchNext {
         }
     }
 
+    /** Takes one title off the home screen's Continue watching row. Call off the main thread. */
+    fun remove(ctx: Context, pid: String, entryKey: String) {
+        if (!supported(ctx)) return
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val key = "$pid|$entryKey"
+        val existing = prefs.getLong(key, -1L)
+        if (existing < 0) return
+        try {
+            ctx.contentResolver.delete(TvContractCompat.buildWatchNextProgramUri(existing), null, null)
+        } catch (ex: Exception) {
+            AppLog.w("WatchNext", "Couldn't remove a home screen entry", ex)
+        }
+        prefs.edit().remove(key).apply()
+    }
+
     /** Removes every entry Relay added, e.g. when the setting is turned off or on sign-out. */
     fun clear(ctx: Context) {
         if (!supported(ctx)) return
