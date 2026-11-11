@@ -21,7 +21,6 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
 import dev.relay.tv.ui.ReminderCenter
-import dev.relay.tv.data.Reminder
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.compose.runtime.snapshotFlow
 import android.widget.LinearLayout
@@ -117,9 +116,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     // Programme reminder shown over the video.
-    private lateinit var reminderView: TextView
-    private var reminderShown: Reminder? = null
-    private val hideReminder = Runnable { dismissReminder() }
+    private lateinit var reminder: ReminderBanner
 
     // Stuck-buffering recovery, and the panel shown when a stream can't be recovered.
     private val liveWatch = StallWatchdog(StallWatchdog.LIVE_MS) { SystemClock.elapsedRealtime() }
@@ -199,7 +196,7 @@ class PlayerActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
-            snapshotFlow { ReminderCenter.due }.collect { r -> if (r != null && r != reminderShown) showReminder(r) }
+            snapshotFlow { ReminderCenter.due }.collect { r -> if (r != null && r != reminder.shown) reminder.show(r) }
         }
         handler.post(tsTicker)
         handler.post(watchdog)
@@ -354,23 +351,12 @@ class PlayerActivity : ComponentActivity() {
         )
         tsBar = TimeshiftBar(this, touchControls = !isTv, onSeek = ::tsSeek, onLive = ::tsGoLive)
         tsBar.addTo(root)
-        reminderView = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 18f
-            setPadding(32, 20, 32, 20)
-            setBackgroundColor(0xEEB8462E.toInt())
-            visibility = View.GONE
-            isFocusable = false
-            setOnClickListener { reminderShown?.let { watchReminder(it) } }
+        reminder = ReminderBanner(this, isTv, handler) { r ->
+            saveProgress(finished = false)
+            ReminderCenter.watch(this, r)
+            finish()
         }
-        root.addView(
-            reminderView,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.END,
-            ).apply { setMargins(48, 110, 48, 0) },
-        )
+        reminder.addTo(root)
         failure = FailurePanel(
             this,
             onRetry = { retryAfterFailure() },
@@ -649,30 +635,6 @@ class PlayerActivity : ComponentActivity() {
         if (text == null) tsBar.hide() else tsBar.show(text)
     }
 
-    // ---------- Reminders ----------
-
-    private fun showReminder(r: Reminder) {
-        reminderShown = r
-        reminderView.text = "⏰  ${ReminderCenter.label(r)}\n" + if (isTv) "Press OK to watch · Back to dismiss" else "Tap to watch"
-        reminderView.visibility = View.VISIBLE
-        handler.removeCallbacks(hideReminder)
-        handler.postDelayed(hideReminder, 30_000)
-    }
-
-    private fun dismissReminder() {
-        reminderView.visibility = View.GONE
-        if (ReminderCenter.due == reminderShown) ReminderCenter.due = null
-        reminderShown = null
-    }
-
-    private fun watchReminder(r: Reminder) {
-        reminderShown = null
-        reminderView.visibility = View.GONE
-        saveProgress(finished = false)
-        ReminderCenter.watch(this, r)
-        finish()
-    }
-
     private fun currentItem(): PlayItem? =
         if (req.live) req.items.getOrNull(liveIndex) else req.items.getOrNull(player.currentMediaItemIndex)
 
@@ -827,8 +789,8 @@ class PlayerActivity : ComponentActivity() {
             finish()
             return
         }
-        if (reminderShown != null) {
-            dismissReminder()
+        if (reminder.shown != null) {
+            reminder.dismiss()
             return
         }
         if (channelOverlayOpen) {
@@ -918,11 +880,11 @@ class PlayerActivity : ComponentActivity() {
             // The overlay handles navigation; Back is routed through onBack().
             return super.dispatchKeyEvent(event)
         }
-        val r = reminderShown
+        val r = reminder.shown
         if (r != null && event.action == KeyEvent.ACTION_DOWN &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
-            watchReminder(r)
+            reminder.watch(r)
             return true
         }
         if (event.action == KeyEvent.ACTION_DOWN && req.live && timeshift != null) {
