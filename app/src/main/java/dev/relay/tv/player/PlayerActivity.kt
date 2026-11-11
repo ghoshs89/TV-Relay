@@ -91,7 +91,7 @@ class PlayerActivity : ComponentActivity() {
     private var lastBackAt = 0L
 
     // Number keys typed on the remote, applied after a short pause.
-    private val digits = StringBuilder()
+    private val digits = ChannelDigits()
 
     // Stream info shows once per new item, when it first becomes ready.
     private var infoPending = false
@@ -835,18 +835,14 @@ class PlayerActivity : ComponentActivity() {
     // ---------- Number keys ----------
 
     private fun digitPressed(d: Int) {
-        if (digits.length >= 5) digits.clear()
-        digits.append(d)
-        showOverlay("Channel  $digits", 1_800)
+        showOverlay("Channel  ${digits.press(d)}", 1_800)
         handler.removeCallbacks(applyDigits)
         handler.postDelayed(applyDigits, 1_500)
     }
 
     /** Finds the number in the current list first, then across all channels. */
     private fun jumpToNumber() {
-        val num = digits.toString().toIntOrNull()
-        digits.clear()
-        if (num == null) return
+        val num = digits.take() ?: return
         val inList = (req.items as? LazyItems)?.indexOfNumber(num) ?: req.items.indexOfFirst { it.subtitle == num.toString() }
         if (inList >= 0) {
             switchLive(inList)
@@ -960,10 +956,8 @@ class PlayerActivity : ComponentActivity() {
     private fun pipParams(): PictureInPictureParams? {
         if (Build.VERSION.SDK_INT < 26) return null
         val size = player.videoSize
-        val ratio = if (size.width > 0 && size.height > 0) Rational(size.width, size.height) else Rational(16, 9)
-        // Android only accepts ratios between 1:2.39 and 2.39:1.
-        val safe = if (ratio.toFloat() > 2.39f) Rational(239, 100) else if (ratio.toFloat() < 0.42f) Rational(100, 239) else ratio
-        val b = PictureInPictureParams.Builder().setAspectRatio(safe)
+        val (w, h) = PipRatio.safe(size.width, size.height)
+        val b = PictureInPictureParams.Builder().setAspectRatio(Rational(w, h))
         if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(player.isPlaying)
         return b.build()
     }
