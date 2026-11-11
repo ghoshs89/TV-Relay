@@ -41,21 +41,21 @@ interface TitleSource<T> {
  * Top rated, All A to Z) leave out hidden categories and put your languages first; the others
  * are shown as they are, minus categories this profile can't see.
  */
-fun <T> buildTitleList(src: TitleSource<T>, q: TitleQuery): List<T> {
+fun <T> buildTitleList(src: TitleSource<T>, q: TitleQuery, check: () -> Unit = {}): List<T> {
     val base: List<T> = when (val s = q.selection) {
         TitleSelection.Recent -> src.byAdded
         TitleSelection.Top -> src.byRating
         TitleSelection.All -> src.byName
         is TitleSelection.Favourites -> s.ids.mapNotNull { src.byId(it) }
-        is TitleSelection.Language -> src.byAdded.filter { src.lang(src.id(it)) == s.key }
+        is TitleSelection.Language -> src.byAdded.filterChecked(check) { src.lang(src.id(it)) == s.key }
         is TitleSelection.Category -> src.inCategory(s.id)
     }
-    val allowed = if (q.blockedCats.isEmpty()) base else base.filter { src.category(it) !in q.blockedCats }
+    val allowed = if (q.blockedCats.isEmpty()) base else base.filterChecked(check) { src.category(it) !in q.blockedCats }
     val mixed = q.selection == TitleSelection.Recent || q.selection == TitleSelection.Top || q.selection == TitleSelection.All
     if (!mixed) return allowed
-    val visible = if (q.hiddenCats.isEmpty()) allowed else allowed.filter { src.category(it) !in q.hiddenCats }
+    val visible = if (q.hiddenCats.isEmpty()) allowed else allowed.filterChecked(check) { src.category(it) !in q.hiddenCats }
     val rank = LangRank(q.langOrder)
-    return rankSorted(visible, q.langOrder.size + 1) { rank.rank(src.lang(src.id(it))) }
+    return rankSorted(visible, q.langOrder.size + 1, check) { rank.rank(src.lang(src.id(it))) }
 }
 
 /** Stable sort by name that lower-cases each name once instead of twice per comparison. */

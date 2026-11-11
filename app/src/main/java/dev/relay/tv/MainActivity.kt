@@ -27,10 +27,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import dev.relay.tv.ui.FocusRestorer
 import dev.relay.tv.ui.HomeScreen
 import dev.relay.tv.ui.LocalFocusEnabled
 import dev.relay.tv.ui.LocalFocusMemory
 import dev.relay.tv.ui.LocalNav
+import dev.relay.tv.ui.LongPressGuard
 import dev.relay.tv.ui.LoginScreen
 import dev.relay.tv.ui.MovieDetailScreen
 import dev.relay.tv.ui.Nav
@@ -55,6 +57,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             RelayTheme { AppRoot() }
         }
+    }
+
+    /** Drops what is left of a long press that already acted (see [LongPressGuard]). */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (LongPressGuard.swallows(event.keyCode, event.action, event.repeatCount)) return true
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -124,6 +132,7 @@ fun AppRoot() {
                             LocalFocusMemory provides nav.memory(i, ui.focus),
                         ) {
                             Box(Modifier.fillMaxSize().background(Palette.bg)) {
+                                FocusRestorer()
                                 when (route) {
                                     Route.Login -> LoginScreen(
                                         onDone = { nav.reset(Route.Profiles) },
