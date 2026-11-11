@@ -79,6 +79,13 @@ android {
         // CI runs lint as its own step and fails only on the crash-class issues listed in
         // .github/lint-gate.py; the full report is kept with each build.
         checkReleaseBuilds = false
+        // Checks left off on purpose:
+        //  GradleDependency, OldTargetApi: library and target versions are raised deliberately, after
+        //    testing on the TVs, not because a newer one exists.
+        //  SetTextI18n: Relay is English only and builds some views in code.
+        //  ConstantLocale: date formats are created once for list speed; they follow the language
+        //    the app started with.
+        disable += setOf("GradleDependency", "OldTargetApi", "SetTextI18n", "ConstantLocale")
         abortOnError = false
         xmlReport = true
         xmlOutput = file("build/reports/lint/lint.xml")

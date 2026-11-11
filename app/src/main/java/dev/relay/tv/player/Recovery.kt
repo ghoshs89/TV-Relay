@@ -123,7 +123,7 @@ object TimeshiftSupport {
 
     /** True when the first bytes of a response are a playlist rather than a transport stream. */
     fun looksLikePlaylist(head: ByteArray, n: Int): Boolean {
-        val s = String(head, 0, minOf(n, 16), Charsets.ISO_8859_1).trimStart('﻿', ' ', '\r', '\n')
+        val s = String(head, 0, minOf(n, 16), Charsets.ISO_8859_1).trimStart('\uFEFF', ' ', '\r', '\n')
         return s.startsWith("#EXTM3U")
     }
 }

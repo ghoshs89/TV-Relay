@@ -1,5 +1,6 @@
 package dev.relay.tv.player
 
+import android.annotation.SuppressLint
 import android.app.PictureInPictureParams
 import android.app.UiModeManager
 import android.content.Context
@@ -867,6 +868,9 @@ class PlayerActivity : ComponentActivity() {
 
     // ---------- Keys ----------
 
+    // Lint calls super.dispatchKeyEvent "restricted" (a known false alarm for ComponentActivity);
+    // overriding it and calling super is how every Activity handles keys.
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (failing && event.keyCode != KeyEvent.KEYCODE_BACK) {
             // Retry / Next channel buttons take the remote while the failure panel is up.

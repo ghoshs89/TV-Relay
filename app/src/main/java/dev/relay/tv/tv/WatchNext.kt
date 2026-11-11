@@ -1,5 +1,6 @@
 package dev.relay.tv.tv
 
+import android.annotation.SuppressLint
 import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
@@ -27,6 +28,9 @@ object WatchNext {
             ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
 
     /** Adds, updates or removes the home-screen entry for [e]. Call off the main thread. */
+    // Lint flags the WatchNextProgram.Builder calls as library-internal; they are the documented
+    // way to build a Watch Next entry and work on Google TV, so this is a false alarm.
+    @SuppressLint("RestrictedApi")
     fun update(ctx: Context, pid: String, e: WatchEntry) {
         if (!supported(ctx)) return
         val app = RelayApp.instance

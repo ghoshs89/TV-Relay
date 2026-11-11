@@ -1,5 +1,6 @@
 package dev.relay.tv.player
 
+import android.annotation.SuppressLint
 import android.net.Uri
 import android.os.SystemClock
 import androidx.annotation.OptIn
@@ -160,7 +161,11 @@ class TimeshiftBuffer(
         }
     }
 
-    /** Drops the oldest segments to stay within the cap. */
+    /**
+     * Drops the oldest segments to stay within the cap. The cap uses a quarter of the free space;
+     * the cache folder is private to Relay, so counting clearable cache as free isn't needed.
+     */
+    @SuppressLint("UsableSpace")
     private fun trim() {
         val rate = bytesPerSecond
         val byTime = if (rate > 0) (rate * bufferMinutes * 60).toLong() else HARD_CAP

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -22,7 +23,12 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
+    <!--
+      allowBackup is off, so no backup rules are needed (DataExtractionRules). Picture-in-picture
+      enters automatically only while video is playing, which the lint rule cannot see.
+    -->
     <application
+        tools:ignore="DataExtractionRules,PictureInPictureIssue"
         android:name=".RelayApp"
         android:allowBackup="false"
         android:largeHeap="true"
@@ -34,7 +40,9 @@
         android:theme="@style/Theme.Relay"
         android:usesCleartextTraffic="true">
 
+        <!-- Landscape only on purpose: Relay is a video app for TVs and phones held sideways. -->
         <activity
+            tools:ignore="DiscouragedApi"
             android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
@@ -55,6 +63,7 @@
         </activity>
 
         <activity
+            tools:ignore="DiscouragedApi"
             android:name=".player.PlayerActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"

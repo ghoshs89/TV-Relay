@@ -129,8 +129,9 @@ object Updater {
 
     /** Opens the "install unknown apps" screen for Relay. Returns false if the TV has none. */
     fun openInstallPermission(ctx: Context): Boolean {
-        val attempts = listOf(
-            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${ctx.packageName}")),
+        val attempts = listOfNotNull(
+            // The per-app screen exists from Android 8; older TVs go straight to Security settings.
+            if (Build.VERSION.SDK_INT >= 26) Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${ctx.packageName}")) else null,
             Intent(Settings.ACTION_SECURITY_SETTINGS),
         )
         for (i in attempts) {
