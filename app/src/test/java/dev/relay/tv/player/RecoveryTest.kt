@@ -103,4 +103,25 @@ class RecoveryTest {
         val ts = ByteArray(188).also { it[0] = 0x47 }
         assertFalse(TimeshiftSupport.looksLikePlaylist(ts, ts.size))
     }
+
+    @Test
+    fun playlistWithAByteOrderMarkIsRecognised() {
+        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        val withBom = bom + "#EXTM3U\n#EXT-X-VERSION:3\n".toByteArray()
+        assertTrue(TimeshiftSupport.looksLikePlaylist(withBom, withBom.size))
+        val spaced = bom + "\r\n #EXTM3U\n".toByteArray()
+        assertTrue(TimeshiftSupport.looksLikePlaylist(spaced, spaced.size))
+        val plain = "\n#EXTM3U\n".toByteArray()
+        assertTrue(TimeshiftSupport.looksLikePlaylist(plain, plain.size))
+    }
+
+    @Test
+    fun aByteOrderMarkAloneOrTooShortAReadIsNotAPlaylist() {
+        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        assertFalse(TimeshiftSupport.looksLikePlaylist(bom, 3))
+        assertFalse(TimeshiftSupport.looksLikePlaylist(bom, 2))
+        assertFalse(TimeshiftSupport.looksLikePlaylist(ByteArray(0), 0))
+        val tsAfterBom = bom + ByteArray(188).also { it[0] = 0x47 }
+        assertFalse(TimeshiftSupport.looksLikePlaylist(tsAfterBom, tsAfterBom.size))
+    }
 }
