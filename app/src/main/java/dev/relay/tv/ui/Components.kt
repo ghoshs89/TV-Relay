@@ -1,6 +1,7 @@
 package dev.relay.tv.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -171,8 +172,7 @@ fun Focusable(
     val latestOnFocused by rememberUpdatedState(onFocused)
     val latestOnClick by rememberUpdatedState(onClick)
     val latestOnLongClick by rememberUpdatedState(onLongClick)
-    val scale = remember { Animatable(1f) }
-    val scope = rememberCoroutineScope()
+    val scaleValue by animateFloatAsState(if (focused) scaleOnFocus else 1f, label = "focusScale")
     val press = if (onLongClick != null) remember { OkPressTracker() } else null
 
     if (key != null) {
@@ -189,7 +189,6 @@ fun Focusable(
                 val now = state.isFocused
                 if (now != focused) {
                     focused = now
-                    scope.launch { scale.animateTo(if (now) scaleOnFocus else 1f) }
                     if (now) {
                         if (key != null) memory.lastKey = key
                         latestOnFocused()
@@ -197,9 +196,8 @@ fun Focusable(
                 }
             }
             .graphicsLayer {
-                val v = scale.value
-                scaleX = v
-                scaleY = v
+                scaleX = scaleValue
+                scaleY = scaleValue
             }
             .clip(shape)
             .border(if (focused) 3.dp else 1.dp, if (focused) Palette.accent else Color.Transparent, shape)
