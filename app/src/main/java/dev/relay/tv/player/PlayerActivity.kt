@@ -62,7 +62,6 @@ import dev.relay.tv.data.PlayItem
 import dev.relay.tv.data.PlayRequest
 import dev.relay.tv.data.TrackPref
 import dev.relay.tv.data.WatchEntry
-import dev.relay.tv.data.KidsLimits
 import dev.relay.tv.data.LazyItems
 import dev.relay.tv.tv.WatchNext
 import kotlinx.coroutines.Dispatchers
@@ -146,47 +145,17 @@ class PlayerActivity : ComponentActivity() {
     private val watchdog = object : Runnable {
         override fun run() {
             checkStall()
-            trackViewing()
+            if (::limits.isInitialized) limits.tick(SystemClock.elapsedRealtime(), ::player.isInitialized && player.isPlaying)
             handler.postDelayed(this, 1_000)
         }
     }
 
     // ---------- Kids viewing limits ----------
 
-    private val kidsProfile by lazy { app.store.profiles.firstOrNull { it.id == req.profileId }?.kids == true }
-    private var usageSince = 0L
-    private var usagePending = 0L
-    private var limitWarned = false
-    private var limitReached = false
-
     /** Counts time actually playing on kids profiles and stops at the daily limit or bedtime. */
-    private fun trackViewing() {
-        if (!::req.isInitialized || !kidsProfile || limitReached) return
-        val now = SystemClock.elapsedRealtime()
-        val playing = ::player.isInitialized && player.isPlaying
-        if (playing && usageSince > 0) usagePending += now - usageSince
-        usageSince = if (playing) now else 0L
-        if (usagePending < 30_000) return
-        flushUsage()
-        when (val v = app.store.viewingVerdict(req.profileId)) {
-            is KidsLimits.Verdict.Blocked -> stopForLimit(v.reason)
-            is KidsLimits.Verdict.Allowed -> {
-                val left = v.minutesLeft
-                if (left != null && left <= 5 && !limitWarned) {
-                    limitWarned = true
-                    showOverlay(if (left <= 1) "About a minute of watching left" else "$left minutes of watching left", 6_000)
-                }
-            }
-        }
-    }
-
-    private fun flushUsage() {
-        if (usagePending > 0 && ::req.isInitialized) app.store.addUsage(req.profileId, usagePending)
-        usagePending = 0
-    }
+    private lateinit var limits: KidsLimitTracker
 
     private fun stopForLimit(reason: String) {
-        limitReached = true
         AppLog.i("Access", "Viewing limit reached while playing: $reason")
         saveProgress(finished = false)
         player.stop()
@@ -219,7 +188,14 @@ class PlayerActivity : ComponentActivity() {
             return
         }
         req = r
-        AppLog.i("Player", "Open ${if (r.live) "live" else r.items[r.index].kind}: ${r.items[r.index].title} (${r.items.size} in queue)")
+        limits = KidsLimitTracker(
+            enabled = app.store.profiles.firstOrNull { it.id == r.profileId }?.kids == true,
+            addUsage = { app.store.addUsage(req.profileId, it) },
+            verdict = { app.store.viewingVerdict(req.profileId) },
+            warn = { showOverlay(it, 6_000) },
+            onLimit = ::stopForLimit,
+        )
+        AppLog.i("Player", "Open${if (r.live) "live" else r.items[r.index].kind}: ${r.items[r.index].title} (${r.items.size} in queue)")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         frameRate = FrameRateMatcher(this)
         buildPlayer()
@@ -574,7 +550,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun retryAfterFailure() {
-        if (limitReached) {
+        if (limits.reached) {
             finish()
             return
         }
@@ -1291,8 +1267,10 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        flushUsage()
-        usageSince = 0L
+        if (::limits.isInitialized) {
+            limits.flush()
+            limits.pause()
+        }
         if (::player.isInitialized) {
             saveProgress(finished = false)
             player.pause()
