@@ -480,6 +480,8 @@ fun <T> Rail(
     items: List<T>,
     key: ((T) -> Any)? = null,
     hint: String? = null,
+    /** Shown after the last item (a "Clear all" button, say). */
+    footer: (@Composable () -> Unit)? = null,
     content: @Composable (T) -> Unit,
 ) {
     if (items.isEmpty()) return
@@ -495,6 +497,7 @@ fun <T> Rail(
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             items(items, key = key) { content(it) }
+            if (footer != null) item(key = "__footer") { footer() }
         }
     }
 }

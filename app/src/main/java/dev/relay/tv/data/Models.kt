@@ -119,6 +119,9 @@ data class Settings(
     // Batch 7
     /** Movies and episodes in progress on the Google TV home screen. */
     val watchNext: Boolean = true,
+    // Batch 8: how far Left and Right jump while watching, in seconds (see player/SkipSizes).
+    val skipBackSec: Int = 10,
+    val skipForwardSec: Int = 30,
 )
 
 /** A programme the viewer wants to be told about when it starts. Times are as shown in the guide. */

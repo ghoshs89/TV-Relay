@@ -54,6 +54,7 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import dev.relay.tv.tv.WatchNext
+import dev.relay.tv.data.HistoryEdits
 import dev.relay.tv.data.ProviderNames
 
 private val TABS = listOf("Home", "Live TV", "Movies", "Series", "Search", "Settings")
@@ -399,7 +400,25 @@ fun HomeTab() {
         rows.forEach { row ->
             item(key = row) {
                 when {
-                    row == HomeLayout.CONTINUE -> Rail(HomeLayout.label(row), continueWatching, key = { it.key }, hint = "Hold OK to remove") { e ->
+                    row == HomeLayout.CONTINUE -> Rail(
+                        HomeLayout.label(row), continueWatching, key = { it.key }, hint = "Hold OK to remove",
+                        footer = {
+                            Box(Modifier.height(146.dp).padding(start = 6.dp), contentAlignment = Alignment.Center) {
+                                PillButton(
+                                    "Clear all",
+                                    {
+                                        val n = HistoryEdits.continueEntries(history).size
+                                        removal = Removal("Clear Continue watching", "$n title${if (n == 1) "" else "s"} will be taken off this row.") {
+                                            val gone = HistoryEdits.continueEntries(store.history(pid))
+                                            store.clearContinue(pid)
+                                            app.appScope.launch(Dispatchers.IO) { gone.forEach { WatchNext.remove(ctx, pid, it.key) } }
+                                        }
+                                    },
+                                    key = "cw:clear",
+                                )
+                            }
+                        },
+                    ) { e ->
                         PosterCard(
                             e.title, e.image, { resume(e) }, key = "cw:${e.key}", width = 260.dp, aspect = 16f / 9f,
                             subtitle = e.subtitle ?: "${fmtDuration(e.duration - e.position)} left",

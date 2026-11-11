@@ -99,6 +99,8 @@ class PlayerActivity : ComponentActivity() {
 
     // When the current channel or video was asked for, to log how long the first picture took.
     private var tuneStartedAt = 0L
+    private var skipBackSec = SkipSizes.DEFAULT_BACK
+    private var skipForwardSec = SkipSizes.DEFAULT_FORWARD
     private var recordLiveWatch = Runnable { }
 
     // Audio and subtitle languages, and the per-series memory of what the viewer picked.
@@ -211,6 +213,8 @@ class PlayerActivity : ComponentActivity() {
 
     private fun buildPlayer() {
         val s = app.store.settings
+        skipBackSec = SkipSizes.clean(s.skipBackSec, SkipSizes.DEFAULT_BACK)
+        skipForwardSec = SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)
         // Streams give up after 15 s without data (menus keep the longer default) so recovery starts sooner.
         val streamHttp = app.http.newBuilder().readTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
         val dataSource = OkHttpDataSource.Factory(streamHttp).setUserAgent(s.userAgent.ifBlank { "RelayTV/1.0" })
@@ -247,8 +251,8 @@ class PlayerActivity : ComponentActivity() {
             .setTrackSelector(selector)
             .setLoadControl(load)
             .setBandwidthMeter(bandwidth)
-            .setSeekBackIncrementMs(10_000)
-            .setSeekForwardIncrementMs(30_000)
+            .setSeekBackIncrementMs(skipBackSec * 1_000L)
+            .setSeekForwardIncrementMs(skipForwardSec * 1_000L)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -906,10 +910,10 @@ class PlayerActivity : ComponentActivity() {
         if (event.action == KeyEvent.ACTION_DOWN && req.live && timeshift != null) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                    tsSeek(-10); return true
+                    tsSeek(-skipBackSec); return true
                 }
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                    tsSeek(30); return true
+                    tsSeek(skipForwardSec); return true
                 }
             }
             // While paused or behind live, Left/Right rewind and skip instead of opening menus.
@@ -917,10 +921,10 @@ class PlayerActivity : ComponentActivity() {
             if (shifted && !view.isControllerFullyVisible) {
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT -> {
-                        tsSeek(-10); return true
+                        tsSeek(-skipBackSec); return true
                     }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        tsSeek(30); return true
+                        tsSeek(skipForwardSec); return true
                     }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (!player.playWhenReady) {
                         player.play(); return true
