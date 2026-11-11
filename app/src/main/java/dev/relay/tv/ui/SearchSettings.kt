@@ -53,6 +53,7 @@ import dev.relay.tv.data.Catalog
 import dev.relay.tv.data.Channel
 import dev.relay.tv.data.Movie
 import dev.relay.tv.data.Profile
+import dev.relay.tv.data.SearchText
 import dev.relay.tv.data.Series
 import dev.relay.tv.player.Playback
 import dev.relay.tv.update.Updater
@@ -73,40 +74,6 @@ private class Results(
     val series: List<Series> = emptyList(),
 )
 
-private val NON_ALNUM = Regex("[^\\p{L}\\p{N}]+")
-private fun norm(s: String) = s.lowercase().replace(NON_ALNUM, " ").trim()
-
-/** Token match on normalized names, with a one-typo fallback for single-word queries. */
-private fun matcher(query: String): ((String) -> Boolean)? {
-    val tokens = norm(query).split(' ').filter { it.isNotEmpty() }
-    if (tokens.isEmpty()) return null
-    return { name ->
-        val n = norm(name)
-        tokens.all { t -> n.contains(t) } ||
-            (tokens.size == 1 && tokens[0].length >= 5 && n.split(' ').any { w -> oneEdit(w, tokens[0]) })
-    }
-}
-
-private fun oneEdit(a: String, b: String): Boolean {
-    if (kotlin.math.abs(a.length - b.length) > 1) return false
-    var i = 0
-    var j = 0
-    var edits = 0
-    while (i < a.length && j < b.length) {
-        if (a[i] == b[j]) {
-            i++; j++
-        } else {
-            if (++edits > 1) return false
-            when {
-                a.length > b.length -> i++
-                a.length < b.length -> j++
-                else -> { i++; j++ }
-            }
-        }
-    }
-    return edits + (a.length - i) + (b.length - j) <= 1
-}
-
 @Composable
 fun SearchTab() {
     val app = RelayApp.instance
@@ -121,12 +88,13 @@ fun SearchTab() {
 
     LaunchedEffect(ui.query, catalog.channels, catalog.movies, catalog.series, restrict) {
         delay(350)
-        val match = matcher(ui.query)
+        val match = SearchText.matcher(ui.query)
         if (match == null) {
             results = Results()
             return@LaunchedEffect
         }
         searching = true
+        val t0 = System.currentTimeMillis()
         val rank = app.session.langRank(app.store.settings)
         results = withContext(Dispatchers.Default) {
             // Gather more than shown, then put your languages first.
@@ -144,6 +112,7 @@ fun SearchTab() {
             )
         }
         searching = false
+        AppLog.d("Search", "\"${ui.query}\" searched in ${System.currentTimeMillis() - t0} ms")
     }
 
     val relay = useRelayKeyboard()

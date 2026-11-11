@@ -23,11 +23,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.Category
-import dev.relay.tv.data.Movie
-import dev.relay.tv.data.Series
 import dev.relay.tv.data.ProviderNames
 import dev.relay.tv.data.Langs
 import dev.relay.tv.data.TitleParts
+import dev.relay.tv.data.TitleQuery
+import dev.relay.tv.data.TitleSelection
 import kotlinx.coroutines.launch
 
 @Composable
@@ -47,24 +47,10 @@ fun MoviesTab() {
     val cats = remember(catalog.vodCats, restrict, version, catalog.langVersion) {
         arrangeCats(catalog.vodCats, "vod", s.pinnedVod, s.hiddenCats, restrict, featured) { rank.rank(catalog.vodCatLang(it)) }
     }
-    val items: List<Movie> = remember(ui.movieCat, catalog.movies, restrict, version, catalog.langVersion) {
-        val cat = ui.movieCat
-        val base = when {
-            cat == UiState.RECENT -> catalog.moviesByAdded
-            cat == UiState.TOP -> catalog.moviesByRating
-            cat == UiState.FAV -> store.favs(pid).filter { it.kind == "movie" }.mapNotNull { catalog.movieById[it.id] }
-            cat == UiState.ALL -> catalog.movies.sortedBy { it.name.lowercase() }
-            cat.startsWith(LANG) -> catalog.moviesByAdded.filter { catalog.movieLang(it.id) == cat.removePrefix(LANG) }
-            else -> catalog.moviesByCat[cat].orEmpty()
-        }
-        val allowed = base.filter { catalog.allowed(it.categoryId, restrict) }
-        // Mixed lists: hidden categories stay out, and your languages come first (nothing is removed).
-        if (cat == UiState.RECENT || cat == UiState.TOP || cat == UiState.ALL) {
-            allowed.filter { "vod:${it.categoryId}" !in s.hiddenCats }.sortedBy { rank.rank(catalog.movieLang(it.id)) }
-        } else {
-            allowed
-        }
-    }
+    val items = rememberTitleList(
+        "Movies", titleQuery(ui.movieCat, "movie", "vod", if (ui.movieCat == UiState.FAV) store.favs(pid) else null, restrict, catalog.adultCats, s.hiddenCats, app.session.langOrder(s)),
+        titleGeneration(catalog), ui.movieLists, catalog.movieSource,
+    )
     Browser(
         cats = cats,
         selected = ui.movieCat,
@@ -102,23 +88,10 @@ fun SeriesTab() {
     val cats = remember(catalog.seriesCats, restrict, version, catalog.langVersion) {
         arrangeCats(catalog.seriesCats, "series", s.pinnedSeries, s.hiddenCats, restrict, featured) { rank.rank(catalog.seriesCatLang(it)) }
     }
-    val items: List<Series> = remember(ui.seriesCat, catalog.series, restrict, version, catalog.langVersion) {
-        val cat = ui.seriesCat
-        val base = when {
-            cat == UiState.RECENT -> catalog.seriesByAdded
-            cat == UiState.TOP -> catalog.seriesByRating
-            cat == UiState.FAV -> store.favs(pid).filter { it.kind == "series" }.mapNotNull { catalog.seriesById[it.id] }
-            cat == UiState.ALL -> catalog.series.sortedBy { it.name.lowercase() }
-            cat.startsWith(LANG) -> catalog.seriesByAdded.filter { catalog.seriesLang(it.id) == cat.removePrefix(LANG) }
-            else -> catalog.seriesByCat[cat].orEmpty()
-        }
-        val allowed = base.filter { catalog.allowed(it.categoryId, restrict) }
-        if (cat == UiState.RECENT || cat == UiState.TOP || cat == UiState.ALL) {
-            allowed.filter { "series:${it.categoryId}" !in s.hiddenCats }.sortedBy { rank.rank(catalog.seriesLang(it.id)) }
-        } else {
-            allowed
-        }
-    }
+    val items = rememberTitleList(
+        "Series", titleQuery(ui.seriesCat, "series", "series", if (ui.seriesCat == UiState.FAV) store.favs(pid) else null, restrict, catalog.adultCats, s.hiddenCats, app.session.langOrder(s)),
+        titleGeneration(catalog), ui.seriesLists, catalog.seriesSource,
+    )
     Browser(
         cats = cats,
         selected = ui.seriesCat,
@@ -140,6 +113,43 @@ fun SeriesTab() {
 }
 
 const val LANG = "__lang:"
+
+/** Changes when the library is replaced or the language guesses move, which makes cached lists stale. */
+private fun titleGeneration(catalog: dev.relay.tv.data.Catalog): Long =
+    (catalog.libraryVersion.toLong() shl 32) or (catalog.langVersion.toLong() and 0xFFFFFFFFL)
+
+/**
+ * What one Movies or Series list needs from the screen and the store, and nothing else, so that
+ * a write that doesn't touch it leaves the query equal and the list isn't built again.
+ * [favs] is only passed for My list.
+ */
+private fun titleQuery(
+    cat: String,
+    favKind: String,
+    hiddenKind: String,
+    favs: List<dev.relay.tv.data.FavItem>?,
+    restrict: Boolean,
+    adultCats: Set<String>,
+    hiddenCats: Set<String>,
+    langOrder: List<String>,
+): TitleQuery {
+    val selection = when {
+        cat == UiState.RECENT -> TitleSelection.Recent
+        cat == UiState.TOP -> TitleSelection.Top
+        cat == UiState.FAV -> TitleSelection.Favourites(favs.orEmpty().filter { it.kind == favKind }.map { it.id })
+        cat == UiState.ALL -> TitleSelection.All
+        cat.startsWith(LANG) -> TitleSelection.Language(cat.removePrefix(LANG))
+        else -> TitleSelection.Category(cat)
+    }
+    val prefix = "$hiddenKind:"
+    val mixed = selection == TitleSelection.Recent || selection == TitleSelection.Top || selection == TitleSelection.All
+    return TitleQuery(
+        selection = selection,
+        blockedCats = if (restrict) adultCats else emptySet(),
+        hiddenCats = if (mixed) hiddenCats.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }.toSet() else emptySet(),
+        langOrder = if (mixed) langOrder else emptyList(),
+    )
+}
 
 /**
  * Category list for Movies or Series: Relay's own lists, one per featured language, pinned
@@ -178,7 +188,7 @@ private fun <T> Browser(
     counts: (String) -> Int?,
     catState: LazyListState,
     gridState: LazyGridState,
-    items: List<T>,
+    items: List<T>?,
     empty: String,
     card: @Composable (T) -> Unit,
 ) {
@@ -206,7 +216,9 @@ private fun <T> Browser(
             }
         }
         Spacer(Modifier.width(20.dp))
-        if (items.isEmpty()) {
+        if (items == null) {
+            EmptyState("Loading…", Modifier.weight(1f))
+        } else if (items.isEmpty()) {
             EmptyState(empty, Modifier.weight(1f))
         } else {
             LazyVerticalGrid(

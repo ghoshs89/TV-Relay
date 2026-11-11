@@ -302,12 +302,19 @@ fun HomeTab() {
     val pid = app.session.profileId
     val restrict = app.session.restrict(store.settings)
 
+    // The store hands back the same list until something is written, so these are worked out
+    // again only when the history, favourites or channels really change.
     val history = store.history(pid)
-    val continueWatching = history.filter { it.kind != "live" && it.inProgress }.take(20)
-    val recentChannels = history.filter { it.kind == "live" }.mapNotNull { e -> e.streamId.toIntOrNull()?.let { catalog.channelById[it] } }.take(20)
+    val continueWatching = remember(history) { history.filter { it.kind != "live" && it.inProgress }.distinctBy { it.key }.take(20) }
+    val recentChannels = remember(history, catalog.channels) {
+        history.filter { it.kind == "live" }.mapNotNull { e -> e.streamId.toIntOrNull()?.let { catalog.channelById[it] } }
+            .distinctBy { it.id }.take(20)
+    }
     val favs = store.favs(pid)
-    val favChannels = favs.filter { it.kind == "live" }.mapNotNull { catalog.channelById[it.id] }
-    val myList = favs.filter { it.kind != "live" }
+    val favChannels = remember(favs, catalog.channels) {
+        favs.filter { it.kind == "live" }.mapNotNull { catalog.channelById[it.id] }.distinctBy { it.id }
+    }
+    val myList = remember(favs) { favs.filter { it.kind != "live" }.distinctBy { it.kind to it.id } }
 
     val resume: (WatchEntry) -> Unit = { e ->
         val sid = e.seriesId
@@ -342,26 +349,26 @@ fun HomeTab() {
         rows.forEach { row ->
             item(key = row) {
                 when {
-                    row == HomeLayout.CONTINUE -> Rail(HomeLayout.label(row), continueWatching) { e ->
+                    row == HomeLayout.CONTINUE -> Rail(HomeLayout.label(row), continueWatching, key = { it.key }) { e ->
                         PosterCard(
                             e.title, e.image, { resume(e) }, key = "cw:${e.key}", width = 260.dp, aspect = 16f / 9f,
                             subtitle = e.subtitle ?: "${fmtDuration(e.duration - e.position)} left",
                             progress = e.position.toFloat() / e.duration.coerceAtLeast(1),
                         )
                     }
-                    row == HomeLayout.FAV_CHANNELS -> Rail(HomeLayout.label(row), favChannels) { ch ->
+                    row == HomeLayout.FAV_CHANNELS -> Rail(HomeLayout.label(row), favChannels, key = { it.id }) { ch ->
                         ChannelTile(
                             ch, { Playback.live(ctx, favChannels, favChannels.indexOf(ch)) },
                             key = "fc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
                         )
                     }
-                    row == HomeLayout.RECENT_CHANNELS -> Rail(HomeLayout.label(row), recentChannels) { ch ->
+                    row == HomeLayout.RECENT_CHANNELS -> Rail(HomeLayout.label(row), recentChannels, key = { it.id }) { ch ->
                         ChannelTile(
                             ch, { Playback.live(ctx, recentChannels, recentChannels.indexOf(ch)) },
                             key = "rc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
                         )
                     }
-                    row == HomeLayout.MY_LIST -> Rail(HomeLayout.label(row), myList) { f ->
+                    row == HomeLayout.MY_LIST -> Rail(HomeLayout.label(row), myList, key = { "${it.kind}:${it.id}" }) { f ->
                         PosterCard(f.name, f.image, {
                             if (f.kind == "movie") catalog.movieById[f.id]?.let { nav.push(Route.MovieDetail(it)) }
                             else catalog.seriesById[f.id]?.let { nav.push(Route.SeriesDetail(it)) }
@@ -372,25 +379,33 @@ fun HomeTab() {
                         val list = remember(lang, catalog.movies, catalog.series, restrict, catalog.langVersion, hidden) {
                             newIn(catalog, lang, restrict, hidden)
                         }
-                        Rail(HomeLayout.label(row), list) { t -> TitleCard(t, "nl:$lang") }
+                        Rail(HomeLayout.label(row), list, key = { it.railKey }) { t -> TitleCard(t, "nl:$lang") }
                     }
                     row == HomeLayout.NEW_MOVIES -> {
-                        val list = catalog.moviesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
-                        Rail(HomeLayout.label(row), list) { m -> TitleCard(HomeTitle.M(m), "ram") }
+                        val list = remember(catalog.moviesByAdded, restrict, hidden) {
+                            catalog.moviesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
+                        }
+                        Rail(HomeLayout.label(row), list, key = { it.id }) { m -> TitleCard(HomeTitle.M(m), "ram") }
                     }
                     row == HomeLayout.NEW_SERIES -> {
-                        val list = catalog.seriesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
-                        Rail(HomeLayout.label(row), list) { x -> TitleCard(HomeTitle.S(x), "ras") }
+                        val list = remember(catalog.seriesByAdded, restrict, hidden) {
+                            catalog.seriesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
+                        }
+                        Rail(HomeLayout.label(row), list, key = { it.id }) { x -> TitleCard(HomeTitle.S(x), "ras") }
                     }
                     row == HomeLayout.TOP_MOVIES -> {
-                        val list = catalog.moviesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
-                        Rail(HomeLayout.label(row), list) { m ->
+                        val list = remember(catalog.moviesByRating, restrict, hidden) {
+                            catalog.moviesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
+                        }
+                        Rail(HomeLayout.label(row), list, key = { it.id }) { m ->
                             PosterCard(m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "trm:${m.id}", badge = "★ %.1f".format(m.rating))
                         }
                     }
                     row == HomeLayout.TOP_SERIES -> {
-                        val list = catalog.seriesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
-                        Rail(HomeLayout.label(row), list) { x ->
+                        val list = remember(catalog.seriesByRating, restrict, hidden) {
+                            catalog.seriesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
+                        }
+                        Rail(HomeLayout.label(row), list, key = { it.id }) { x ->
                             PosterCard(x.name, x.cover, { nav.push(Route.SeriesDetail(x)) }, key = "trs:${x.id}", badge = "★ %.1f".format(x.rating))
                         }
                     }
@@ -404,12 +419,17 @@ fun HomeTab() {
 sealed interface HomeTitle {
     val added: Long
 
+    /** Unique within a row (a movie and a series can share a number). */
+    val railKey: String
+
     data class M(val movie: dev.relay.tv.data.Movie) : HomeTitle {
         override val added get() = movie.added
+        override val railKey get() = "m${movie.id}"
     }
 
     data class S(val series: dev.relay.tv.data.Series) : HomeTitle {
         override val added get() = series.added
+        override val railKey get() = "s${series.id}"
     }
 }
 

@@ -348,7 +348,7 @@ fun PosterCard(
 }
 
 @Composable
-fun <T> Rail(title: String, items: List<T>, content: @Composable (T) -> Unit) {
+fun <T> Rail(title: String, items: List<T>, key: ((T) -> Any)? = null, content: @Composable (T) -> Unit) {
     if (items.isEmpty()) return
     Column(Modifier.padding(bottom = 20.dp)) {
         Text(
@@ -359,7 +359,7 @@ fun <T> Rail(title: String, items: List<T>, content: @Composable (T) -> Unit) {
             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            items(items) { content(it) }
+            items(items, key = key) { content(it) }
         }
     }
 }

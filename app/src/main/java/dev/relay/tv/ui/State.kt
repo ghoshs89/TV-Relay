@@ -52,6 +52,10 @@ class UiState {
 
     /** The last Live TV list that was built; shown again at once when the tab is reopened. */
     var liveResult by mutableStateOf<dev.relay.tv.data.LiveResult?>(null)
+
+    /** Recently built Movies and Series lists, so going back to a category is instant. */
+    val movieLists = dev.relay.tv.data.TitleListCache<dev.relay.tv.data.Movie>()
+    val seriesLists = dev.relay.tv.data.TitleListCache<dev.relay.tv.data.Series>()
     val movieCatList = LazyListState()
     val movieGrid = LazyGridState()
     val seriesCatList = LazyListState()

@@ -43,6 +43,11 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     var moviesByRating by mutableStateOf<List<Movie>>(emptyList()); private set
     var seriesByAdded by mutableStateOf<List<Series>>(emptyList()); private set
     var seriesByRating by mutableStateOf<List<Series>>(emptyList()); private set
+    /** A to Z, sorted once when the library loads; case-insensitive, ties in library order. */
+    @Volatile var moviesByName: List<Movie> = emptyList(); private set
+    @Volatile var seriesByName: List<Series> = emptyList(); private set
+    /** Bumped each time a library is installed or cleared, so cached title lists know to start over. */
+    var libraryVersion by mutableIntStateOf(0); private set
 
     var adultCats by mutableStateOf<Set<String>>(emptySet()); private set
 
@@ -304,6 +309,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         channelsByCat = emptyMap(); moviesByCat = emptyMap(); seriesByCat = emptyMap()
         moviesByAdded = emptyList(); moviesByRating = emptyList()
         seriesByAdded = emptyList(); seriesByRating = emptyList()
+        moviesByName = emptyList(); seriesByName = emptyList()
+        libraryVersion++
         adultCats = emptySet()
         rawChannels = emptyList()
         channelById = emptyMap(); movieById = emptyMap(); seriesById = emptyMap()
@@ -350,6 +357,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val mvRated = p.movies.filter { it.rating > 0 }.sortedByDescending { it.rating }
         val srAdded = p.series.sortedByDescending { it.added }
         val srRated = p.series.filter { it.rating > 0 }.sortedByDescending { it.rating }
+        val mvByName = sortedByLowerName(p.movies) { it.name }
+        val srByName = sortedByLowerName(p.series) { it.name }
         val mvByCat = p.movies.groupBy { it.categoryId }
         val srByCat = p.series.groupBy { it.categoryId }
         val mvById = p.movies.associateBy { it.id }
@@ -387,6 +396,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         install(chIndex)
         moviesByAdded = sorted.mvAdded; moviesByRating = sorted.mvRated
         seriesByAdded = sorted.srAdded; seriesByRating = sorted.srRated
+        moviesByName = sorted.mvByName; seriesByName = sorted.srByName
+        libraryVersion++
         updatedAt = file("get_live_streams").lastModified()
         AppLog.i("Catalog", "Prepared lists in $indexMs ms (${sorted.text()}); applied on screen thread in ${System.currentTimeMillis() - t1} ms")
         AppLog.i("Catalog", loadSummary().replace("\n", "; ") + "; ${versionsByKey.size} channels with several versions")
@@ -615,6 +626,29 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         override fun isHd(ch: Channel): Boolean = ch.id in hdIds
         override fun hasGuide(ch: Channel): Boolean = guide?.entries(ch.id)?.isNotEmpty() == true
         override fun collapse(list: List<Channel>, preferred: Map<String, Int>): List<Channel> = collapseVersions(list, preferred)
+    }
+
+    /** What the Movies and Series lists read, for building them off the screen thread. */
+    val movieSource: TitleSource<Movie> = object : TitleSource<Movie> {
+        override val byAdded: List<Movie> get() = this@Catalog.moviesByAdded
+        override val byRating: List<Movie> get() = this@Catalog.moviesByRating
+        override val byName: List<Movie> get() = this@Catalog.moviesByName
+        override fun inCategory(cat: String): List<Movie> = moviesByCat[cat].orEmpty()
+        override fun byId(id: Int): Movie? = movieById[id]
+        override fun lang(id: Int): String? = movieLang(id)
+        override fun id(t: Movie): Int = t.id
+        override fun category(t: Movie): String = t.categoryId
+    }
+
+    val seriesSource: TitleSource<Series> = object : TitleSource<Series> {
+        override val byAdded: List<Series> get() = this@Catalog.seriesByAdded
+        override val byRating: List<Series> get() = this@Catalog.seriesByRating
+        override val byName: List<Series> get() = this@Catalog.seriesByName
+        override fun inCategory(cat: String): List<Series> = seriesByCat[cat].orEmpty()
+        override fun byId(id: Int): Series? = seriesById[id]
+        override fun lang(id: Int): String? = seriesLang(id)
+        override fun id(t: Series): Int = t.id
+        override fun category(t: Series): String = t.categoryId
     }
 
     fun groupChannels(g: ChannelGroup): List<Channel> = g.channelIds.mapNotNull { channelById[it] }

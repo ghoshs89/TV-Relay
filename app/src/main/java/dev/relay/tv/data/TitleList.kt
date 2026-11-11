@@ -1,0 +1,86 @@
+package dev.relay.tv.data
+
+/** What a Movies or Series list is showing. Carries the ids it needs so equal queries mean equal lists. */
+sealed interface TitleSelection {
+    data object Recent : TitleSelection
+    data object Top : TitleSelection
+    data object All : TitleSelection
+    data class Favourites(val ids: List<Int>) : TitleSelection
+    data class Language(val key: String) : TitleSelection
+    data class Category(val id: String) : TitleSelection
+}
+
+/**
+ * Everything that decides which titles a Movies or Series list shows and in what order. A data
+ * class so that unrelated changes (progress saved, a favourite elsewhere) leave it equal and the
+ * list is not built again.
+ */
+data class TitleQuery(
+    val selection: TitleSelection,
+    /** Categories this profile can't see (adult, when restricted). */
+    val blockedCats: Set<String>,
+    /** Categories hidden in settings (ids for this kind only). Applied to the mixed lists. */
+    val hiddenCats: Set<String>,
+    val langOrder: List<String>,
+)
+
+/** What [buildTitleList] reads from the library. Implemented by [Catalog] for movies and for series; fakes in tests. */
+interface TitleSource<T> {
+    val byAdded: List<T>
+    val byRating: List<T>
+    val byName: List<T>
+    fun inCategory(cat: String): List<T>
+    fun byId(id: Int): T?
+    fun lang(id: Int): String?
+    fun id(t: T): Int
+    fun category(t: T): String
+}
+
+/**
+ * Builds a Movies or Series list. Runs off the screen thread. The mixed lists (Recently added,
+ * Top rated, All A to Z) leave out hidden categories and put your languages first; the others
+ * are shown as they are, minus categories this profile can't see.
+ */
+fun <T> buildTitleList(src: TitleSource<T>, q: TitleQuery): List<T> {
+    val base: List<T> = when (val s = q.selection) {
+        TitleSelection.Recent -> src.byAdded
+        TitleSelection.Top -> src.byRating
+        TitleSelection.All -> src.byName
+        is TitleSelection.Favourites -> s.ids.mapNotNull { src.byId(it) }
+        is TitleSelection.Language -> src.byAdded.filter { src.lang(src.id(it)) == s.key }
+        is TitleSelection.Category -> src.inCategory(s.id)
+    }
+    val allowed = if (q.blockedCats.isEmpty()) base else base.filter { src.category(it) !in q.blockedCats }
+    val mixed = q.selection == TitleSelection.Recent || q.selection == TitleSelection.Top || q.selection == TitleSelection.All
+    if (!mixed) return allowed
+    val visible = if (q.hiddenCats.isEmpty()) allowed else allowed.filter { src.category(it) !in q.hiddenCats }
+    val rank = LangRank(q.langOrder)
+    return rankSorted(visible, q.langOrder.size + 1) { rank.rank(src.lang(src.id(it))) }
+}
+
+/** Stable sort by name that lower-cases each name once instead of twice per comparison. */
+fun <T> sortedByLowerName(list: List<T>, name: (T) -> String): List<T> =
+    list.mapTo(ArrayList(list.size)) { it to name(it).lowercase() }.sortedBy { it.second }.map { it.first }
+
+/**
+ * The last few lists that were built, so going back to a category is instant. Everything is
+ * dropped when the library or the language guesses change ([generation]).
+ */
+class TitleListCache<T>(private val max: Int = 6) {
+    private var generation = Long.MIN_VALUE
+    private val map = object : LinkedHashMap<TitleQuery, List<T>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TitleQuery, List<T>>): Boolean = size > max
+    }
+
+    @Synchronized
+    fun get(generation: Long, q: TitleQuery): List<T>? = if (generation == this.generation) map[q] else null
+
+    @Synchronized
+    fun put(generation: Long, q: TitleQuery, items: List<T>) {
+        if (generation != this.generation) {
+            map.clear()
+            this.generation = generation
+        }
+        map[q] = items
+    }
+}
