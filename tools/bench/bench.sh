@@ -54,7 +54,7 @@ play_live() {
   keys 0.5 $OK; sleep 4
   if ! top_is PlayerActivity; then
     echo "   (OK on the focused row did not open the player; tapping a channel instead)"
-    tap "re:^[A-Z]{2}[:|] "; sleep 4
+    tap "re:^[A-Z]{2} ?[:|-] "; sleep 4
   fi
   sleep 10
 }
@@ -77,10 +77,10 @@ mark home-browse;     keys 0.3 $DOWN $DOWN $DOWN $RIGHT $RIGHT $RIGHT $RIGHT $RI
 mark open-live-tab;   tap "Live TV"; sleep 6; keys 0.5 $DOWN $RIGHT $DOWN
 mark live-steady;     keys 0.25 $(repeat 25 $DOWN)
 mark live-hold-down;  burst $DOWN 60; sleep 3
-mark live-hold-up;    burst $UP 60; sleep 3
 mark live-play;       play_live
 mark live-zap;        keys 2 $DOWN $DOWN $DOWN $UP; sleep 4
 mark live-leave;      back_out; sleep 4
+mark live-hold-up;    burst $UP 60; sleep 3
 mark open-movies;     tap "Movies"; sleep 6; keys 0.5 $DOWN $RIGHT $DOWN
 mark movies-hold-down; burst $DOWN 60; sleep 3
 mark movies-hold-right; burst $RIGHT 30; sleep 3
