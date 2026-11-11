@@ -21,6 +21,8 @@
 
 > [!IMPORTANT]
 > Keep this repository **private**. It contains no logins or keys, but its Releases hold installable builds, and Relay's updater is set up for a private repo.
+>
+> The updater uses a fine-grained token with **Contents: Read-only**, limited to this repository, so it can read releases and nothing else. Updates stop arriving when that token expires; see *Update token* under Maintaining Relay.
 
 Relay signs in to an Xtream Codes account and plays what that account provides. No content comes with the app.
 
