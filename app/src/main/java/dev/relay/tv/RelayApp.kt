@@ -99,6 +99,13 @@ class RelayApp : Application(), ImageLoaderFactory {
         AppLog.stateDump = { stateDump() }
         AppLog.i("App", deviceLine())
         StallWatch.start()
+        if (BuildConfig.BENCH) {
+            // The benchmark build ships dev.relay.tv.bench.BenchSetup (src/benchmark); it is looked up by
+            // name so the release build, which has no such class, compiles and never reaches this.
+            runCatching {
+                Class.forName("dev.relay.tv.bench.BenchSetup").getMethod("run", RelayApp::class.java).invoke(null, this)
+            }.onFailure { AppLog.e("Bench", "Setup failed", it) }
+        }
     }
 
     /** Memory and processor facts that explain why a TV behaves differently from a phone. */

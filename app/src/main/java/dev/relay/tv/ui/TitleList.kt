@@ -36,6 +36,7 @@ fun <T> rememberTitleList(
             cache.put(generation, query, items)
             built = query to items
             val ms = System.currentTimeMillis() - t0
+            AppLog.d("Library", "$label list: $ms ms, ${items.size} titles")
             if (ms > 150) AppLog.w("Library", "$label list took $ms ms off the screen thread (${items.size} titles)")
         }
     }

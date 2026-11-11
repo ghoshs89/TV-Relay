@@ -97,6 +97,9 @@ class PlayerActivity : ComponentActivity() {
     // Stream info shows once per new item, when it first becomes ready.
     private var infoPending = false
 
+    // When the current channel or video was asked for, to log how long the first picture took.
+    private var tuneStartedAt = 0L
+
     // Audio and subtitle languages, and the per-series memory of what the viewer picked.
     private val trackPrefs by lazy { PlayerTracks(app) }
 
@@ -512,6 +515,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun startVod() {
+        tuneStartedAt = SystemClock.elapsedRealtime()
         val start = req.index.coerceIn(0, req.items.lastIndex)
         trackPrefs.apply(player, req.items[start])
         player.setMediaItems(req.items.map { mediaItem(it, 0) }, start, req.items[start].resumeMs.coerceAtLeast(0))
@@ -533,6 +537,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun playLive(index: Int) {
+        tuneStartedAt = SystemClock.elapsedRealtime()
         val n = req.items.size
         liveIndex = ((index % n) + n) % n
         hostAttempt = 0
@@ -700,6 +705,12 @@ class PlayerActivity : ComponentActivity() {
 
     /** First READY of each item: match the refresh rate and flash the stream info. */
     private fun onReady() {
+        if (tuneStartedAt > 0) {
+            val ms = SystemClock.elapsedRealtime() - tuneStartedAt
+            tuneStartedAt = 0
+            val line = "First picture after $ms ms: ${currentItem()?.title}"
+            if (ms > 1_500) AppLog.i("Player", line) else AppLog.d("Player", line)
+        }
         val video = player.videoFormat
         if (app.store.settings.matchFrameRate && isTv) {
             video?.frameRate?.let { frameRate.match(it) }

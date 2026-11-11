@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) takeResumeLink(intent)
+        dev.relay.tv.data.FrameWatch.attach(window)
         setContent {
             RelayTheme { AppRoot() }
         }

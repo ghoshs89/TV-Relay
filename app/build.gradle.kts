@@ -39,6 +39,8 @@ android {
         val updateToken = (System.getenv("RELAY_UPDATE_TOKEN") ?: "").trim()
         buildConfigField("String", "UPDATE_TOKEN", "\"$updateToken\"")
         buildConfigField("String", "UPDATE_REPO", "\"ghoshs89/TV-Relay\"")
+        // True only in the benchmark build used by CI to drive the app on an emulator.
+        buildConfigField("boolean", "BENCH", "false")
     }
 
     signingConfigs {
@@ -61,6 +63,14 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (hasReleaseKey) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+        }
+        // Used only by the benchmark job in CI: the release build (shrunk, optimised) signed with the
+        // debug key, plus the code under src/benchmark that signs in to a made-up provider on the
+        // emulator. It is never published, and CI checks the release APK holds none of it.
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "BENCH", "true")
         }
     }
 

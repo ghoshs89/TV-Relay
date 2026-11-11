@@ -216,6 +216,7 @@ fun LiveTab() {
         val built = withContext(Dispatchers.Default) { buildLiveList(catalog.liveData, query) }
         ui.liveResult = built
         val ms = SystemClock.elapsedRealtime() - t
+        AppLog.d("Live", "Channel list for $cat: ${ms} ms, ${built.channels.size} shown")
         // Slow list building is what makes a TV feel frozen; log it when it happens.
         if (ms > 150) AppLog.w("Live", "Channel list for $cat took $ms ms off the screen thread (${built.baseSize} channels, ${built.channels.size} shown)")
     }
