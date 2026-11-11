@@ -24,12 +24,20 @@ except (OSError, ET.ParseError) as e:
 
 total = 0
 bad = []
+every = []
 for issue in root.iter("issue"):
     total += 1
+    loc = issue.find("location")
+    where = f"{loc.get('file', '?')}:{loc.get('line', '?')}" if loc is not None else "?"
+    every.append((issue.get("id", "?"), issue.get("severity", "?"), where, issue.get("message", "")))
     if issue.get("id") in CRITICAL:
-        loc = issue.find("location")
-        where = f"{loc.get('file', '?')}:{loc.get('line', '?')}" if loc is not None else "?"
         bad.append((issue.get("id"), where, issue.get("message", "")))
+
+# The attached report has the full detail; this keeps the list readable in the log too.
+print("::group::Lint issues, by kind")
+for i, sev, where, msg in sorted(every):
+    print(f"{i} [{sev}] {where}: {msg}")
+print("::endgroup::")
 
 for i, where, msg in bad:
     print(f"::error file={where.split(':')[0]}::{i} at {where}: {msg}")
