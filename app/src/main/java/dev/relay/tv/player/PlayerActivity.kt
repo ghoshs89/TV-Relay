@@ -108,8 +108,7 @@ class PlayerActivity : ComponentActivity() {
     private val tsDisabled = mutableSetOf<String>()
     private var stoppedInBackground = false
     private lateinit var tsSource: ProgressiveMediaSource.Factory
-    private lateinit var tsBar: LinearLayout
-    private lateinit var tsText: TextView
+    private lateinit var tsBar: TimeshiftBar
     private val tsTicker = object : Runnable {
         override fun run() {
             updateTsBar()
@@ -353,41 +352,8 @@ class PlayerActivity : ComponentActivity() {
                 Gravity.TOP or Gravity.END,
             ).apply { setMargins(48, 40, 48, 0) },
         )
-        tsText = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            setPadding(28, 16, 28, 16)
-        }
-        tsBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(0xDD0B1220.toInt())
-            visibility = View.GONE
-            addView(tsText)
-            if (!isTv) {
-                // Touch controls for phones; TVs use the remote's Left/Right.
-                listOf("−10s" to -10, "+30s" to 30, "Live" to Int.MAX_VALUE).forEach { (t, d) ->
-                    addView(
-                        TextView(this@PlayerActivity).apply {
-                            text = t
-                            setTextColor(0xFF3DDC97.toInt())
-                            textSize = 16f
-                            setPadding(28, 16, 28, 16)
-                            isFocusable = false
-                            setOnClickListener { if (d == Int.MAX_VALUE) tsGoLive() else tsSeek(d) }
-                        },
-                    )
-                }
-            }
-        }
-        root.addView(
-            tsBar,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
-            ).apply { setMargins(48, 0, 48, 120) },
-        )
+        tsBar = TimeshiftBar(this, touchControls = !isTv, onSeek = ::tsSeek, onLive = ::tsGoLive)
+        tsBar.addTo(root)
         reminderView = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 18f
@@ -640,20 +606,18 @@ class PlayerActivity : ComponentActivity() {
     private fun stopTimeshift() {
         timeshift?.close()
         timeshift = null
-        if (::tsBar.isInitialized) tsBar.visibility = View.GONE
+        if (::tsBar.isInitialized) tsBar.hide()
     }
 
     /** Byte position of what's on screen now, estimated from the recording's average bitrate. */
     private fun tsPlayingByte(): Long {
         val b = timeshift ?: return 0L
-        return tsOffset + (player.currentPosition / 1000.0 * b.bytesPerSecond).toLong()
+        return TimeshiftMath.playingByte(tsOffset, player.currentPosition, b.bytesPerSecond)
     }
 
     private fun tsBehindSec(): Int {
         val b = timeshift ?: return 0
-        val rate = b.bytesPerSecond
-        if (rate <= 0) return 0
-        return ((b.written - tsPlayingByte()) / rate).toInt().coerceAtLeast(0)
+        return TimeshiftMath.behindSec(b.written, tsPlayingByte(), b.bytesPerSecond)
     }
 
     private fun tsSeek(deltaSec: Int) {
@@ -664,9 +628,7 @@ class PlayerActivity : ComponentActivity() {
             return
         }
         val item = currentItem() ?: return
-        val liveEdge = b.written - (2 * rate).toLong()
-        var target = (tsPlayingByte() + (deltaSec * rate).toLong()).coerceAtMost(liveEdge).coerceAtLeast(b.firstAvailable)
-        target -= target % 188 // MPEG-TS packet boundary
+        val target = TimeshiftMath.seekTarget(tsPlayingByte(), deltaSec, rate, b.written, b.firstAvailable)
         tsOffset = target
         player.setMediaSource(tsSource.createMediaSource(tsItem(item, target)))
         player.prepare()
@@ -680,19 +642,11 @@ class PlayerActivity : ComponentActivity() {
         if (!::tsBar.isInitialized) return
         val b = timeshift
         if (b == null || channelOverlayOpen) {
-            tsBar.visibility = View.GONE
+            tsBar.hide()
             return
         }
-        val behind = tsBehindSec()
-        val paused = !player.playWhenReady
-        if (!paused && behind <= 3) {
-            tsBar.visibility = View.GONE
-            return
-        }
-        val t = if (behind >= 3600) "%d:%02d:%02d".format(behind / 3600, behind / 60 % 60, behind % 60) else "%d:%02d".format(behind / 60, behind % 60)
-        val hints = if (isTv) "   ◀ −10s   ▶ +30s" + (if (paused) "   OK play" else "") else ""
-        tsText.text = (if (paused) "⏸  Paused · " else "") + "$t behind live$hints"
-        tsBar.visibility = View.VISIBLE
+        val text = TimeshiftMath.barText(tsBehindSec(), paused = !player.playWhenReady, tv = isTv)
+        if (text == null) tsBar.hide() else tsBar.show(text)
     }
 
     // ---------- Reminders ----------
