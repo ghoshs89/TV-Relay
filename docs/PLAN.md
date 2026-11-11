@@ -299,15 +299,15 @@ No behaviour change. One commit per extraction so a regression can be bisected, 
 
 | Phase | Content | Size | Released as |
 |---|---|---|---|
-| 0 | Read a TV log, fill section 11 | S | none |
-| 1 | Live TV list work off the screen thread, cheap play hand-off | L | |
-| 2 | Per-channel guide state, stable lists, guide grid, fades, images | M | |
-| 3 | Movies, Series, Home, Search, store write frequency | M | |
-| 4 | Staged load, parallel parse, string interning, drop unused text (4.5 optional) | M to L | |
-| 5 | UI fixes 5.1 to 5.7 | M | |
-| 6 | Remove from Continue watching, Start over in guide grid | S | |
-| 7 | Split the player | L | |
-| 8 | Lint, README, split SearchSettings | S | |
+| 0 | Read a TV log, fill section 11 | S | none (skipped: no TV log was available) |
+| 1 | Live TV list work off the screen thread, cheap play hand-off | L | 1.0.24 |
+| 2 | Per-channel guide state, stable lists, guide grid, fades, images | M | 1.0.25 |
+| 3 | Movies, Series, Home, Search, store write frequency | M | 1.0.26 (3.4: no change needed) |
+| 4 | Staged load, parallel parse, string interning, drop unused text (4.5 optional) | M to L | 1.0.27 (4.5 not done) |
+| 5 | UI fixes 5.1 to 5.7 | M | 1.0.28 (5.7 already satisfied by the existing design) |
+| 6 | Remove from Continue watching, Start over in guide grid | S | 1.0.29 |
+| 7 | Split the player | L | 1.0.30 (partly: `PlayerActivity.kt` 1,324 to 1,071 lines; `LiveSession`, `TimeshiftController` and `PlayerViews` not extracted yet) |
+| 8 | Lint, README, split SearchSettings | S | 1.0.31 (README note went out with 1.0.30) |
 
 ## 13. Risks
 
