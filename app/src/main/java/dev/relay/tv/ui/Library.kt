@@ -251,18 +251,15 @@ private fun <T> Browser(
         } else if (items.isEmpty()) {
             EmptyState(empty, Modifier.weight(1f))
         } else {
-            val enabled = LocalFocusEnabled.current
-            CompositionLocalProvider(LocalFocusEnabled provides (enabled && !stale)) {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
-                    modifier = Modifier.weight(1f).fillMaxHeight().alpha(if (stale) 0.35f else 1f).fadeEdges(),
-                    state = gridState,
-                    contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp, start = 10.dp, end = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(22.dp),
-                ) {
-                    items(items, key = itemKey) { card(it) }
-                }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(150.dp),
+                modifier = Modifier.weight(1f).fillMaxHeight().fadeEdges(),
+                state = gridState,
+                contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp, start = 10.dp, end = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(22.dp),
+                verticalArrangement = Arrangement.spacedBy(22.dp),
+            ) {
+                items(items) { card(it) }
             }
         }
     }
