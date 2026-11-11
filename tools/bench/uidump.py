@@ -21,7 +21,7 @@ for n in root.iter("node"):
     label = (n.get("text") or n.get("content-desc") or "").strip().replace("\n", " ")
     if n.get("focused") == "true":
         focused.append(f"{n.get('class', '?').split('.')[-1]}:{label[:40] or '-'}@{n.get('bounds', '')}")
-    if label and len(texts) < 10:
+    if label and len(texts) < 16:
         texts.append(label[:28])
 print("    focus: " + (" | ".join(focused[:3]) if focused else "none"))
 print("    texts: " + " / ".join(texts))

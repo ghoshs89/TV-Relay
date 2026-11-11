@@ -32,6 +32,22 @@ mark() {
 keys() { local gap=$1; shift; for k in "$@"; do adb shell input keyevent "$k"; sleep "$gap"; done; }
 # $2 presses of key $1 sent as fast as the app takes them, like holding the button down.
 burst() { adb shell "input keyevent $(yes "$1" | head -n "$2" | tr '\n' ' ')"; }
+# Opens a screen by tapping its label (found in a UI dump), so the run does not depend on where focus starts.
+tap() {
+  adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1
+  local xy
+  xy=$(adb shell cat /sdcard/ui.xml 2>/dev/null | python3 tools/bench/uitap.py "$1")
+  if [ -n "$xy" ]; then adb shell input tap $xy; else echo "   (no '$1' on screen)"; fi
+}
+# Leaves the player (two Back presses close to each other) but only when it is the player on screen, so a
+# run that never got there does not Back out of the app.
+back_out() {
+  if adb shell dumpsys activity activities 2>/dev/null | grep -m1 -E "topResumedActivity|mResumedActivity" | grep -q PlayerActivity; then
+    keys 0.6 $BACK $BACK
+  else
+    echo "   (the player is not on screen)"
+  fi
+}
 repeat() { local n=$1; shift; for _ in $(seq "$n"); do echo "$@"; done | tr '\n' ' '; }
 
 adb wait-for-device
@@ -48,18 +64,18 @@ sleep 8
 
 mark home-idle;       sleep 8
 mark home-browse;     keys 0.3 $DOWN $DOWN $DOWN $RIGHT $RIGHT $RIGHT $RIGHT $RIGHT $RIGHT $LEFT $LEFT $LEFT $UP $UP $UP
-mark open-live-tab;   keys 0.4 $UP $UP $UP $UP $UP $UP $RIGHT $OK; sleep 6
+mark open-live-tab;   tap "Live TV"; sleep 6; keys 0.5 $DOWN
 mark live-steady;     keys 0.25 $(repeat 25 $DOWN)
 mark live-hold-down;  burst $DOWN 60; sleep 3
 mark live-hold-up;    burst $UP 60; sleep 3
 mark live-play;       keys 0.5 $OK; sleep 15
 mark live-zap;        keys 2 $DOWN $DOWN $DOWN $UP; sleep 4
-mark live-leave;      keys 1 $BACK; sleep 4
-mark open-movies;     keys 0.4 $UP $UP $UP $UP $UP $UP $RIGHT $OK; sleep 6
+mark live-leave;      back_out; sleep 4
+mark open-movies;     tap "Movies"; sleep 6; keys 0.5 $DOWN
 mark movies-hold-down; burst $DOWN 60; sleep 3
 mark movies-hold-right; burst $RIGHT 30; sleep 3
 mark movies-hold-up;  burst $UP 60; sleep 3
-mark open-series;     keys 0.4 $UP $UP $UP $UP $UP $UP $UP $UP $UP $UP $RIGHT $OK; sleep 6
+mark open-series;     tap "Series"; sleep 6; keys 0.5 $DOWN
 mark series-hold-down; burst $DOWN 60; sleep 3
 mark done;            sleep 5
 
