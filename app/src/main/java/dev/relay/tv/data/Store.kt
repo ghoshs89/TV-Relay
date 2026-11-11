@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Small on-device store: account, profiles, settings, and per-profile favourites and history.
@@ -13,7 +15,11 @@ import java.util.concurrent.ConcurrentHashMap
 class Store(ctx: Context) {
     private val prefs = ctx.getSharedPreferences("relay", Context.MODE_PRIVATE)
     private val cache = ConcurrentHashMap<String, Any>()
+    /** Changes to settings, profiles, favourites and the like. */
     val version = mutableIntStateOf(0)
+
+    /** Changes to the watch history, kept apart so saving playback progress doesn't redraw every screen. */
+    val historyVersion = mutableIntStateOf(0)
 
     private inline fun <reified T> read(key: String, def: T): T {
         (cache[key] as? T)?.let { return it }
@@ -27,16 +33,40 @@ class Store(ctx: Context) {
         return v
     }
 
-    private inline fun <reified T> write(key: String, v: T) {
+    /**
+     * Saving to disk happens in the background, newest value per key (see [WriteBehind]); the value
+     * and the version counters change at once so screens see it immediately. [flush] makes sure
+     * everything is on disk.
+     */
+    private inline fun <reified T> write(key: String, v: T, history: Boolean = false) {
         if (v == null) {
             cache.remove(key)
-            prefs.edit().remove(key).apply()
+            behind.put(key, null)
+            // Removals are rare (a deleted profile); settle them now so nothing can read the old value back.
+            behind.flush()
         } else {
             cache[key] = v as Any
-            prefs.edit().putString(key, Jsons.json.encodeToString(v)).apply()
+            val serializer = kotlinx.serialization.serializer<T>()
+            behind.put(key) { Jsons.json.encodeToString(serializer, v) }
         }
-        version.intValue++
+        if (history) historyVersion.intValue++ else version.intValue++
     }
+
+    private val saver = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "relay-store").apply { isDaemon = true } }
+    private val behind = WriteBehind(
+        post = { task -> saver.schedule(task, SAVE_DELAY_MS, TimeUnit.MILLISECONDS) },
+        save = { batch ->
+            val t = System.nanoTime()
+            val edit = prefs.edit()
+            for ((k, text) in batch) if (text == null) edit.remove(k) else edit.putString(k, text)
+            edit.apply()
+            val ms = (System.nanoTime() - t) / 1_000_000
+            if (ms > 8) AppLog.d("Store", "Saved ${batch.size} item(s) in $ms ms: ${batch.keys.joinToString()}")
+        },
+    )
+
+    /** Saves anything still waiting. Called when the app stops, and before a backup is read or restored. */
+    fun flush() = behind.flush()
 
     var account: Account?
         get() = read<Account?>("account", null)
@@ -89,16 +119,16 @@ class Store(ctx: Context) {
     fun entry(pid: String, key: String): WatchEntry? = history(pid).firstOrNull { it.key == key }
 
     fun record(pid: String, e: WatchEntry) {
-        write("hist_$pid", (listOf(e) + history(pid).filterNot { it.key == e.key }).take(400))
+        write("hist_$pid", (listOf(e) + history(pid).filterNot { it.key == e.key }).take(400), history = true)
     }
 
     fun removeHistory(pid: String, key: String) {
-        write("hist_$pid", HistoryEdits.without(history(pid), key))
+        write("hist_$pid", HistoryEdits.without(history(pid), key), history = true)
     }
 
     /** Takes a channel out of "Recently watched". */
     fun removeChannelHistory(pid: String, streamId: String) {
-        write("hist_$pid", HistoryEdits.withoutChannel(history(pid), streamId))
+        write("hist_$pid", HistoryEdits.withoutChannel(history(pid), streamId), history = true)
     }
 
     // ---------- Live TV browsing ----------
@@ -175,6 +205,7 @@ class Store(ctx: Context) {
 
     /** Everything a backup holds (format 2), without the login, PINs or keys. */
     fun exportJson(appVersion: String): String {
+        flush()
         val ps = profiles
         val b = BackupFile(
             appVersion = appVersion,
@@ -202,6 +233,7 @@ class Store(ctx: Context) {
      * login, the parent PIN and API keys on this device are kept.
      */
     fun importJson(text: String): RestoreResult {
+        flush()
         val b = Backups.decode(text)
         val oldPins = profiles.associate { it.id to it.pin }
         val newProfiles = b.profiles.map { it.copy(pin = oldPins[it.id]) }
@@ -231,6 +263,7 @@ class Store(ctx: Context) {
         if (!edit.commit()) throw java.io.IOException("Couldn't save the restored data")
         cache.clear()
         version.intValue++
+        historyVersion.intValue++
 
         return RestoreResult(
             profiles = newProfiles.size,
@@ -243,6 +276,9 @@ class Store(ctx: Context) {
 
     companion object {
         const val PARENT_PIN = "parent_pin"
+
+        /** Writes wait this long so quick repeats of one key are saved once. */
+        private const val SAVE_DELAY_MS = 400L
 
         /** Keys a restore replaces as a whole; anything else (login, parent PIN) is left alone. */
         private val REPLACED = setOf("profiles", "settings", "chcustom", "pincats", "livesort", "reminders")

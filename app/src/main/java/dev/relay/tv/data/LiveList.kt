@@ -55,9 +55,11 @@ interface LiveData {
 }
 
 /** Stable sort by a small integer rank, in one pass instead of one comparison per pair. */
-internal fun <T> rankSorted(list: List<T>, maxRank: Int, rank: (T) -> Int): List<T> {
+internal fun <T> rankSorted(list: List<T>, maxRank: Int, check: () -> Unit = {}, rank: (T) -> Int): List<T> {
     val buckets = arrayOfNulls<ArrayList<T>>(maxRank + 1)
+    var n = 0
     for (x in list) {
+        if (++n % CHECK_EVERY == 0) check()
         val r = rank(x).coerceIn(0, maxRank)
         (buckets[r] ?: ArrayList<T>().also { buckets[r] = it }).add(x)
     }
@@ -70,9 +72,10 @@ private class Keyed(val ch: Channel, val key: String)
 
 /**
  * Builds the channel list for Live TV. Runs off the screen thread; reads only [data] and [q].
- * The result has each channel once, so lists can key their rows by channel id.
+ * The result has each channel once, so lists can key their rows by channel id. [check] is called
+ * every couple of thousand channels and may throw to stop a build that is no longer wanted.
  */
-fun buildLiveList(data: LiveData, q: LiveQuery): LiveResult {
+fun buildLiveList(data: LiveData, q: LiveQuery, check: () -> Unit = {}): LiveResult {
     val rank = LangRank(q.langOrder)
     fun shown(ch: Channel) = ch.categoryId !in q.blockedCats && ch.categoryId !in q.hiddenCats
     val maxRank = q.langOrder.size + 1
@@ -80,28 +83,29 @@ fun buildLiveList(data: LiveData, q: LiveQuery): LiveResult {
     val base: List<Channel> = when (val s = q.selection) {
         is LiveSelection.Favourites -> s.ids.mapNotNull { data.byId(it) }
         is LiveSelection.History -> s.ids.mapNotNull { data.byId(it) }
-        LiveSelection.All -> rankSorted(data.channels.filter(::shown), maxRank) { rank.rank(data.lang(it.id)) }
-        is LiveSelection.Language -> data.channels.filter { data.lang(it.id) == s.key && shown(it) }
+        LiveSelection.All -> rankSorted(data.channels.filterChecked(check) { shown(it) }, maxRank, check) { rank.rank(data.lang(it.id)) }
+        is LiveSelection.Language -> data.channels.filterChecked(check) { data.lang(it.id) == s.key && shown(it) }
         is LiveSelection.Group -> s.ids.mapNotNull { data.byId(it) }.filter { it.categoryId !in q.blockedCats }
         is LiveSelection.Category -> data.inCategory(s.id)
     }
 
     var list: List<Channel> = base
     val f = q.filters
-    if (LiveFilters.CATCHUP in f) list = list.filter { it.hasArchive }
-    if (LiveFilters.HD in f) list = list.filter { data.isHd(it) }
-    if (LiveFilters.GUIDE in f) list = list.filter { !it.epgId.isNullOrBlank() || data.hasGuide(it) }
+    if (LiveFilters.CATCHUP in f) list = list.filterChecked(check) { it.hasArchive }
+    if (LiveFilters.HD in f) list = list.filterChecked(check) { data.isHd(it) }
+    if (LiveFilters.GUIDE in f) list = list.filterChecked(check) { !it.epgId.isNullOrBlank() || data.hasGuide(it) }
     val text = q.find.trim().lowercase()
     if (text.isNotEmpty()) {
         val tokens = text.split(' ').filter { it.isNotEmpty() }
-        list = list.filter { ch -> val n = ch.name.lowercase(); tokens.all { n.contains(it) } }
+        list = list.filterChecked(check) { ch -> val n = ch.name.lowercase(); tokens.all { n.contains(it) } }
     }
 
     list = when (q.sort) {
-        1 -> list.mapTo(ArrayList(list.size)) { Keyed(it, data.sortKey(it)) }
+        1 -> list.mapCheckedTo(ArrayList(list.size), check) { Keyed(it, data.sortKey(it)) }
+            .let { keyed -> check(); keyed }
             .sortedWith(compareBy<Keyed>({ if (it.ch.num > 0) 0 else 1 }, { it.ch.num }, { it.key }))
             .map { it.ch }
-        2 -> list.mapTo(ArrayList(list.size)) { Keyed(it, data.sortKey(it)) }.sortedBy { it.key }.map { it.ch }
+        2 -> list.mapCheckedTo(ArrayList(list.size), check) { Keyed(it, data.sortKey(it)) }.sortedBy { it.key }.map { it.ch }
         3 -> {
             val fav = q.favIds.toHashSet()
             val (first, rest) = list.partition { it.id in fav }
@@ -110,6 +114,8 @@ fun buildLiveList(data: LiveData, q: LiveQuery): LiveResult {
         else -> list
     }
 
+    check()
     val out = if (q.merge) data.collapse(list, q.preferred) else list
+    check()
     return LiveResult(q, base.size, out.distinctBy { it.id })
 }

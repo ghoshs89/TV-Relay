@@ -17,12 +17,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.Category
@@ -50,7 +52,7 @@ fun MoviesTab() {
     val cats = remember(catalog.vodCats, restrict, version, catalog.langVersion) {
         arrangeCats(catalog.vodCats, "vod", s.pinnedVod, s.hiddenCats, restrict, featured) { rank.rank(catalog.vodCatLang(it)) }
     }
-    val items = rememberTitleList(
+    val list = rememberTitleList(
         "Movies", titleQuery(ui.movieCat, "movie", "vod", if (ui.movieCat == UiState.FAV) store.favs(pid) else null, restrict, catalog.adultCats, s.hiddenCats, app.session.langOrder(s)),
         titleGeneration(catalog), ui.movieLists, catalog.movieSource,
     )
@@ -61,7 +63,8 @@ fun MoviesTab() {
         counts = { id -> catalog.moviesByCat[id]?.size },
         catState = ui.movieCatList,
         gridState = ui.movieGrid,
-        items = items,
+        items = list.items,
+        stale = list.stale,
         empty = when {
             catalog.loading && catalog.movies.isEmpty() -> "Loading movies…"
             ui.movieCat == UiState.FAV -> "Movies you add to My list show up here."
@@ -96,7 +99,7 @@ fun SeriesTab() {
     val cats = remember(catalog.seriesCats, restrict, version, catalog.langVersion) {
         arrangeCats(catalog.seriesCats, "series", s.pinnedSeries, s.hiddenCats, restrict, featured) { rank.rank(catalog.seriesCatLang(it)) }
     }
-    val items = rememberTitleList(
+    val list = rememberTitleList(
         "Series", titleQuery(ui.seriesCat, "series", "series", if (ui.seriesCat == UiState.FAV) store.favs(pid) else null, restrict, catalog.adultCats, s.hiddenCats, app.session.langOrder(s)),
         titleGeneration(catalog), ui.seriesLists, catalog.seriesSource,
     )
@@ -107,7 +110,8 @@ fun SeriesTab() {
         counts = { id -> catalog.seriesByCat[id]?.size },
         catState = ui.seriesCatList,
         gridState = ui.seriesGrid,
-        items = items,
+        items = list.items,
+        stale = list.stale,
         empty = when {
             catalog.loading && catalog.series.isEmpty() -> "Loading series…"
             ui.seriesCat == UiState.FAV -> "Series you add to My list show up here."
@@ -202,6 +206,8 @@ private fun <T> Browser(
     catState: LazyListState,
     gridState: LazyGridState,
     items: List<T>?,
+    /** [items] belong to the previous category and are being replaced: shown dimmed, not selectable. */
+    stale: Boolean = false,
     empty: String,
     pinnedIds: Set<String>,
     card: @Composable (T) -> Unit,
@@ -236,20 +242,23 @@ private fun <T> Browser(
             }
         }
         Spacer(Modifier.width(20.dp))
-        if (items == null) {
+        if (items == null || (stale && items.isEmpty())) {
             EmptyState("Loading…", Modifier.weight(1f))
         } else if (items.isEmpty()) {
             EmptyState(empty, Modifier.weight(1f))
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(150.dp),
-                modifier = Modifier.weight(1f).fillMaxHeight().fadeEdges(),
-                state = gridState,
-                contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp, start = 10.dp, end = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(22.dp),
-                verticalArrangement = Arrangement.spacedBy(22.dp),
-            ) {
-                items(items) { card(it) }
+            val enabled = LocalFocusEnabled.current
+            CompositionLocalProvider(LocalFocusEnabled provides (enabled && !stale)) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(150.dp),
+                    modifier = Modifier.weight(1f).fillMaxHeight().alpha(if (stale) 0.35f else 1f).fadeEdges(),
+                    state = gridState,
+                    contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp, start = 10.dp, end = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(22.dp),
+                ) {
+                    items(items) { card(it) }
+                }
             }
         }
     }

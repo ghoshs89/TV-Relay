@@ -105,7 +105,8 @@ fun LiveTab() {
     val store = app.store
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val version = store.version.intValue
+    // Both counters: the Recently watched list follows the history.
+    val version = store.version.intValue + store.historyVersion.intValue
     val pid = app.session.profileId
     val restrict = app.session.restrict(store.settings)
     val relayKeys = useRelayKeyboard()
@@ -202,8 +203,10 @@ fun LiveTab() {
     val selection = remember(cat, version, pid, groups) { liveSelection(store, pid, cat, groups) }
     // Several versions of one channel (HD, FHD, backup) show once, unless you list them yourself.
     val merge = st.mergeVariants && cat != UiState.FAV && cat != UiState.HISTORY && !cat.startsWith(ChannelEdits.GROUP)
+    // Typing in Find rebuilds the list once you pause, not after every letter.
+    val find = rememberDebounced(ui.liveFind, 250) { it.isEmpty() }
     val query = LiveQuery(
-        cat = cat, selection = selection, sort = sort, filters = ui.liveFilters, find = ui.liveFind,
+        cat = cat, selection = selection, sort = sort, filters = ui.liveFilters, find = find,
         blockedCats = if (restrict) catalog.adultCats else emptySet(), hiddenCats = hiddenIds,
         langOrder = langOrder, merge = merge,
         favIds = if (sort == 3 || selection is LiveSelection.Favourites) favSet.toList() else emptyList(),
@@ -213,7 +216,7 @@ fun LiveTab() {
     // previous list stays up until the new one is ready.
     LaunchedEffect(query, catalog.channels, catalog.langVersion) {
         val t = SystemClock.elapsedRealtime()
-        val built = withContext(Dispatchers.Default) { buildLiveList(catalog.liveData, query) }
+        val built = withContext(Dispatchers.Default) { buildLiveList(catalog.liveData, query) { ensureActive() } }
         ui.liveResult = built
         val ms = SystemClock.elapsedRealtime() - t
         AppLog.d("Live", "Channel list for $cat: ${ms} ms, ${built.channels.size} shown")

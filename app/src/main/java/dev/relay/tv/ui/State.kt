@@ -2,6 +2,7 @@ package dev.relay.tv.ui
 
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -80,6 +81,23 @@ class UiState {
 class FocusMemory {
     var lastKey: String? = null
     var restoreTick by mutableIntStateOf(0)
+
+    // Items on screen that have a key, by key. Main thread only.
+    private val requesters = HashMap<String, FocusRequester>()
+
+    fun register(key: String, requester: FocusRequester) {
+        requesters[key] = requester
+    }
+
+    fun unregister(key: String, requester: FocusRequester) {
+        if (requesters[key] === requester) requesters.remove(key)
+    }
+
+    /** Asks the remembered item to take focus. False when it isn't on screen (yet). */
+    fun restore(): Boolean {
+        val requester = lastKey?.let { requesters[it] } ?: return false
+        return runCatching { requester.requestFocus() }.isSuccess
+    }
 }
 
 sealed interface Route {

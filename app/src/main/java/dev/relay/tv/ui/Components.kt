@@ -1,6 +1,6 @@
 package dev.relay.tv.ui
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -8,7 +8,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -42,12 +41,14 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -65,6 +66,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
@@ -86,7 +88,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import coil.compose.AsyncImage
+import dev.relay.tv.data.AppLog
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 object Palette {
     /** Neutral near-black theme; navy looks very blue on TVs in vivid picture modes. */
@@ -140,6 +144,10 @@ val LocalFocusMemory = staticCompositionLocalOf { FocusMemory() }
 /**
  * The single focus primitive for the whole app: scales and outlines on focus, remembers
  * itself by [key] so focus can return here after a detail page is closed.
+ *
+ * Kept cheap because a list can have dozens on screen: no coroutine is started per item (focus is
+ * read from onFocusChanged, the scale is animated only when focus changes, and restoring focus is
+ * done once per screen by [FocusRestorer]).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -158,45 +166,70 @@ fun Focusable(
     val enabled = LocalFocusEnabled.current
     val memory = LocalFocusMemory.current
     val source = remember { MutableInteractionSource() }
-    val focused by source.collectIsFocusedAsState()
+    var focused by remember { mutableStateOf(false) }
     val ownRequester = remember { FocusRequester() }
     val requester = focusRequester ?: ownRequester
     val latestOnFocused by rememberUpdatedState(onFocused)
+    val latestOnClick by rememberUpdatedState(onClick)
+    val latestOnLongClick by rememberUpdatedState(onLongClick)
+    val scale = remember { Animatable(1f) }
+    val scope = rememberCoroutineScope()
+    val press = if (onLongClick != null) remember { OkPressTracker() } else null
 
-    LaunchedEffect(focused) {
-        if (focused) {
-            if (key != null) memory.lastKey = key
-            latestOnFocused()
+    if (key != null) {
+        DisposableEffect(memory, key, requester) {
+            memory.register(key, requester)
+            onDispose { memory.unregister(key, requester) }
         }
     }
-    LaunchedEffect(memory.restoreTick, enabled) {
-        if (enabled && memory.restoreTick > 0 && key != null && key == memory.lastKey) {
-            delay(80)
-            runCatching { requester.requestFocus() }
-        }
-    }
 
-    val scale by animateFloatAsState(if (focused) scaleOnFocus else 1f, label = "focusScale")
     Box(
         modifier
             .focusRequester(requester)
+            .onFocusChanged { state ->
+                val now = state.isFocused
+                if (now != focused) {
+                    focused = now
+                    scope.launch { scale.animateTo(if (now) scaleOnFocus else 1f) }
+                    if (now) {
+                        if (key != null) memory.lastKey = key
+                        latestOnFocused()
+                    }
+                }
+            }
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+                val v = scale.value
+                scaleX = v
+                scaleY = v
             }
             .clip(shape)
             .border(if (focused) 3.dp else 1.dp, if (focused) Palette.accent else Color.Transparent, shape)
             .then(
-                if (onLongClick == null) {
+                if (press == null) {
                     Modifier.clickable(interactionSource = source, indication = null, enabled = enabled, onClick = onClick)
                 } else {
                     Modifier
                         .onPreviewKeyEvent { e ->
-                            if (enabled && e.type == KeyEventType.KeyDown && e.key == Key.Menu) {
-                                onLongClick()
-                                true
-                            } else {
-                                false
+                            if (!enabled) return@onPreviewKeyEvent false
+                            val code = e.nativeKeyEvent.keyCode
+                            when {
+                                e.key == Key.Menu -> {
+                                    if (e.type == KeyEventType.KeyDown) { latestOnLongClick?.invoke(); true } else false
+                                }
+                                // OK is handled here, not by combinedClickable, which doesn't treat a held OK as a long press.
+                                e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter -> {
+                                    val result = if (e.type == KeyEventType.KeyDown) press.down(e.nativeKeyEvent.repeatCount) else press.up()
+                                    when (result) {
+                                        OkPressTracker.Result.Click -> latestOnClick()
+                                        OkPressTracker.Result.LongClick -> {
+                                            LongPressGuard.arm(code)
+                                            latestOnLongClick?.invoke()
+                                        }
+                                        OkPressTracker.Result.Nothing -> Unit
+                                    }
+                                    true
+                                }
+                                else -> false
                             }
                         }
                         .combinedClickable(
@@ -208,6 +241,43 @@ fun Focusable(
     ) {
         content(focused)
     }
+}
+
+/**
+ * One per screen. When focus should return to where it was (back from the player or a detail page,
+ * or a dialog closing) it asks the remembered item to take focus, trying for a few seconds in case
+ * the list is still laying out.
+ */
+@Composable
+fun FocusRestorer() {
+    val enabled = LocalFocusEnabled.current
+    val memory = LocalFocusMemory.current
+    val tick = memory.restoreTick
+    LaunchedEffect(memory, tick, enabled) {
+        if (!enabled || tick == 0 || memory.lastKey == null) return@LaunchedEffect
+        delay(80)
+        repeat(40) {
+            if (memory.restore()) {
+                AppLog.d("Focus", "Focus returned to ${memory.lastKey}")
+                return@LaunchedEffect
+            }
+            delay(80)
+        }
+        AppLog.d("Focus", "Focus could not return to ${memory.lastKey}")
+    }
+}
+
+/** [value], but a change only shows up after it has stayed the same for [ms] (at once when [immediate] says so). */
+@Composable
+fun <T> rememberDebounced(value: T, ms: Long, immediate: (T) -> Boolean = { false }): T {
+    var out by remember { mutableStateOf(value) }
+    LaunchedEffect(value) {
+        if (value != out) {
+            if (!immediate(value)) delay(ms)
+            out = value
+        }
+    }
+    return out
 }
 
 /** Requests focus once the target is attached; retries briefly while lazy lists lay out. */
@@ -403,13 +473,21 @@ fun PosterCard(
 }
 
 @Composable
-fun <T> Rail(title: String, items: List<T>, key: ((T) -> Any)? = null, content: @Composable (T) -> Unit) {
+fun <T> Rail(
+    title: String,
+    items: List<T>,
+    key: ((T) -> Any)? = null,
+    hint: String? = null,
+    content: @Composable (T) -> Unit,
+) {
     if (items.isEmpty()) return
     Column(Modifier.padding(bottom = 20.dp)) {
-        Text(
-            title, Modifier.padding(start = 48.dp, bottom = 10.dp),
-            fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = Palette.text,
-        )
+        Row(Modifier.padding(start = 48.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
+            Text(title, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = Palette.text)
+            if (hint != null) {
+                Text(hint, Modifier.padding(start = 14.dp, bottom = 2.dp), fontSize = 13.sp, color = Palette.dim)
+            }
+        }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
