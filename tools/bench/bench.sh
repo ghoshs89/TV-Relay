@@ -39,14 +39,24 @@ tap() {
   xy=$(adb shell cat /sdcard/ui.xml 2>/dev/null | python3 tools/bench/uitap.py "$1")
   if [ -n "$xy" ]; then adb shell input tap $xy; else echo "   (no '$1' on screen)"; fi
 }
+top_is() { adb shell dumpsys activity activities 2>/dev/null | grep -m1 -E "topResumedActivity|mResumedActivity" | grep -q "$1"; }
 # Leaves the player (two Back presses close to each other) but only when it is the player on screen, so a
 # run that never got there does not Back out of the app.
 back_out() {
-  if adb shell dumpsys activity activities 2>/dev/null | grep -m1 -E "topResumedActivity|mResumedActivity" | grep -q PlayerActivity; then
+  if top_is PlayerActivity; then
     keys 0.6 $BACK $BACK
   else
     echo "   (the player is not on screen)"
   fi
+}
+# OK on the focused channel; when that does not open the player the log says so and a tap on a channel name does.
+play_live() {
+  keys 0.5 $OK; sleep 4
+  if ! top_is PlayerActivity; then
+    echo "   (OK on the focused row did not open the player; tapping a channel instead)"
+    tap "re:^[A-Z]{2}[:|] "; sleep 4
+  fi
+  sleep 10
 }
 repeat() { local n=$1; shift; for _ in $(seq "$n"); do echo "$@"; done | tr '\n' ' '; }
 
@@ -68,7 +78,7 @@ mark open-live-tab;   tap "Live TV"; sleep 6; keys 0.5 $DOWN $RIGHT $DOWN
 mark live-steady;     keys 0.25 $(repeat 25 $DOWN)
 mark live-hold-down;  burst $DOWN 60; sleep 3
 mark live-hold-up;    burst $UP 60; sleep 3
-mark live-play;       keys 0.5 $OK; sleep 15
+mark live-play;       play_live
 mark live-zap;        keys 2 $DOWN $DOWN $DOWN $UP; sleep 4
 mark live-leave;      back_out; sleep 4
 mark open-movies;     tap "Movies"; sleep 6; keys 0.5 $DOWN $RIGHT $DOWN

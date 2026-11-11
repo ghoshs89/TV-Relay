@@ -16,11 +16,17 @@ except ET.ParseError:
     print("    (UI dump unreadable)")
     sys.exit(0)
 
+def inside(n):
+    """Text of the node and everything under it (what the focused row says)."""
+    found = [(t.get("text") or t.get("content-desc") or "").strip() for t in n.iter("node")]
+    return " / ".join(f for f in found if f)
+
+
 focused, texts = [], []
 for n in root.iter("node"):
     label = (n.get("text") or n.get("content-desc") or "").strip().replace("\n", " ")
     if n.get("focused") == "true":
-        focused.append(f"{n.get('class', '?').split('.')[-1]}:{label[:40] or '-'}@{n.get('bounds', '')}")
+        focused.append(f"{n.get('class', '?').split('.')[-1]}:{(label or inside(n))[:60] or '-'}@{n.get('bounds', '')}")
     if label and len(texts) < 16:
         texts.append(label[:28])
 print("    focus: " + (" | ".join(focused[:3]) if focused else "none"))
