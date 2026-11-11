@@ -53,14 +53,11 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
-import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.SubtitleView
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.PlayItem
 import dev.relay.tv.data.PlayRequest
-import dev.relay.tv.data.TrackPref
 import dev.relay.tv.data.WatchEntry
 import dev.relay.tv.data.LazyItems
 import dev.relay.tv.tv.WatchNext
@@ -100,9 +97,8 @@ class PlayerActivity : ComponentActivity() {
     // Stream info shows once per new item, when it first becomes ready.
     private var infoPending = false
 
-    // Per-series track memory: only record choices the viewer made, not our own presets.
-    private var applyingPrefs = false
-    private var userChangedTracks = false
+    // Audio and subtitle languages, and the per-series memory of what the viewer picked.
+    private val trackPrefs by lazy { PlayerTracks(app) }
 
     private var channelOverlayOpen by mutableStateOf(false)
 
@@ -245,8 +241,8 @@ class PlayerActivity : ComponentActivity() {
         val selector = DefaultTrackSelector(this).apply {
             setParameters(
                 buildUponParameters()
-                    .setPreferredAudioLanguages(*audioOrder().toTypedArray())
-                    .setPreferredTextLanguages(*textOrder().toTypedArray()),
+                    .setPreferredAudioLanguages(*trackPrefs.audioOrder().toTypedArray())
+                    .setPreferredTextLanguages(*trackPrefs.textOrder().toTypedArray()),
             )
         }
         val load = DefaultLoadControl.Builder()
@@ -286,7 +282,7 @@ class PlayerActivity : ComponentActivity() {
             keepScreenOn = true
             setBackgroundColor(Color.BLACK)
         }
-        applySubtitleStyle()
+        trackPrefs.styleSubtitles(view)
 
         overlay = TextView(this).apply {
             setTextColor(Color.WHITE)
@@ -521,20 +517,6 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Audio languages in order of preference: the codes typed in Settings, or else the profile's
-     * language order (English, Hindi, Bengali...). Dual-audio films pick the first one available.
-     */
-    private fun audioOrder(): List<String> {
-        val s = app.store.settings
-        val typed = s.audioLangs.split(',', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
-        if (typed.isNotEmpty()) return typed
-        return (app.session.langOrder(s).flatMap { dev.relay.tv.data.Langs.trackCodes(it) } + listOfNotNull(s.audioLang.ifBlank { null })).distinct()
-    }
-
-    private fun textOrder(): List<String> =
-        app.store.settings.subtitleLang.split(',', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
-
     private fun httpCodeOf(e: Throwable?): Int? {
         var c = e
         while (c != null) {
@@ -619,31 +601,6 @@ class PlayerActivity : ComponentActivity() {
         showOverlay(if (urls.size > 1) "Trying backup server…" else "Reconnecting…")
     }
 
-    private fun applySubtitleStyle() {
-        val s = app.store.settings
-        val scale = when (s.subSize) {
-            0 -> 0.8f
-            2 -> 1.3f
-            3 -> 1.6f
-            else -> 1.0f
-        }
-        view.subtitleView?.apply {
-            setApplyEmbeddedStyles(false)
-            setApplyEmbeddedFontSizes(false)
-            setStyle(
-                CaptionStyleCompat(
-                    if (s.subYellow) 0xFFFFE14D.toInt() else Color.WHITE,
-                    if (s.subBox) 0x99000000.toInt() else Color.TRANSPARENT,
-                    Color.TRANSPARENT,
-                    if (s.subBox) CaptionStyleCompat.EDGE_TYPE_NONE else CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                    Color.BLACK,
-                    null,
-                ),
-            )
-            setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * scale)
-        }
-    }
-
     // ---------- Loading ----------
 
     private fun urlsFor(item: PlayItem): List<String> =
@@ -664,7 +621,7 @@ class PlayerActivity : ComponentActivity() {
 
     private fun startVod() {
         val start = req.index.coerceIn(0, req.items.lastIndex)
-        applyTrackPrefs(req.items[start])
+        trackPrefs.apply(player, req.items[start])
         player.setMediaItems(req.items.map { mediaItem(it, 0) }, start, req.items[start].resumeMs.coerceAtLeast(0))
         player.pauseAtEndOfMediaItems = !app.store.settings.autoNext
         player.prepare()
@@ -831,42 +788,6 @@ class PlayerActivity : ComponentActivity() {
         else -> listOfNotNull(item.title, item.subtitle).joinToString("  ·  ")
     }
 
-    // ---------- Tracks remembered per series ----------
-
-    private fun applyTrackPrefs(item: PlayItem) {
-        val sid = item.seriesId ?: return
-        val pref = app.store.trackPref(sid) ?: return
-        val s = app.store.settings
-        applyingPrefs = true
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .clearOverrides()
-            .setPreferredAudioLanguages(*(listOfNotNull(pref.audio) + audioOrder()).distinct().toTypedArray())
-            .setPreferredTextLanguages(*(listOfNotNull(pref.text) + textOrder()).distinct().toTypedArray())
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, pref.textOff)
-            .build()
-        applyingPrefs = false
-        AppLog.d("Player", "Series $sid tracks: audio=${pref.audio} subs=${if (pref.textOff) "off" else pref.text}")
-    }
-
-    private fun rememberTracks(tracks: Tracks) {
-        val sid = currentItem()?.seriesId ?: return
-        var audio: String? = null
-        var text: String? = null
-        for (g in tracks.groups) {
-            if (!g.isSelected) continue
-            for (i in 0 until g.length) {
-                if (!g.isTrackSelected(i)) continue
-                val f = g.getTrackFormat(i)
-                when (g.type) {
-                    C.TRACK_TYPE_AUDIO -> if (audio == null) audio = f.language
-                    C.TRACK_TYPE_TEXT -> if (text == null) text = f.language ?: "und"
-                }
-            }
-        }
-        app.store.setTrackPref(sid, TrackPref(audio = audio, text = text, textOff = text == null))
-        AppLog.i("Player", "Remembered for series $sid: audio=$audio subs=${text ?: "off"}")
-    }
-
     // ---------- Events ----------
 
     private val listener = object : Player.Listener {
@@ -913,14 +834,11 @@ class PlayerActivity : ComponentActivity() {
         }
 
         override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
-            if (!applyingPrefs) userChangedTracks = true
+            trackPrefs.onSelectionChanged()
         }
 
         override fun onTracksChanged(tracks: Tracks) {
-            if (userChangedTracks) {
-                userChangedTracks = false
-                rememberTracks(tracks)
-            }
+            trackPrefs.onTracksChanged(currentItem(), tracks)
         }
     }
 
