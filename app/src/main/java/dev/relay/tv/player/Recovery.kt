@@ -123,7 +123,9 @@ object TimeshiftSupport {
 
     /** True when the first bytes of a response are a playlist rather than a transport stream. */
     fun looksLikePlaylist(head: ByteArray, n: Int): Boolean {
-        val s = String(head, 0, minOf(n, 16), Charsets.ISO_8859_1).trimStart('\uFEFF', ' ', '\r', '\n')
+        // Some servers put a UTF-8 byte order mark (EF BB BF) in front; read as plain bytes it is not a character to trim.
+        val skip = if (n >= 3 && head[0] == 0xEF.toByte() && head[1] == 0xBB.toByte() && head[2] == 0xBF.toByte()) 3 else 0
+        val s = String(head, skip, minOf(n - skip, 16), Charsets.ISO_8859_1).trimStart(' ', '\r', '\n', '\t')
         return s.startsWith("#EXTM3U")
     }
 }

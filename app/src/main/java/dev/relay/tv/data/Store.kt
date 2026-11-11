@@ -126,6 +126,11 @@ class Store(ctx: Context) {
         write("hist_$pid", HistoryEdits.without(history(pid), key), history = true)
     }
 
+    /** Empties "Continue watching": every movie and episode in progress goes; finished titles and channels stay. */
+    fun clearContinue(pid: String) {
+        write("hist_$pid", HistoryEdits.withoutContinue(history(pid)), history = true)
+    }
+
     /** Takes a channel out of "Recently watched". */
     fun removeChannelHistory(pid: String, streamId: String) {
         write("hist_$pid", HistoryEdits.withoutChannel(history(pid), streamId), history = true)

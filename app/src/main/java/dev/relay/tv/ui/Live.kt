@@ -1,6 +1,7 @@
 package dev.relay.tv.ui
 
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.text.input.ImeAction
@@ -352,6 +353,14 @@ fun LiveTab() {
                                 fav = ch.id in favSet,
                                 showNumber = showNumbers,
                                 onFocused = { focused.value = ch },
+                                // Hold OK: add to or take off Favourites without opening the panel.
+                                onLongClick = {
+                                    val wasFav = ch.id in favSet
+                                    store.toggleFav(pid, FavItem("live", ch.id, ch.name, ch.logo))
+                                    Toast.makeText(
+                                        ctx, if (wasFav) "Removed from Favourites" else "Added to Favourites", Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
                                 onClick = { Playback.live(ctx, channels, i) },
                             )
                         }
@@ -437,7 +446,7 @@ fun LiveTextDialog(title: String, value: String, onValueChange: (String) -> Unit
 }
 
 @Composable
-private fun ChannelRow(ch: Channel, fav: Boolean, showNumber: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
+private fun ChannelRow(ch: Channel, fav: Boolean, showNumber: Boolean, onFocused: () -> Unit, onLongClick: () -> Unit, onClick: () -> Unit) {
     val catalog = RelayApp.instance.catalog
     // Each row loads and shows its own programmes, so one arriving doesn't redraw the whole list.
     val guideRound = catalog.epgVersion
@@ -451,7 +460,7 @@ private fun ChannelRow(ch: Channel, fav: Boolean, showNumber: Boolean, onFocused
     val name = remember(ch.name) { ProviderNames.clean(ch.name) }
     Focusable(
         onClick, Modifier.fillMaxWidth().height(66.dp), key = "ch:${ch.id}",
-        shape = RoundedCornerShape(8.dp), scaleOnFocus = 1.02f, onFocused = onFocused,
+        shape = RoundedCornerShape(8.dp), scaleOnFocus = 1.02f, onFocused = onFocused, onLongClick = onLongClick,
     ) { f ->
         Row(
             Modifier.fillMaxSize().background(if (f) Palette.surface2 else Palette.surface).padding(horizontal = 12.dp),

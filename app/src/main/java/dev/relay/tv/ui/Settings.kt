@@ -34,6 +34,7 @@ import dev.relay.tv.data.HomeLayout
 import dev.relay.tv.data.KidsLimits
 import dev.relay.tv.tv.WatchNext
 import dev.relay.tv.data.Langs
+import dev.relay.tv.player.SkipSizes
 import dev.relay.tv.data.AccountInfo
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Catalog
@@ -218,6 +219,16 @@ fun SettingsTab() {
         item {
             Setting("Show stream info when playback starts", if (s.showStreamInfo) "On, 5 seconds" else "Off", false) {
                 store.settings = s.copy(showStreamInfo = !s.showStreamInfo)
+            }
+        }
+        item {
+            Setting("Jump back (Left key)", SkipSizes.label(SkipSizes.clean(s.skipBackSec, SkipSizes.DEFAULT_BACK)), false) {
+                store.settings = s.copy(skipBackSec = SkipSizes.next(SkipSizes.clean(s.skipBackSec, SkipSizes.DEFAULT_BACK)))
+            }
+        }
+        item {
+            Setting("Jump forward (Right key)", SkipSizes.label(SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)), false) {
+                store.settings = s.copy(skipForwardSec = SkipSizes.next(SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)))
             }
         }
         item { Setting("Lip-sync adjustment", lipSyncLabel(s.audioDelayMs), false) { lipSync = true } }
