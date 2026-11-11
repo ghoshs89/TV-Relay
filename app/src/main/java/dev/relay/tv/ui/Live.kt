@@ -73,8 +73,16 @@ import java.util.Date
 import java.util.Locale
 
 private sealed interface CatRow {
-    data class Item(val id: String, val label: String, val count: Int?, val indent: Boolean = false) : CatRow
-    data class Header(val key: String, val label: String, val count: Int, val open: Boolean) : CatRow
+    /** Unique in the list: a pinned category also appears again under its country. */
+    val lazyKey: String
+
+    data class Item(val id: String, val label: String, val count: Int?, val indent: Boolean = false, val pinned: Boolean = false) : CatRow {
+        override val lazyKey: String get() = (if (pinned) "pin:" else "lc:") + id
+    }
+
+    data class Header(val key: String, val label: String, val count: Int, val open: Boolean) : CatRow {
+        override val lazyKey: String get() = "lh:$key"
+    }
 }
 
 @Composable
@@ -154,7 +162,7 @@ fun LiveTab() {
             if (providerCats.any { it.id == id }) {
                 val g = countries?.firstOrNull { gr -> gr.cats.any { it.id == id } }
                 val prefix = if (g != null && g.key != "__other") "${g.label} · " else ""
-                add(CatRow.Item(id, "📌 $prefix${ProviderNames.clean(shortName[id] ?: id)}", byCat[id]?.size))
+                add(CatRow.Item(id, "📌 $prefix${ProviderNames.clean(shortName[id] ?: id)}", byCat[id]?.size, pinned = true))
             }
         }
         groups.forEach { add(CatRow.Item("${ChannelEdits.GROUP}${it.id}", "▸ ${it.name}", it.channelIds.size)) }
@@ -221,7 +229,7 @@ fun LiveTab() {
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 contentPadding = PaddingValues(vertical = 20.dp),
             ) {
-                items(rows) { row ->
+                items(rows, key = { it.lazyKey }) { row ->
                     when (row) {
                         is CatRow.Item -> ListRow(
                             if (row.indent) "   ${row.label}" else row.label,
@@ -314,7 +322,7 @@ fun LiveTab() {
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         contentPadding = PaddingValues(vertical = 12.dp, horizontal = 6.dp),
                     ) {
-                        itemsIndexed(channels) { i, ch ->
+                        itemsIndexed(channels, key = { _, c -> c.id }, contentType = { _, _ -> "channel" }) { i, ch ->
                             ChannelRow(
                                 ch,
                                 fav = ch.id in favSet,
@@ -406,11 +414,15 @@ fun LiveTextDialog(title: String, value: String, onValueChange: (String) -> Unit
 @Composable
 private fun ChannelRow(ch: Channel, fav: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
     val catalog = RelayApp.instance.catalog
-    LaunchedEffect(ch.id) {
+    // Each row loads and shows its own programmes, so one arriving doesn't redraw the whole list.
+    val guideRound = catalog.epgVersion
+    var loaded by remember(ch.id) { mutableIntStateOf(0) }
+    LaunchedEffect(ch.id, guideRound) {
         delay(350) // rows passed while scrolling quickly don't ask the provider
         catalog.prefetchNowNext(ch.id)
+        loaded++
     }
-    val nn = catalog.nowNext(ch.id)
+    val nn = remember(ch.id, loaded, guideRound, catalog.minute) { catalog.nowNext(ch.id) }
     val name = remember(ch.name) { ProviderNames.clean(ch.name) }
     Focusable(
         onClick, Modifier.fillMaxWidth().height(66.dp), key = "ch:${ch.id}",
@@ -425,9 +437,7 @@ private fun ChannelRow(ch: Channel, fav: Boolean, onFocused: () -> Unit, onClick
                 Modifier.size(width = 76.dp, height = 46.dp).background(Palette.bg, RoundedCornerShape(6.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                if (!ch.logo.isNullOrBlank()) {
-                    AsyncImage(ch.logo, null, Modifier.fillMaxSize().padding(4.dp), contentScale = ContentScale.Fit)
-                } else {
+                LogoImage(ch.logo, Modifier.fillMaxSize().padding(4.dp)) {
                     Text(initials(ch.name), color = Palette.dim, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -497,6 +507,7 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
     store.version.intValue
     val pid = app.session.profileId
     run {
+        val nowSec = System.currentTimeMillis() / 1000
         var epg by remember(ch.id) { mutableStateOf<List<EpgEntry>?>(null) }
         var epgFailed by remember(ch.id) { mutableStateOf(false) }
         var epgRetry by remember(ch.id) { mutableIntStateOf(0) }
@@ -526,9 +537,7 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
                 Modifier.size(width = 96.dp, height = 58.dp).background(Palette.bg, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                if (!ch.logo.isNullOrBlank()) {
-                    AsyncImage(ch.logo, null, Modifier.fillMaxSize().padding(6.dp), contentScale = ContentScale.Fit)
-                }
+                LogoImage(ch.logo, Modifier.fillMaxSize().padding(6.dp)) {}
             }
             Spacer(Modifier.width(14.dp))
             Text(ch.name, color = Palette.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
@@ -546,7 +555,7 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
                     if (archive == null) loadArchive()
                 }, key = "pa:${ch.id}")
             }
-            val current = epg?.firstOrNull { it.start <= System.currentTimeMillis() / 1000 && System.currentTimeMillis() / 1000 < it.end }
+            val current = epg?.firstOrNull { it.start <= nowSec && nowSec < it.end }
             if (ch.hasArchive && current != null) {
                 PillButton("⟲ Start over", { Playback.catchup(ctx, ch, current) }, key = "ps:${ch.id}")
             }
@@ -560,7 +569,6 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
         if (versionsOpen) ChannelVersionsDialog(ch, onDismiss = { versionsOpen = false })
         Spacer(Modifier.height(16.dp))
 
-        val nowSec = System.currentTimeMillis() / 1000
         if (!showArchive) {
             val list = epg
             when {

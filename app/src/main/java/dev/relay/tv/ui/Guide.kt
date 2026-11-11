@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -87,7 +89,11 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
     val totalMin = ((windowEnd - windowStart) / 60).toFloat()
     // Minutes from windowStart at the left edge of the timeline.
     var offsetMin by remember { mutableFloatStateOf(((now - windowStart) / 60 - 30).toFloat()) }
-    val shown by animateFloatAsState(offsetMin, label = "guideScroll")
+    // A State, not read here: only the offset lambdas read it (at layout time), so scrolling doesn't recompose the rows.
+    val shown = animateFloatAsState(offsetMin, label = "guideScroll")
+    val store = RelayApp.instance.store
+    // Programmes with a reminder, as (channel, start). Equal sets keep the same instance, so rows aren't redrawn needlessly.
+    val reminders by remember { derivedStateOf { store.version.intValue; store.reminders.map { it.channelId to it.start }.toSet() } }
     var message by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(message) {
         if (message != null) {
@@ -128,10 +134,10 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
                             .wrapContentWidth(Alignment.Start, unbounded = true)
                             .width((totalMin * DP_PER_MIN).dp)
                             .fillMaxHeight()
-                            .offset { IntOffset(-(shown * pxPerMin).roundToInt(), 0) },
+                            .offset { IntOffset(-(shown.value * pxPerMin).roundToInt(), 0) },
                     ) {
                         var t = windowStart
-                        val fmt = SimpleDateFormat("h:mm", Locale.getDefault())
+                        val fmt = rulerFormat
                         while (t < windowEnd) {
                             val x = ((t - windowStart) / 60f * DP_PER_MIN).dp
                             Text(fmt.format(Date(t * 1000)), color = Palette.dim, fontSize = 12.sp, modifier = Modifier.offset(x = x + 4.dp, y = 6.dp))
@@ -146,7 +152,7 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 contentPadding = PaddingValues(vertical = 8.dp),
             ) {
-                itemsIndexed(channels) { i, ch ->
+                itemsIndexed(channels, key = { _, c -> c.id }) { i, ch ->
                     GuideRow(
                         ch = ch,
                         reload = reload,
@@ -155,6 +161,7 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
                         now = now,
                         totalMin = totalMin,
                         shown = shown,
+                        reminders = reminders,
                         pxPerMin = pxPerMin,
                         onReveal = ::reveal,
                         onWatch = { Playback.live(ctx, channels, i) },
@@ -190,7 +197,8 @@ private fun GuideRow(
     windowEnd: Long,
     now: Long,
     totalMin: Float,
-    shown: Float,
+    shown: State<Float>,
+    reminders: Set<Pair<Int, Long>>,
     pxPerMin: Float,
     onReveal: (Float, Float) -> Unit,
     onWatch: () -> Unit,
@@ -198,7 +206,6 @@ private fun GuideRow(
 ) {
     val app = RelayApp.instance
     val ctx = LocalContext.current
-    app.store.version.intValue
     var entries by remember(ch.id) { mutableStateOf<List<EpgEntry>?>(null) }
     var failed by remember(ch.id) { mutableStateOf(false) }
     var retry by remember(ch.id) { mutableIntStateOf(0) }
@@ -222,9 +229,7 @@ private fun GuideRow(
                     Modifier.size(width = 44.dp, height = 30.dp).background(Color(0xFFF2F5FA), RoundedCornerShape(4.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (!ch.logo.isNullOrBlank()) {
-                        AsyncImage(ch.logo, null, Modifier.fillMaxSize().padding(2.dp), contentScale = ContentScale.Fit)
-                    } else {
+                    LogoImage(ch.logo, Modifier.fillMaxSize().padding(2.dp)) {
                         Text(initials(title), color = Color(0xFF5B6B85), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -245,7 +250,7 @@ private fun GuideRow(
                     .wrapContentWidth(Alignment.Start, unbounded = true)
                     .width((totalMin * DP_PER_MIN).dp)
                     .fillMaxHeight()
-                    .offset { IntOffset(-(shown * pxPerMin).roundToInt(), 0) },
+                    .offset { IntOffset(-(shown.value * pxPerMin).roundToInt(), 0) },
             ) {
                 val list = entries
                 val nowX = ((now - windowStart) / 60f * DP_PER_MIN).dp
@@ -276,7 +281,7 @@ private fun GuideRow(
                         val past = e.end <= now
                         val live = e.start <= now && now < e.end
                         val canCatchUp = past && ch.hasArchive && e.start >= now - ch.archiveDays * 86_400L
-                        val reminder = !past && !live && ReminderCenter.isSet(ch.id, e.start)
+                        val reminder = !past && !live && (ch.id to e.start) in reminders
                         Focusable(
                             onClick = {
                                 when {
@@ -327,5 +332,6 @@ private fun GuideRow(
     }
 }
 
+private val rulerFormat = SimpleDateFormat("h:mm", Locale.getDefault())
 private val hm = SimpleDateFormat("h:mm a", Locale.getDefault())
 private fun hhmm(sec: Long): String = hm.format(Date(sec * 1000))

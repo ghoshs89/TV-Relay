@@ -53,6 +53,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     var loading by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null)
     var updatedAt by mutableLongStateOf(0L); private set
+    /** Bumped when the saved guide is cleared (a new guide arrived), so rows ask for their programmes again. */
     var epgVersion by mutableIntStateOf(0); private set
 
     /** Bumped every minute while Relay is open so "now playing" text moves on as shows end. */
@@ -646,7 +647,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         }
         if (failed && list.isEmpty()) return null
         epgCache[id] = now to list
-        epgVersion++
+        CacheLimits.prune(epgCache, max = 800, drop = 200)
         return list
     }
 
@@ -688,6 +689,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         }
         if (failed && list.isEmpty()) return null
         gridCache[ch.id] = now to list
+        CacheLimits.prune(gridCache, max = 800, drop = 200)
         return list.filter { it.end > from && it.start < to }
     }
 
@@ -736,7 +738,6 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     /** What's on now and next; null until loaded, (null, null) when the channel has no guide. */
     fun nowNext(id: Int): Pair<EpgEntry?, EpgEntry?>? {
         minute
-        epgVersion
         val list = epgCache[id]?.second ?: return null
         val nowSec = System.currentTimeMillis() / 1000
         val cur = list.firstOrNull { nowSec in it.start until it.end }

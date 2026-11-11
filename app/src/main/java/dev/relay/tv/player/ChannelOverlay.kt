@@ -21,7 +21,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -37,6 +40,7 @@ import dev.relay.tv.RelayApp
 import dev.relay.tv.data.PlayItem
 import dev.relay.tv.ui.Focusable
 import dev.relay.tv.ui.InitialFocus
+import dev.relay.tv.ui.LogoImage
 import dev.relay.tv.ui.Palette
 import dev.relay.tv.ui.initials
 
@@ -49,11 +53,15 @@ fun ChannelOverlay(items: List<PlayItem>, current: Int, onPick: (Int) -> Unit) {
     InitialFocus(currentFocus)
 
     // Fetch "now playing" for the rows around the current channel.
+    var loaded by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         val around = items.subList((current - 6).coerceAtLeast(0), (current + 10).coerceAtMost(items.size))
-        around.forEach { it.streamId.toIntOrNull()?.let { id -> app.catalog.shortEpg(id) } }
+        around.forEach {
+            it.streamId.toIntOrNull()?.let { id -> app.catalog.shortEpg(id) }
+            loaded++
+        }
     }
-    app.catalog.epgVersion
+    loaded // read, so the rows pick up each programme title as it arrives
 
     Box(
         Modifier
@@ -90,9 +98,7 @@ fun ChannelOverlay(items: List<PlayItem>, current: Int, onPick: (Int) -> Unit) {
                                 Modifier.size(width = 58.dp, height = 38.dp).background(Color(0xFFF2F5FA), RoundedCornerShape(6.dp)),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                if (!item.image.isNullOrBlank()) {
-                                    AsyncImage(item.image, null, Modifier.fillMaxSize().padding(3.dp), contentScale = ContentScale.Fit)
-                                } else {
+                                LogoImage(item.image, Modifier.fillMaxSize().padding(3.dp)) {
                                     Text(initials(item.title), color = Color(0xFF5B6B85), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }

@@ -593,12 +593,15 @@ fun ChannelTile(
                 ) {
                     // Initials stay visible until the logo actually loads, so a broken logo never leaves a blank tile.
                     if (!logoOk) Text(initials(title), color = Color(0xFF5B6B85), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    if (!ch.logo.isNullOrBlank()) {
+                    if (!ch.logo.isNullOrBlank() && !LogoFailures.has(ch.logo)) {
                         AsyncImage(
                             model = ch.logo, contentDescription = null, contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize(),
                             onSuccess = { logoOk = true },
-                            onError = { logoOk = false },
+                            onError = {
+                                logoOk = false
+                                LogoFailures.add(ch.logo)
+                            },
                         )
                     }
                 }
@@ -637,29 +640,29 @@ fun ChannelTile(
 /**
  * Fades the top and bottom edges of a scrolling area so rows that scroll under the tab bar
  * dissolve instead of being sliced in half. Lists add matching top padding so nothing is
- * faded at rest.
+ * faded at rest. The fade is a gradient of the background colour drawn over the content
+ * ([over], read when drawing), not an offscreen layer: an extra full-size buffer per frame is
+ * what made lists stutter on TV graphics chips.
  */
-fun Modifier.fadeEdges(top: Dp = 20.dp, bottom: Dp = 28.dp): Modifier = this
-    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+fun Modifier.fadeEdges(top: Dp = 20.dp, bottom: Dp = 28.dp, over: () -> Color = { Palette.bg }): Modifier = this
     .drawWithContent {
         drawContent()
+        val w = size.width
         val h = size.height
         val t = top.toPx()
         val b = bottom.toPx()
+        val c = over()
         if (t > 0f) {
             drawRect(
-                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                    0f to Color.Transparent, 1f to Color.Black, startY = 0f, endY = t,
-                ),
-                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                brush = androidx.compose.ui.graphics.Brush.verticalGradient(0f to c, 1f to Color.Transparent, startY = 0f, endY = t),
+                size = androidx.compose.ui.geometry.Size(w, t),
             )
         }
         if (b > 0f && h > b) {
             drawRect(
-                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                    0f to Color.Black, 1f to Color.Transparent, startY = h - b, endY = h,
-                ),
-                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                brush = androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to c, startY = h - b, endY = h),
+                topLeft = androidx.compose.ui.geometry.Offset(0f, h - b),
+                size = androidx.compose.ui.geometry.Size(w, b),
             )
         }
     }
