@@ -175,12 +175,6 @@ fun Focusable(
     val scope = rememberCoroutineScope()
     val press = if (onLongClick != null) remember { OkPressTracker() } else null
 
-    if (key != null) {
-        DisposableEffect(memory, key, requester) {
-            memory.register(key, requester)
-            onDispose { memory.unregister(key, requester) }
-        }
-    }
 
     Box(
         modifier
