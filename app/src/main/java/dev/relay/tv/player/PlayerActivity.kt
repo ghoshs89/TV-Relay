@@ -130,14 +130,10 @@ class PlayerActivity : ComponentActivity() {
     private var liveReady = false
     private var vodStalls = 0
     private var failPos = 0L
-    private lateinit var failPanel: LinearLayout
-    private lateinit var failText: TextView
-    private lateinit var failHint: TextView
     private var lastHttp: Int? = null
     private var lastErrorName = "STALL"
     private var diagnoseJob: kotlinx.coroutines.Job? = null
-    private lateinit var failRetry: TextView
-    private lateinit var failNext: TextView
+    private lateinit var failure: FailurePanel
     private val watchdog = object : Runnable {
         override fun run() {
             checkStall()
@@ -159,12 +155,7 @@ class PlayerActivity : ComponentActivity() {
         diagnoseJob?.cancel()
         overlay.visibility = View.GONE
         view.hideController()
-        failText.text = "Time's up"
-        failHint.text = "$reason A parent can add time in Settings."
-        failRetry.text = "Close"
-        failNext.visibility = View.GONE
-        failPanel.visibility = View.VISIBLE
-        failRetry.requestFocus()
+        failure.showTimesUp(reason)
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -414,67 +405,21 @@ class PlayerActivity : ComponentActivity() {
                 Gravity.TOP or Gravity.END,
             ).apply { setMargins(48, 110, 48, 0) },
         )
-        buildFailPanel(root)
+        failure = FailurePanel(
+            this,
+            onRetry = { retryAfterFailure() },
+            onNext = {
+                hideFailure()
+                switchLive(liveIndex + 1)
+            },
+        )
+        failure.addTo(root)
         root.addView(channelsView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
         view.requestFocus()
     }
 
-    private fun buildFailPanel(root: FrameLayout) {
-        fun button(label: String, onClick: () -> Unit) = TextView(this).apply {
-            text = label
-            textSize = 18f
-            setPadding(40, 20, 40, 20)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(0xFF1E2B45.toInt())
-            isFocusable = true
-            setOnFocusChangeListener { v, focused ->
-                v.setBackgroundColor(if (focused) 0xFF3DDC97.toInt() else 0xFF1E2B45.toInt())
-                (v as TextView).setTextColor(if (focused) Color.BLACK else Color.WHITE)
-            }
-            setOnClickListener { onClick() }
-        }
-        failText = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 20f
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 8)
-        }
-        failHint = TextView(this).apply {
-            setTextColor(0xFFB8C2D3.toInt())
-            textSize = 15f
-            gravity = Gravity.CENTER
-            maxWidth = 900
-            setPadding(0, 0, 0, 28)
-        }
-        failRetry = button("Retry") { retryAfterFailure() }
-        failNext = button("Next channel") {
-            hideFailure()
-            switchLive(liveIndex + 1)
-        }
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            addView(failRetry)
-            addView(failNext, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = 28 })
-        }
-        failPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(56, 44, 56, 44)
-            setBackgroundColor(0xEE0B1220.toInt())
-            visibility = View.GONE
-            addView(failText)
-            addView(failHint)
-            addView(buttons)
-        }
-        root.addView(
-            failPanel,
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER),
-        )
-    }
-
-    private val failing: Boolean get() = ::failPanel.isInitialized && failPanel.visibility == View.VISIBLE
+    private val failing: Boolean get() = ::failure.isInitialized && failure.showing
 
     /** Stops trying and offers Retry (and Next channel on live TV). */
     private fun showFailure(message: String) {
@@ -484,12 +429,9 @@ class PlayerActivity : ComponentActivity() {
         stopTimeshift()
         overlay.visibility = View.GONE
         view.hideController()
-        failText.text = message
-        failHint.text = "Checking what went wrong…"
+        failure.setMessage(message, "Checking what went wrong…")
         diagnose()
-        failNext.visibility = if (req.live && req.items.size > 1) View.VISIBLE else View.GONE
-        failPanel.visibility = View.VISIBLE
-        failRetry.requestFocus()
+        failure.show(canSkip = req.live && req.items.size > 1)
     }
 
     /** Checks the account and the last error, then explains the failure in plain words. */
@@ -510,10 +452,7 @@ class PlayerActivity : ComponentActivity() {
             }
             val r = PlaybackDiagnosis.diagnose(http, err, login, req.live)
             AppLog.w("Player", "Diagnosis: ${r.title} (error $err, HTTP ${http ?: "-"})")
-            if (failing) {
-                failText.text = r.title
-                failHint.text = r.hint
-            }
+            if (failing) failure.setMessage(r.title, r.hint)
         }
     }
 
@@ -527,7 +466,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun hideFailure() {
-        failPanel.visibility = View.GONE
+        failure.hide()
         view.requestFocus()
     }
 
