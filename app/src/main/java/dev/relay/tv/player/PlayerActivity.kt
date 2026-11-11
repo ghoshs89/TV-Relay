@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.widget.Toast
 import android.util.Rational
 import android.view.Gravity
 import android.view.KeyEvent
@@ -141,8 +142,71 @@ class PlayerActivity : ComponentActivity() {
         override fun run() {
             checkStall()
             if (::limits.isInitialized) limits.tick(SystemClock.elapsedRealtime(), ::player.isInitialized && player.isPlaying)
+            watchBreaks()
             handler.postDelayed(this, 1_000)
         }
+    }
+
+    // ---------- Sleep timer and "Are you still watching?" ----------
+
+    private lateinit var sleepTimer: SleepTimer
+    private lateinit var stillWatching: StillWatching
+    private var sleepMinutes = 0
+
+    /** Once a second: the sleep timer's warning and stop, and the still-watching question. */
+    private fun watchBreaks() {
+        if (!::sleepTimer.isInitialized) return
+        val now = SystemClock.elapsedRealtime()
+        when (sleepTimer.tick(now)) {
+            SleepTimer.Event.Warn -> showOverlay("Sleep timer: stopping in 1 minute\nPress any key to keep watching", 15_000)
+            SleepTimer.Event.Stop -> {
+                AppLog.i("Player", "Sleep timer ended playback after $sleepMinutes minutes")
+                saveProgress(finished = false)
+                Toast.makeText(this, "Sleep timer: playback stopped", Toast.LENGTH_LONG).show()
+                finish()
+                return
+            }
+            SleepTimer.Event.None -> Unit
+        }
+        when (stillWatching.tick(now, req.live, ::player.isInitialized && player.isPlaying)) {
+            StillWatching.Event.Ask -> askStillWatching()
+            StillWatching.Event.Stop -> {
+                AppLog.i("Player", "Nobody answered \"Are you still watching?\"; closing the player")
+                saveProgress(finished = false)
+                finish()
+            }
+            StillWatching.Event.None -> Unit
+        }
+    }
+
+    /** Pauses and asks. Keep watching resumes (live goes back to the live edge). */
+    private fun askStillWatching() {
+        AppLog.i("Player", "Asking whether anyone is still watching")
+        saveProgress(finished = false)
+        player.pause()
+        overlay.visibility = View.GONE
+        view.hideController()
+        failure.showStillWatching {
+            failure.hide()
+            stillWatching.answered(SystemClock.elapsedRealtime())
+            if (req.live) playLive(liveIndex) else player.play()
+            view.requestFocus()
+        }
+    }
+
+    /** A key press or touch: restarts the still-watching clocks and extends a sleep timer that is about to end. */
+    private fun noteInput() {
+        if (!::sleepTimer.isInitialized) return
+        val now = SystemClock.elapsedRealtime()
+        stillWatching.onInput(now)
+        if (sleepTimer.keepWatching(now)) {
+            showOverlay("Sleep timer: another ${SleepTimer.label(sleepMinutes)}", 4_000)
+        }
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        noteInput()
     }
 
     // ---------- Kids viewing limits ----------
@@ -185,6 +249,10 @@ class PlayerActivity : ComponentActivity() {
             warn = { showOverlay(it, 6_000) },
             onLimit = ::stopForLimit,
         )
+        val startedAt = SystemClock.elapsedRealtime()
+        sleepMinutes = SleepTimer.clean(app.store.settings.sleepMinutes)
+        sleepTimer = SleepTimer(sleepMinutes * 60_000L, startedAt)
+        stillWatching = StillWatching(app.store.settings.askStillWatching, startedAt)
         AppLog.i("Player", "Open${if (r.live) "live" else r.items[r.index].kind}: ${r.items[r.index].title} (${r.items.size} in queue)")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         frameRate = FrameRateMatcher(this)
@@ -672,6 +740,9 @@ class PlayerActivity : ComponentActivity() {
             lastDuration = 0
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) infoPending = true
             currentItem()?.let { showOverlay(label(it)) }
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && stillWatching.onAutoAdvance(SystemClock.elapsedRealtime())) {
+                askStillWatching()
+            }
         }
 
         override fun onPlaybackStateChanged(state: Int) {
@@ -892,6 +963,7 @@ class PlayerActivity : ComponentActivity() {
     // overriding it and calling super is how every Activity handles keys.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) noteInput()
         if (failing && event.keyCode != KeyEvent.KEYCODE_BACK) {
             // Retry / Next channel buttons take the remote while the failure panel is up.
             return super.dispatchKeyEvent(event)

@@ -35,6 +35,7 @@ import dev.relay.tv.data.KidsLimits
 import dev.relay.tv.tv.WatchNext
 import dev.relay.tv.data.Langs
 import dev.relay.tv.player.SkipSizes
+import dev.relay.tv.player.SleepTimer
 import dev.relay.tv.data.AccountInfo
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Catalog
@@ -229,6 +230,17 @@ fun SettingsTab() {
         item {
             Setting("Jump forward (Right key)", SkipSizes.label(SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)), false) {
                 store.settings = s.copy(skipForwardSec = SkipSizes.next(SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)))
+            }
+        }
+        item {
+            val sleep = SleepTimer.clean(s.sleepMinutes)
+            Setting("Sleep timer", if (sleep == 0) "Off" else "${SleepTimer.label(sleep)} after playback starts (press a key in the last minute to add more)", false) {
+                store.settings = s.copy(sleepMinutes = SleepTimer.next(sleep))
+            }
+        }
+        item {
+            Setting("Ask \"Are you still watching?\"", if (s.askStillWatching) "On (after 3 episodes in a row or 4 hours of live TV)" else "Off", false) {
+                store.settings = s.copy(askStillWatching = !s.askStillWatching)
             }
         }
         item { Setting("Lip-sync adjustment", lipSyncLabel(s.audioDelayMs), false) { lipSync = true } }

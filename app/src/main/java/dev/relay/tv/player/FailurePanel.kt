@@ -15,9 +15,12 @@ import android.widget.TextView
  */
 class FailurePanel(
     private val context: Context,
-    onRetry: () -> Unit,
+    private val onRetry: () -> Unit,
     onNext: () -> Unit,
 ) {
+    /** What the first button does: Retry normally, Keep watching while the still-watching question is up. */
+    private var primary: () -> Unit = onRetry
+
     private fun button(label: String, onClick: () -> Unit) = TextView(context).apply {
         text = label
         textSize = 18f
@@ -45,7 +48,7 @@ class FailurePanel(
         maxWidth = 900
         setPadding(0, 0, 0, 28)
     }
-    private val retry = button("Retry") { onRetry() }
+    private val retry = button("Retry") { primary() }
     private val next = button("Next channel") { onNext() }
 
     private val panel = LinearLayout(context).apply {
@@ -98,7 +101,17 @@ class FailurePanel(
         show(canSkip = false)
     }
 
+    /** The "Are you still watching?" question: playback is paused and [onKeep] resumes it. */
+    fun showStillWatching(onKeep: () -> Unit) {
+        setMessage("Are you still watching?", "Playback is paused. Choose Keep watching to carry on, or press Back to leave.")
+        retry.text = "Keep watching"
+        primary = onKeep
+        show(canSkip = false)
+    }
+
     fun hide() {
         panel.visibility = View.GONE
+        retry.text = "Retry"
+        primary = onRetry
     }
 }

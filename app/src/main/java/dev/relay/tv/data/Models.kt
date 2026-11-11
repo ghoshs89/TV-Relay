@@ -122,6 +122,9 @@ data class Settings(
     // Batch 8: how far Left and Right jump while watching, in seconds (see player/SkipSizes).
     val skipBackSec: Int = 10,
     val skipForwardSec: Int = 30,
+    // Batch 9: stop playing after this many minutes (0 = off), and ask "Are you still watching?" (see player/WatchBreaks).
+    val sleepMinutes: Int = 0,
+    val askStillWatching: Boolean = true,
 )
 
 /** A programme the viewer wants to be told about when it starts. Times are as shown in the guide. */
