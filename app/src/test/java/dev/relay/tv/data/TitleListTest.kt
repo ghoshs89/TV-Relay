@@ -124,4 +124,23 @@ class TitleListTest {
         cache.put(2, q1, emptyList())
         assertNull("old generation cleared", cache.get(2, q3))
     }
+
+    @Test
+    fun eachTitleIsListedOnceEvenWhenTheSourceRepeatsIt() {
+        // A favourite saved twice.
+        assertEquals(listOf(5, 2), ids(buildTitleList(src, query(TitleSelection.Favourites(listOf(5, 5, 2, 5))))))
+        // A provider listing the same id twice in a mixed list: the first one stays, order is kept.
+        val repeated = object : TitleSource<Movie> by src {
+            override val byAdded = this@TitleListTest.byAdded + this@TitleListTest.byAdded.take(2)
+        }
+        val got = ids(buildTitleList(repeated, query(TitleSelection.Recent)))
+        assertEquals(got.distinct(), got)
+        assertEquals(ids(buildTitleList(src, query(TitleSelection.Recent))), got)
+    }
+
+    @Test
+    fun aListWithoutRepeatsIsReturnedAsItIs() {
+        val sel = TitleSelection.Category("c1")
+        assertSame(src.inCategory("c1"), buildTitleList(src, query(sel)))
+    }
 }
