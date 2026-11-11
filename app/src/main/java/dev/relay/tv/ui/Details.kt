@@ -59,6 +59,7 @@ fun MovieDetailScreen(m: Movie) {
     val store = app.store
     val ctx = LocalContext.current
     store.version.intValue
+    store.historyVersion.intValue
     val pid = app.session.profileId
 
     var info by remember { mutableStateOf<MovieInfo?>(null) }
@@ -158,6 +159,7 @@ fun SeriesDetailScreen(s: Series) {
     val store = app.store
     val ctx = LocalContext.current
     store.version.intValue
+    store.historyVersion.intValue
     val pid = app.session.profileId
 
     var info by remember { mutableStateOf<SeriesInfo?>(null) }

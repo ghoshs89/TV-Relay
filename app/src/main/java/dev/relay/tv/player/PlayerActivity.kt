@@ -99,6 +99,7 @@ class PlayerActivity : ComponentActivity() {
 
     // When the current channel or video was asked for, to log how long the first picture took.
     private var tuneStartedAt = 0L
+    private var recordLiveWatch = Runnable { }
 
     // Audio and subtitle languages, and the per-series memory of what the viewer picked.
     private val trackPrefs by lazy { PlayerTracks(app) }
@@ -236,8 +237,9 @@ class PlayerActivity : ComponentActivity() {
                     .setPreferredTextLanguages(*trackPrefs.textOrder().toTypedArray()),
             )
         }
+        val plan = BufferPlan.forLive(req.live)
         val load = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 60_000, 2_000, 4_000)
+            .setBufferDurationsMs(plan.minMs, plan.maxMs, plan.startMs, plan.afterStallMs)
             .build()
         bandwidth = DefaultBandwidthMeter.getSingletonInstance(this)
         player = ExoPlayer.Builder(this, renderers)
@@ -566,14 +568,16 @@ class PlayerActivity : ComponentActivity() {
         player.playWhenReady = true
         infoPending = true
         showOverlay(label(item))
-        app.store.record(
-            req.profileId,
-            WatchEntry(
-                key = item.key, kind = "live", title = item.title, subtitle = item.subtitle,
-                image = item.image, streamId = item.streamId, ext = item.ext,
-                updated = System.currentTimeMillis(),
-            ),
+        // Recorded as watched only once it has played for a while, so channels passed while zapping
+        // don't fill Recently watched or cost a write each.
+        val entry = WatchEntry(
+            key = item.key, kind = "live", title = item.title, subtitle = item.subtitle,
+            image = item.image, streamId = item.streamId, ext = item.ext,
+            updated = System.currentTimeMillis(),
         )
+        handler.removeCallbacks(recordLiveWatch)
+        recordLiveWatch = Runnable { app.store.record(req.profileId, entry.copy(updated = System.currentTimeMillis())) }
+        handler.postDelayed(recordLiveWatch, LIVE_WATCH_AFTER_MS)
     }
 
     private fun reconnectLive() {
@@ -689,6 +693,7 @@ class PlayerActivity : ComponentActivity() {
                     }
                 } else {
                     saveProgress(finished = true)
+                    app.store.flush()
                     finish()
                 }
             }
@@ -1078,5 +1083,8 @@ class PlayerActivity : ComponentActivity() {
 
     companion object {
         private const val BACK_WINDOW_MS = 2_500L
+
+        /** A live channel counts as watched after this long. */
+        private const val LIVE_WATCH_AFTER_MS = 5_000L
     }
 }

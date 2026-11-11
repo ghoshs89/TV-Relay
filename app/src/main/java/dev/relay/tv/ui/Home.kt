@@ -1,5 +1,6 @@
 package dev.relay.tv.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -322,6 +323,7 @@ fun HomeTab() {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     store.version.intValue
+    store.historyVersion.intValue
     val pid = app.session.profileId
     val restrict = app.session.restrict(store.settings)
 
@@ -359,7 +361,17 @@ fun HomeTab() {
         if (e.kind == "episode" && sid != null) {
             scope.launch {
                 val series = catalog.seriesById[sid]
-                val info = runCatching { app.api.seriesInfo(sid) }.getOrNull()
+                // The series has to be fetched to queue the next episodes: say so if it takes a moment,
+                // and play just this episode if it takes too long.
+                val hint = launch {
+                    delay(500)
+                    Toast.makeText(ctx, "Opening ${e.title}…", Toast.LENGTH_SHORT).show()
+                }
+                val info = withTimeoutOrNull(8_000) { runCatching { app.api.seriesInfo(sid) }.getOrNull() }
+                hint.cancel()
+                if (info == null) {
+                    Toast.makeText(ctx, "Couldn't load the whole series; playing just this episode", Toast.LENGTH_LONG).show()
+                }
                 val all: List<Episode> = info?.let { inf -> inf.seasons.keys.sorted().flatMap { inf.seasons[it].orEmpty() } }.orEmpty()
                 val idx = all.indexOfFirst { "ep:${it.id}" == e.key }
                 if (series != null && idx >= 0) {
@@ -387,7 +399,7 @@ fun HomeTab() {
         rows.forEach { row ->
             item(key = row) {
                 when {
-                    row == HomeLayout.CONTINUE -> Rail(HomeLayout.label(row), continueWatching, key = { it.key }) { e ->
+                    row == HomeLayout.CONTINUE -> Rail(HomeLayout.label(row), continueWatching, key = { it.key }, hint = "Hold OK to remove") { e ->
                         PosterCard(
                             e.title, e.image, { resume(e) }, key = "cw:${e.key}", width = 260.dp, aspect = 16f / 9f,
                             subtitle = e.subtitle ?: "${fmtDuration(e.duration - e.position)} left",
@@ -406,7 +418,7 @@ fun HomeTab() {
                             key = "fc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
                         )
                     }
-                    row == HomeLayout.RECENT_CHANNELS -> Rail(HomeLayout.label(row), recentChannels, key = { it.id }) { ch ->
+                    row == HomeLayout.RECENT_CHANNELS -> Rail(HomeLayout.label(row), recentChannels, key = { it.id }, hint = "Hold OK to remove") { ch ->
                         ChannelTile(
                             ch, { Playback.live(ctx, recentChannels, recentChannels.indexOf(ch)) },
                             key = "rc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),

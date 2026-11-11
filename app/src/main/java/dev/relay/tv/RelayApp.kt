@@ -59,6 +59,7 @@ class RelayApp : Application(), ImageLoaderFactory {
             .retryOnConnectionFailure(true)
             .build()
         store = Store(this)
+        registerActivityLifecycleCallbacks(dev.relay.tv.data.FlushOnStop(store))
         AppLog.secrets = {
             val acc = store.account
             val s = store.settings
