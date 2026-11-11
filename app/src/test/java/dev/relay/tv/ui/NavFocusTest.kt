@@ -9,7 +9,7 @@ import org.junit.Test
 class NavFocusTest {
 
     private val movie = Movie(5, "Film", null, "c", 7.0, "mp4", 0, null, "2020")
-    private val series = Series(9, "Show", null, "c", 8.0, null, "2021", null, 0, null)
+    private val series = Series(9, "Show", null, "c", 8.0, "2021", 0, null)
 
     @Test
     fun backReturnsToHomesPositionEvenAfterTheDetailPageRemembersItsOwn() {

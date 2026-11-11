@@ -1,5 +1,6 @@
 package dev.relay.tv.data
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -144,6 +145,58 @@ class CatalogParserTest {
         assertFalse(Freshness.libraryDue(saved, saved + 6 * 3600_000L - 1))
         assertTrue(Freshness.libraryDue(saved, saved + 6 * 3600_000L))
         assertTrue(Freshness.libraryDue(0L, saved))
+    }
+
+    @Test
+    fun readingTheBigListsAtOnceGivesTheSameLibrary() {
+        val dir = tmp.newFolder()
+        val channels = (1..300).joinToString(",", "[", "]") { """{"num":$it,"name":"Ch $it","stream_id":$it,"category_id":"${it % 7}"}""" }
+        val movies = (1..300).joinToString(",", "[", "]") { """{"name":"Film $it (20${10 + it % 10})","stream_id":$it,"category_id":"${it % 5}","container_extension":"mkv","rating":"${it % 10}","added":"$it"}""" }
+        val series = (1..300).joinToString(",", "[", "]") { """{"name":"Show $it","series_id":$it,"category_id":"${it % 3}","releaseDate":"20${10 + it % 10}-01-01","plot":"long text $it"}""" }
+        writeAll(dir, mapOf("get_live_streams" to channels, "get_vod_streams" to movies, "get_series" to series))
+        val one = CatalogParser.parse(dir, strict = true)
+        for (limit in listOf(1, 2, 3)) {
+            val seen = mutableListOf<Float>()
+            val two = runBlocking { CatalogParser.parseConcurrently(dir, strict = true, limit = limit) { seen += it } }
+            assertEquals("limit $limit", one.channels, two.channels)
+            assertEquals("limit $limit", one.movies, two.movies)
+            assertEquals("limit $limit", one.series, two.series)
+            assertEquals(one.liveCats, two.liveCats)
+            assertEquals(one.vodCats, two.vodCats)
+            assertEquals(one.seriesCats, two.seriesCats)
+            assertEquals(one.timings.keys.toList(), two.timings.keys.toList())
+            assertEquals(1f, seen.last(), 0.0001f)
+            assertEquals("progress never goes back", seen, seen.sorted())
+        }
+    }
+
+    @Test
+    fun readingAtOnceStillRejectsABadList() {
+        val dir = tmp.newFolder()
+        writeAll(dir, mapOf("get_vod_streams" to "<html><body>502 Bad Gateway</body></html>"))
+        try {
+            runBlocking { CatalogParser.parseConcurrently(dir, strict = true) }
+            fail("Expected the movie list to be rejected")
+        } catch (e: InvalidListException) {
+            assertTrue(e.message.orEmpty().contains("movie"))
+        }
+    }
+
+    @Test
+    fun repeatedValuesShareOneCopy() {
+        val dir = tmp.newFolder()
+        val movies = (1..50).joinToString(",", "[", "]") { """{"name":"Film $it","stream_id":$it,"category_id":"${(10 + it % 3)}","container_extension":"mkv","year":"2021"}""" }
+        writeAll(dir, mapOf("get_vod_streams" to movies))
+        val p = CatalogParser.parse(dir, strict = true)
+        val sameCat = p.movies.filter { it.categoryId == "10" }
+        assertTrue(sameCat.size > 2)
+        assertTrue("one string instance for the category", sameCat.all { it.categoryId === sameCat.first().categoryId })
+        assertTrue("one string instance for the file type", p.movies.all { it.ext === p.movies.first().ext })
+        assertTrue("one string instance for the year", p.movies.all { it.year === p.movies.first().year })
+        val ix = CatalogParser.Interner()
+        assertEquals(null, ix.of(null))
+        assertTrue(ix.of(String(charArrayOf('a', 'b'))) === ix.of(String(charArrayOf('a', 'b'))))
+        assertEquals(1, ix.size)
     }
 
     private fun expectInvalid(dir: File, label: String) {

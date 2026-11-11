@@ -156,8 +156,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                             AppLog.i("Catalog", "Opening the saved library (${savedSize()})")
                             report("Reading your saved library", 0, force = true)
                             val t = System.currentTimeMillis()
-                            val parsed = withContext(Dispatchers.Default) {
-                                CatalogParser.parse(dir, strict = false) { f -> report("Reading your saved library", LoadSteps.span(0, 60, f)) }
+                            val parsed = CatalogParser.parseConcurrently(dir, strict = false) { f ->
+                                report("Reading your saved library", LoadSteps.span(0, 60, f))
                             }
                             AppLog.i("Catalog", "Read saved library in ${System.currentTimeMillis() - t} ms: ${parsed.counts}; ${parsed.timingText()}")
                             applyParsed(parsed, from = 60)
@@ -246,10 +246,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             }
             report("Checking the new lists", LoadSteps.DOWNLOAD_END, force = true)
             val t = System.currentTimeMillis()
-            val fresh = withContext(Dispatchers.Default) {
-                CatalogParser.parse(staging, strict = true) { f ->
-                    report("Checking the new lists", LoadSteps.span(LoadSteps.DOWNLOAD_END, LoadSteps.CHECK_END, f))
-                }
+            val fresh = CatalogParser.parseConcurrently(staging, strict = true) { f ->
+                report("Checking the new lists", LoadSteps.span(LoadSteps.DOWNLOAD_END, LoadSteps.CHECK_END, f))
             }
             AppLog.i("Catalog", "Checked new lists in ${System.currentTimeMillis() - t} ms: ${fresh.counts}; ${fresh.timingText()}; memory ${memory()}")
             val old = CatalogCounts(rawChannels.size, movies.size, series.size)
@@ -319,87 +317,132 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         dir.deleteRecursively()
     }
 
-    /** Everything worked out from a parsed library, off the screen thread. */
-    private class Indexes(p: ParsedCatalog, private val step: (Float) -> Unit) {
+    /** Times each step of preparing a library and reports progress as it goes. */
+    private class Laps(private val step: (Float) -> Unit) {
         val timings = LinkedHashMap<String, Long>()
         private var t = System.currentTimeMillis()
-        private fun lap(name: String, done: Float) {
+        fun lap(name: String, done: Float) {
             val now = System.currentTimeMillis()
             timings[name] = now - t
             t = now
             step(done)
         }
 
-        // Language groups (see LanguageDetector), worked out once per load.
+        fun text() = timings.entries.joinToString(", ") { "${it.key} ${it.value} ms" }
+    }
+
+    /** Stage 1, off the screen thread: what Live TV needs. Category languages are cheap, so all three kinds are done here. */
+    private class ChannelStage(p: ParsedCatalog, laps: Laps) {
         val liveCatLang = langOf(p.liveCats)
         val vodCatLang = langOf(p.vodCats)
         val seriesCatLang = langOf(p.seriesCats)
         val chLang = HashMap<Int, String>().also { m ->
             p.channels.forEach { c -> LanguageDetector.ofChannel(c.name, liveCatLang[c.categoryId])?.let { m[c.id] = it } }
-            lap("channel languages", 0.2f)
-        }
-        val mvLang = HashMap<Int, String>().also { m ->
-            p.movies.forEach { v -> LanguageDetector.ofTitle(v.name, vodCatLang[v.categoryId])?.let { m[v.id] = it } }
-            lap("movie languages", 0.35f)
-        }
-        val srLang = HashMap<Int, String>().also { m ->
-            p.series.forEach { v -> LanguageDetector.ofTitle(v.name, seriesCatLang[v.categoryId])?.let { m[v.id] = it } }
-            lap("series languages", 0.45f)
+            laps.lap("channel languages", 0.4f)
         }
         val versionKeys = HashMap<Int, String>(p.channels.size * 2).also { m ->
             p.channels.forEach { c -> m[c.id] = ChannelVersions.key(c.name) + "|" + (chLang[c.id] ?: "") }
         }
         val quality = HashMap<Int, Int>(p.channels.size * 2).also { m ->
             p.channels.forEach { c -> m[c.id] = ChannelVersions.quality(c.name) }
-            lap("channel versions", 0.6f)
+            laps.lap("channel versions", 0.7f)
         }
-        val mvAdded = p.movies.sortedByDescending { it.added }
-        val mvRated = p.movies.filter { it.rating > 0 }.sortedByDescending { it.rating }
-        val srAdded = p.series.sortedByDescending { it.added }
-        val srRated = p.series.filter { it.rating > 0 }.sortedByDescending { it.rating }
-        val mvByName = sortedByLowerName(p.movies) { it.name }
-        val srByName = sortedByLowerName(p.series) { it.name }
-        val mvByCat = p.movies.groupBy { it.categoryId }
-        val srByCat = p.series.groupBy { it.categoryId }
-        val mvById = p.movies.associateBy { it.id }
-        val srById = p.series.associateBy { it.id }.also { lap("sorting", 0.85f) }
-
-        fun text() = timings.entries.joinToString(", ") { "${it.key} ${it.value} ms" }
     }
 
+    /** Stage 2, off the screen thread: everything the Movies tab reads. */
+    private class MovieStage(p: ParsedCatalog, vodCatLang: Map<String, String>, laps: Laps) {
+        val lang = HashMap<Int, String>().also { m ->
+            p.movies.forEach { v -> LanguageDetector.ofTitle(v.name, vodCatLang[v.categoryId])?.let { m[v.id] = it } }
+            laps.lap("movie languages", 0.4f)
+        }
+        val added = p.movies.sortedByDescending { it.added }
+        val rated = p.movies.filter { it.rating > 0 }.sortedByDescending { it.rating }
+        val byName = sortedByLowerName(p.movies) { it.name }
+        val byCat = p.movies.groupBy { it.categoryId }
+        val byId = p.movies.associateBy { it.id }.also { laps.lap("movie lists", 0.9f) }
+    }
+
+    /** Stage 3, off the screen thread: everything the Series tab reads. */
+    private class SeriesStage(p: ParsedCatalog, seriesCatLang: Map<String, String>, laps: Laps) {
+        val lang = HashMap<Int, String>().also { m ->
+            p.series.forEach { v -> LanguageDetector.ofTitle(v.name, seriesCatLang[v.categoryId])?.let { m[v.id] = it } }
+            laps.lap("series languages", 0.4f)
+        }
+        val added = p.series.sortedByDescending { it.added }
+        val rated = p.series.filter { it.rating > 0 }.sortedByDescending { it.rating }
+        val byName = sortedByLowerName(p.series) { it.name }
+        val byCat = p.series.groupBy { it.categoryId }
+        val byId = p.series.associateBy { it.id }.also { laps.lap("series lists", 0.9f) }
+    }
+
+    /**
+     * Prepares a parsed library in three stages (channels, movies, series), installing each as soon
+     * as it is ready so Live TV works while the big lists are still being indexed. [loading] stays
+     * true until the last stage, because the caller's load() is still running.
+     */
     private suspend fun applyParsed(p: ParsedCatalog, from: Int) {
         val t0 = System.currentTimeMillis()
-        report("Preparing your lists", from, force = true)
         customGen.incrementAndGet()
         val renames = custom().renames
-        val (sorted, chIndex) = withContext(Dispatchers.Default) {
-            val ix = Indexes(p) { f -> report("Preparing your lists", LoadSteps.span(from, 99, f)) }
-            val ci = buildChannelIndex(p.channels, renames, ix.versionKeys, ix.quality, ix.chLang)
-            ix.timings["channel index"] = System.currentTimeMillis() - t0 - ix.timings.values.sum()
-            ix to ci
+        // Progress: channels fill 0 to 35 of the span, movies 35 to 80, series 80 to 99.
+        fun stage(name: String, lo: Int, hi: Int): Laps {
+            report(name, LoadSteps.span(from, 99, lo / 100f), force = true)
+            return Laps { f -> report(name, LoadSteps.span(from, 99, (lo + (hi - lo) * f) / 100f)) }
         }
-        report("Showing your lists", 99, force = true)
-        val t1 = System.currentTimeMillis()
-        liveCatLang = sorted.liveCatLang; vodCatLang = sorted.vodCatLang; seriesCatLang = sorted.seriesCatLang
-        chLang = sorted.chLang; mvLang = sorted.mvLang; srLang = sorted.srLang
-        rawVersionKeys = sorted.versionKeys
-        rawQuality = sorted.quality
-        indexMs = t1 - t0
-        langVersion++
-        movieById = sorted.mvById
-        seriesById = sorted.srById
+
+        // Stage 1: channels.
+        val chLaps = stage("Preparing channels", 0, 35)
+        val (cs, chIndex) = withContext(Dispatchers.Default) {
+            val st = ChannelStage(p, chLaps)
+            val ci = buildChannelIndex(p.channels, renames, st.versionKeys, st.quality, st.chLang)
+            chLaps.lap("channel index", 1f)
+            st to ci
+        }
+        liveCatLang = cs.liveCatLang; vodCatLang = cs.vodCatLang; seriesCatLang = cs.seriesCatLang
+        chLang = cs.chLang
+        rawVersionKeys = cs.versionKeys
+        rawQuality = cs.quality
         adultCats = (p.liveCats + p.vodCats + p.seriesCats).filter { it.adult }.map { it.id }.toSet()
-        liveCats = p.liveCats; vodCats = p.vodCats; seriesCats = p.seriesCats
-        movies = p.movies; series = p.series
-        moviesByCat = sorted.mvByCat; seriesByCat = sorted.srByCat
+        liveCats = p.liveCats
         rawChannels = p.channels
         install(chIndex)
-        moviesByAdded = sorted.mvAdded; moviesByRating = sorted.mvRated
-        seriesByAdded = sorted.srAdded; seriesByRating = sorted.srRated
-        moviesByName = sorted.mvByName; seriesByName = sorted.srByName
+        langVersion++
+        val channelsMs = System.currentTimeMillis() - t0
+        AppLog.i("Catalog", "Channels ready after $channelsMs ms (${chLaps.text()})")
+
+        // Stage 2: movies.
+        val mvLaps = stage("Preparing movies", 35, 80)
+        val ms = withContext(Dispatchers.Default) { MovieStage(p, cs.vodCatLang, mvLaps) }
+        mvLang = ms.lang
+        movieById = ms.byId
+        vodCats = p.vodCats
+        movies = p.movies
+        moviesByCat = ms.byCat
+        moviesByAdded = ms.added; moviesByRating = ms.rated
+        moviesByName = ms.byName
         libraryVersion++
+        langVersion++
+
+        // Stage 3: series.
+        val srLaps = stage("Preparing series", 80, 99)
+        val ss = withContext(Dispatchers.Default) { SeriesStage(p, cs.seriesCatLang, srLaps) }
+        srLang = ss.lang
+        seriesById = ss.byId
+        seriesCats = p.seriesCats
+        series = p.series
+        seriesByCat = ss.byCat
+        seriesByAdded = ss.added; seriesByRating = ss.rated
+        seriesByName = ss.byName
+        libraryVersion++
+        langVersion++
+
+        indexMs = System.currentTimeMillis() - t0
         updatedAt = file("get_live_streams").lastModified()
-        AppLog.i("Catalog", "Prepared lists in $indexMs ms (${sorted.text()}); applied on screen thread in ${System.currentTimeMillis() - t1} ms")
+        AppLog.i(
+            "Catalog",
+            "Channels ready after $channelsMs ms; all lists after $indexMs ms " +
+                "(${chLaps.text()}; ${mvLaps.text()}; ${srLaps.text()})",
+        )
         AppLog.i("Catalog", loadSummary().replace("\n", "; ") + "; ${versionsByKey.size} channels with several versions")
     }
 
@@ -409,8 +452,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     private var vodCatLang: Map<String, String> = emptyMap()
     private var seriesCatLang: Map<String, String> = emptyMap()
     @Volatile private var chLang: Map<Int, String> = emptyMap()
-    private var mvLang: Map<Int, String> = emptyMap()
-    private var srLang: Map<Int, String> = emptyMap()
+    @Volatile private var mvLang: Map<Int, String> = emptyMap()
+    @Volatile private var srLang: Map<Int, String> = emptyMap()
 
     /** Original languages learned from TMDB when a title is opened; they correct the guesses. Saved. */
     private val learnedFile: File get() = File(ctx.filesDir, "learned_langs.json")

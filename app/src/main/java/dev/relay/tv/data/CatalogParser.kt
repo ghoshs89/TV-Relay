@@ -1,5 +1,10 @@
 package dev.relay.tv.data
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.DecodeSequenceMode
@@ -46,71 +51,148 @@ object CatalogParser {
         "get_vod_streams" to "movie", "get_series" to "series",
     )
 
-    /** [progress] gets the share of bytes read so far, 0 to 1, across all six lists. */
+    /**
+     * Reads the six lists one after another. [progress] gets the share of bytes read so far, 0 to 1,
+     * across all six lists, and never goes backwards.
+     */
     fun parse(dir: File, strict: Boolean, progress: (Float) -> Unit = {}): ParsedCatalog {
-        fun f(a: String) = File(dir, "$a.json")
-        val total = ACTIONS.sumOf { f(it).length() }.coerceAtLeast(1L)
-        var before = 0L
-        val timings = LinkedHashMap<String, Long>()
-        // Times each list and moves the byte count on, so progress is smooth even for one huge list.
-        fun <R> timed(a: String, read: (File, (Long) -> Unit) -> R): R {
+        val r = Reader(dir, strict, progress)
+        val liveCats = r.categories("get_live_categories")
+        val vodCats = r.categories("get_vod_categories")
+        val seriesCats = r.categories("get_series_categories")
+        val channels = r.channels()
+        val movies = r.movies()
+        val series = r.series()
+        return ParsedCatalog(liveCats, vodCats, seriesCats, channels, movies, series, r.timings())
+    }
+
+    /**
+     * The same result as [parse], reading the channel, movie and series lists at the same time
+     * (at most [limit] at once; categories first, they are small). Strict mode rejects a bad
+     * list the same way, and the first list that fails ends the others. Progress is the share of
+     * all bytes read across the files.
+     */
+    suspend fun parseConcurrently(
+        dir: File,
+        strict: Boolean,
+        limit: Int = Runtime.getRuntime().availableProcessors().let { if (it >= 4) 3 else 2 },
+        progress: (Float) -> Unit = {},
+    ): ParsedCatalog = coroutineScope {
+        val r = Reader(dir, strict, progress)
+        val liveCats = r.categories("get_live_categories")
+        val vodCats = r.categories("get_vod_categories")
+        val seriesCats = r.categories("get_series_categories")
+        val gate = Semaphore(limit.coerceAtLeast(1))
+        val channels = async(Dispatchers.Default) { gate.withPermit { r.channels() } }
+        val movies = async(Dispatchers.Default) { gate.withPermit { r.movies() } }
+        val series = async(Dispatchers.Default) { gate.withPermit { r.series() } }
+        ParsedCatalog(liveCats, vodCats, seriesCats, channels.await(), movies.await(), series.await(), r.timings())
+    }
+
+    /** Shares one copy of each repeated value (category ids, file types, years) between all the titles that have it. */
+    internal class Interner {
+        private val pool = HashMap<String, String>()
+        val size: Int get() = pool.size
+        fun of(s: String?): String? {
+            if (s == null) return null
+            return pool[s] ?: s.also { pool[it] = it }
+        }
+    }
+
+    /** Reads one library folder: knows each file's size for progress and keeps the timings. Safe to use from several threads. */
+    private class Reader(private val dir: File, private val strict: Boolean, private val progress: (Float) -> Unit) {
+        private fun file(a: String) = File(dir, "$a.json")
+        private val total = ACTIONS.sumOf { file(it).length() }.coerceAtLeast(1L)
+        private val bytesRead = LongArray(ACTIONS.size)
+        private var reported = 0f
+        private val lock = Any()
+        private val times = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+        private fun moved(index: Int, n: Long) = synchronized(lock) {
+            if (n > bytesRead[index]) bytesRead[index] = n
+            val fraction = bytesRead.sum().toFloat() / total
+            if (fraction > reported) {
+                reported = fraction
+                progress(fraction)
+            }
+        }
+
+        /** Times a list and moves the byte count on, so progress is smooth even for one huge list. */
+        private fun <R> timed(a: String, read: (File, (Long) -> Unit) -> R): R {
+            val index = ACTIONS.indexOf(a)
             val t = System.currentTimeMillis()
-            val file = f(a)
-            val r = read(file) { n -> progress((before + n).toFloat() / total) }
-            before += file.length()
-            progress(before.toFloat() / total)
-            timings[LABELS[a] ?: a] = System.currentTimeMillis() - t
+            val f = file(a)
+            val r = read(f) { n -> moved(index, n) }
+            moved(index, f.length())
+            times[LABELS[a] ?: a] = System.currentTimeMillis() - t
             return r
         }
-        return ParsedCatalog(
-            liveCats = timed("get_live_categories") { file, p -> parseCats(file, strict, p) },
-            vodCats = timed("get_vod_categories") { file, p -> parseCats(file, strict, p) },
-            seriesCats = timed("get_series_categories") { file, p -> parseCats(file, strict, p) },
-            channels = timed("get_live_streams") { file, p -> parseList(file, LiveDto.serializer(), strict, p) { d ->
-                val id = d.stream_id.int() ?: return@parseList null
-                Channel(
-                    id = id,
-                    num = d.num.int() ?: 0,
-                    name = d.name.str() ?: "Channel $id",
-                    logo = d.stream_icon.str(),
-                    categoryId = d.category_id.str() ?: "",
-                    epgId = d.epg_channel_id.str(),
-                    archiveDays = if (d.tv_archive.flag()) (d.tv_archive_duration.int() ?: 1) else 0,
-                )
-            } },
-            movies = timed("get_vod_streams") { file, p -> parseList(file, VodDto.serializer(), strict, p) { d ->
-                val id = d.stream_id.int() ?: return@parseList null
-                val name = d.name.str() ?: return@parseList null
-                Movie(
-                    id = id,
-                    name = name,
-                    poster = d.stream_icon.str(),
-                    categoryId = d.category_id.str() ?: "",
-                    rating = d.rating.dbl() ?: 0.0,
-                    ext = d.container_extension.str() ?: "mp4",
-                    added = d.added.long() ?: 0L,
-                    tmdbId = d.tmdb.str(),
-                    year = d.year.str() ?: yearIn(name),
-                )
-            } },
-            series = timed("get_series") { file, p -> parseList(file, SeriesDto.serializer(), strict, p) { d ->
-                val id = d.series_id.int() ?: return@parseList null
-                val name = d.name.str() ?: return@parseList null
-                Series(
-                    id = id,
-                    name = name,
-                    cover = d.cover.str(),
-                    categoryId = d.category_id.str() ?: "",
-                    rating = d.rating.dbl() ?: 0.0,
-                    plot = d.plot.str(),
-                    year = (d.year.str() ?: d.releaseDate.str() ?: d.release_date.str())?.take(4) ?: yearIn(name),
-                    genre = d.genre.str(),
-                    added = d.last_modified.long() ?: 0L,
-                    tmdbId = d.tmdb.str(),
-                )
-            } },
-            timings = timings,
-        )
+
+        /** Per-list read times in the order of the files. */
+        fun timings(): Map<String, Long> = LinkedHashMap<String, Long>().also { m ->
+            ACTIONS.forEach { a -> val l = LABELS[a] ?: a; times[l]?.let { m[l] = it } }
+        }
+
+        fun categories(a: String): List<Category> = timed(a) { f, p -> parseCats(f, strict, p) }
+
+        fun channels(): List<Channel> {
+            val ix = Interner()
+            return timed<List<Channel>>("get_live_streams") { f, p ->
+                parseList(f, LiveDto.serializer(), strict, p) { d ->
+                    val id = d.stream_id.int() ?: return@parseList null
+                    Channel(
+                        id = id,
+                        num = d.num.int() ?: 0,
+                        name = d.name.str() ?: "Channel $id",
+                        logo = d.stream_icon.str(),
+                        categoryId = ix.of(d.category_id.str()) ?: "",
+                        epgId = d.epg_channel_id.str(),
+                        archiveDays = if (d.tv_archive.flag()) (d.tv_archive_duration.int() ?: 1) else 0,
+                    )
+                }
+            }.also { AppLog.d("Catalog", "Channels share ${ix.size} distinct category ids") }
+        }
+
+        fun movies(): List<Movie> {
+            val ix = Interner()
+            return timed<List<Movie>>("get_vod_streams") { f, p ->
+                parseList(f, VodDto.serializer(), strict, p) { d ->
+                    val id = d.stream_id.int() ?: return@parseList null
+                    val name = d.name.str() ?: return@parseList null
+                    Movie(
+                        id = id,
+                        name = name,
+                        poster = d.stream_icon.str(),
+                        categoryId = ix.of(d.category_id.str()) ?: "",
+                        rating = d.rating.dbl() ?: 0.0,
+                        ext = ix.of(d.container_extension.str()) ?: "mp4",
+                        added = d.added.long() ?: 0L,
+                        tmdbId = d.tmdb.str(),
+                        year = ix.of(d.year.str() ?: yearIn(name)),
+                    )
+                }
+            }.also { AppLog.d("Catalog", "Movies share ${ix.size} distinct category ids, file types and years") }
+        }
+
+        fun series(): List<Series> {
+            val ix = Interner()
+            return timed<List<Series>>("get_series") { f, p ->
+                parseList(f, SeriesDto.serializer(), strict, p) { d ->
+                    val id = d.series_id.int() ?: return@parseList null
+                    val name = d.name.str() ?: return@parseList null
+                    Series(
+                        id = id,
+                        name = name,
+                        cover = d.cover.str(),
+                        categoryId = ix.of(d.category_id.str()) ?: "",
+                        rating = d.rating.dbl() ?: 0.0,
+                        year = ix.of((d.year.str() ?: d.releaseDate.str() ?: d.release_date.str())?.take(4) ?: yearIn(name)),
+                        added = d.last_modified.long() ?: 0L,
+                        tmdbId = d.tmdb.str(),
+                    )
+                }
+            }.also { AppLog.d("Catalog", "Series share ${ix.size} distinct category ids and years") }
+        }
     }
 
     private fun parseCats(f: File, strict: Boolean, read: (Long) -> Unit): List<Category> =

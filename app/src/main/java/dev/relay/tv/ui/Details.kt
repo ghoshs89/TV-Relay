@@ -209,7 +209,7 @@ fun SeriesDetailScreen(s: Series) {
         tp.tag, tp.region,
         if (seasonKeys.isNotEmpty()) "${seasonKeys.size} season${if (seasonKeys.size == 1) "" else "s"}" else null,
         rating?.let { "★ %.1f".format(it) },
-        tmdb?.genres?.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", ") ?: info?.genre ?: s.genre,
+        tmdb?.genres?.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", ") ?: info?.genre,
     )
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -254,7 +254,7 @@ fun SeriesDetailScreen(s: Series) {
                         LoadFailed("Couldn't load episodes.", key = "sd:retry") { attempt++ }
                     }
                     Spacer(Modifier.height(if (compact) 12.dp else 16.dp))
-                    val plot = tmdb?.overview ?: info?.plot ?: s.plot
+                    val plot = tmdb?.overview ?: info?.plot
                     if (!plot.isNullOrBlank()) {
                         Text(
                             plot, color = Palette.text, fontSize = if (compact) 14.sp else 16.sp,

@@ -187,9 +187,7 @@ data class Series(
     val cover: String?,
     val categoryId: String,
     val rating: Double,
-    val plot: String?,
     val year: String?,
-    val genre: String?,
     val added: Long,
     val tmdbId: String?,
 )

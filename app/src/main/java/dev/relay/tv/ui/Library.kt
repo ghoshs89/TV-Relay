@@ -59,7 +59,11 @@ fun MoviesTab() {
         catState = ui.movieCatList,
         gridState = ui.movieGrid,
         items = items,
-        empty = if (ui.movieCat == UiState.FAV) "Movies you add to My list show up here." else "Nothing here.",
+        empty = when {
+            catalog.loading && catalog.movies.isEmpty() -> "Loading movies…"
+            ui.movieCat == UiState.FAV -> "Movies you add to My list show up here."
+            else -> "Nothing here."
+        },
     ) { m ->
         val rt = posterScore("m", m.id)
         val tp = remember(m.name, m.year) { TitleParts.parse(m.name, m.year) }
@@ -100,7 +104,11 @@ fun SeriesTab() {
         catState = ui.seriesCatList,
         gridState = ui.seriesGrid,
         items = items,
-        empty = if (ui.seriesCat == UiState.FAV) "Series you add to My list show up here." else "Nothing here.",
+        empty = when {
+            catalog.loading && catalog.series.isEmpty() -> "Loading series…"
+            ui.seriesCat == UiState.FAV -> "Series you add to My list show up here."
+            else -> "Nothing here."
+        },
     ) { s ->
         val rt = posterScore("s", s.id)
         val tp = remember(s.name, s.year) { TitleParts.parse(s.name, s.year) }
