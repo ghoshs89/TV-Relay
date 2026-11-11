@@ -1,6 +1,7 @@
 package dev.relay.tv.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -144,9 +145,11 @@ val LocalFocusMemory = staticCompositionLocalOf { FocusMemory() }
  * The single focus primitive for the whole app: scales and outlines on focus, remembers
  * itself by [key] so focus can return here after a detail page is closed.
  *
- * Kept cheap because a list can have dozens on screen: no coroutine is started per item (focus is
- * read from onFocusChanged, the scale is animated only when focus changes, and restoring focus is
- * done once per screen by [FocusRestorer]).
+ * Kept cheap because a list can have dozens on screen: restoring focus is done once per screen by
+ * [FocusRestorer], not by every item. Focus is read from the interaction source and the scale is
+ * animated from an effect, not from inside the focus callback: starting the animation there made
+ * holding Up through a long poster grid several times slower in the benchmark (frames over 100 ms
+ * went from 4 to 28 over 60 key presses).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -165,15 +168,22 @@ fun Focusable(
     val enabled = LocalFocusEnabled.current
     val memory = LocalFocusMemory.current
     val source = remember { MutableInteractionSource() }
-    var focused by remember { mutableStateOf(false) }
+    val focused by source.collectIsFocusedAsState()
     val ownRequester = remember { FocusRequester() }
     val requester = focusRequester ?: ownRequester
     val latestOnFocused by rememberUpdatedState(onFocused)
     val latestOnClick by rememberUpdatedState(onClick)
     val latestOnLongClick by rememberUpdatedState(onLongClick)
     val scale = remember { Animatable(1f) }
-    val scope = rememberCoroutineScope()
     val press = if (onLongClick != null) remember { OkPressTracker() } else null
+
+    LaunchedEffect(focused) {
+        if (focused) {
+            if (key != null) memory.lastKey = key
+            latestOnFocused()
+        }
+        scale.animateTo(if (focused) scaleOnFocus else 1f)
+    }
 
     if (key != null) {
         DisposableEffect(memory, key, requester) {
@@ -185,17 +195,6 @@ fun Focusable(
     Box(
         modifier
             .focusRequester(requester)
-            .onFocusChanged { state ->
-                val now = state.isFocused
-                if (now != focused) {
-                    focused = now
-                    scope.launch { scale.animateTo(if (now) scaleOnFocus else 1f) }
-                    if (now) {
-                        if (key != null) memory.lastKey = key
-                        latestOnFocused()
-                    }
-                }
-            }
             .graphicsLayer {
                 val v = scale.value
                 scaleX = v
