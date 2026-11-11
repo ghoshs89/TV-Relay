@@ -1,6 +1,8 @@
 package dev.relay.tv.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -165,70 +167,45 @@ fun Focusable(
     val enabled = LocalFocusEnabled.current
     val memory = LocalFocusMemory.current
     val source = remember { MutableInteractionSource() }
-    var focused by remember { mutableStateOf(false) }
+    val focused by source.collectIsFocusedAsState()
     val ownRequester = remember { FocusRequester() }
     val requester = focusRequester ?: ownRequester
     val latestOnFocused by rememberUpdatedState(onFocused)
-    val latestOnClick by rememberUpdatedState(onClick)
-    val latestOnLongClick by rememberUpdatedState(onLongClick)
-    val scale = remember { Animatable(1f) }
-    val scope = rememberCoroutineScope()
-    val press = if (onLongClick != null) remember { OkPressTracker() } else null
 
-    if (key != null) {
-        DisposableEffect(memory, key, requester) {
-            memory.register(key, requester)
-            onDispose { memory.unregister(key, requester) }
+    LaunchedEffect(focused) {
+        if (focused) {
+            if (key != null) memory.lastKey = key
+            latestOnFocused()
+        }
+    }
+    LaunchedEffect(memory.restoreTick, enabled) {
+        if (enabled && memory.restoreTick > 0 && key != null && key == memory.lastKey) {
+            delay(80)
+            runCatching { requester.requestFocus() }
         }
     }
 
+    val scale by animateFloatAsState(if (focused) scaleOnFocus else 1f, label = "focusScale")
     Box(
         modifier
             .focusRequester(requester)
-            .onFocusChanged { state ->
-                val now = state.isFocused
-                if (now != focused) {
-                    focused = now
-                    scope.launch { scale.animateTo(if (now) scaleOnFocus else 1f) }
-                    if (now) {
-                        if (key != null) memory.lastKey = key
-                        latestOnFocused()
-                    }
-                }
-            }
             .graphicsLayer {
-                val v = scale.value
-                scaleX = v
-                scaleY = v
+                scaleX = scale
+                scaleY = scale
             }
             .clip(shape)
             .border(if (focused) 3.dp else 1.dp, if (focused) Palette.accent else Color.Transparent, shape)
             .then(
-                if (press == null) {
+                if (onLongClick == null) {
                     Modifier.clickable(interactionSource = source, indication = null, enabled = enabled, onClick = onClick)
                 } else {
                     Modifier
                         .onPreviewKeyEvent { e ->
-                            if (!enabled) return@onPreviewKeyEvent false
-                            val code = e.nativeKeyEvent.keyCode
-                            when {
-                                e.key == Key.Menu -> {
-                                    if (e.type == KeyEventType.KeyDown) { latestOnLongClick?.invoke(); true } else false
-                                }
-                                // OK is handled here, not by combinedClickable, which doesn't treat a held OK as a long press.
-                                e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter -> {
-                                    val result = if (e.type == KeyEventType.KeyDown) press.down(e.nativeKeyEvent.repeatCount) else press.up()
-                                    when (result) {
-                                        OkPressTracker.Result.Click -> latestOnClick()
-                                        OkPressTracker.Result.LongClick -> {
-                                            LongPressGuard.arm(code)
-                                            latestOnLongClick?.invoke()
-                                        }
-                                        OkPressTracker.Result.Nothing -> Unit
-                                    }
-                                    true
-                                }
-                                else -> false
+                            if (enabled && e.type == KeyEventType.KeyDown && e.key == Key.Menu) {
+                                onLongClick()
+                                true
+                            } else {
+                                false
                             }
                         }
                         .combinedClickable(
