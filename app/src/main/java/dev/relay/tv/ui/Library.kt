@@ -64,18 +64,19 @@ fun MoviesTab() {
         catState = ui.movieCatList,
         gridState = ui.movieGrid,
         items = list.items,
+        itemKey = { it.id },
         stale = list.stale,
         empty = when {
             catalog.loading && catalog.movies.isEmpty() -> "Loading movies…"
             ui.movieCat == UiState.FAV -> "Movies you add to My list show up here."
             else -> "Nothing here."
         },
-        pinnedIds = s.pinnedVod.toSet(),
+        pinnedIds = remember(s.pinnedVod) { s.pinnedVod.toSet() },
     ) { m ->
         val rt = posterScore("m", m.id)
         val tp = remember(m.name, m.year) { TitleParts.parse(m.name, m.year) }
         PosterCard(
-            m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "mv:${m.id}",
+            m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "mv:${m.id}", titleParts = tp,
             subtitle = listOfNotNull(tp.year, tp.region, m.rating.takeIf { it > 0 }?.let { "%.1f/10".format(it) }).joinToString(" · "),
             badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
@@ -111,18 +112,19 @@ fun SeriesTab() {
         catState = ui.seriesCatList,
         gridState = ui.seriesGrid,
         items = list.items,
+        itemKey = { it.id },
         stale = list.stale,
         empty = when {
             catalog.loading && catalog.series.isEmpty() -> "Loading series…"
             ui.seriesCat == UiState.FAV -> "Series you add to My list show up here."
             else -> "Nothing here."
         },
-        pinnedIds = s.pinnedSeries.toSet(),
+        pinnedIds = remember(s.pinnedSeries) { s.pinnedSeries.toSet() },
     ) { s ->
         val rt = posterScore("s", s.id)
         val tp = remember(s.name, s.year) { TitleParts.parse(s.name, s.year) }
         PosterCard(
-            s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "sr:${s.id}",
+            s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "sr:${s.id}", titleParts = tp,
             subtitle = listOfNotNull(tp.year, tp.region, s.rating.takeIf { it > 0 }?.let { "%.1f/10".format(it) }).joinToString(" · "),
             badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
@@ -206,6 +208,8 @@ private fun <T> Browser(
     catState: LazyListState,
     gridState: LazyGridState,
     items: List<T>?,
+    /** Stable id of a title, for keying grid cells. Lists from [buildTitleList] hold each id once. */
+    itemKey: (T) -> Any,
     /** [items] belong to the previous category and are being replaced: shown dimmed, not selectable. */
     stale: Boolean = false,
     empty: String,
@@ -257,7 +261,7 @@ private fun <T> Browser(
                     horizontalArrangement = Arrangement.spacedBy(22.dp),
                     verticalArrangement = Arrangement.spacedBy(22.dp),
                 ) {
-                    items(items) { card(it) }
+                    items(items, key = itemKey) { card(it) }
                 }
             }
         }

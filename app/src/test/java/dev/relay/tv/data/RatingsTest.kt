@@ -167,4 +167,28 @@ class RatingsTest {
         val other = AppLog.redact("GET /x?apikey=abcdefg")
         assertFalse(other.contains("abcdefg"))
     }
+
+    // ---------- Posters redraw one at a time ----------
+
+    @Test
+    fun aSavedScoreChangesOnlyThatTitlesCounter() {
+        val ratings = Ratings(OkHttpClient(), null)
+        ratings.saved("m:1")
+        ratings.saved("m:2")
+        val one = ratings.versionOf("m:1")
+        val two = ratings.versionOf("m:2")
+        val before = one.intValue to two.intValue
+        ratings.keep("m:1", Score(critics = 90))
+        assertEquals(before.first + 1, one.intValue)
+        assertEquals(before.second, two.intValue)
+        assertEquals(90, ratings.saved("m:1")?.critics)
+    }
+
+    @Test
+    fun aScoreForATitleNobodyDrewNeedsNoCounter() {
+        val ratings = Ratings(OkHttpClient(), null)
+        ratings.keep("s:9", Score(critics = 70))
+        assertEquals(70, ratings.saved("s:9")?.critics)
+        assertEquals(0, ratings.versionOf("s:9").intValue)
+    }
 }

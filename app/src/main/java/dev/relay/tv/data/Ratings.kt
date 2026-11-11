@@ -1,5 +1,6 @@
 package dev.relay.tv.data
 
+import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -11,6 +12,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.util.Calendar
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /** Rotten Tomatoes scores for one title, 1 to 100; null when Rotten Tomatoes has none. */
@@ -193,14 +195,17 @@ class Ratings(client: OkHttpClient, cacheFile: File?, private val clock: () -> L
     private val http = client.newBuilder().callTimeout(15, TimeUnit.SECONDS).build()
     val cache = RatingsCache(cacheFile, clock)
 
-    /** Bumps when a score is saved, so posters showing saved scores update. */
-    val version = mutableIntStateOf(0)
+    // One counter per title that has been drawn, so a score arriving redraws that poster alone and
+    // not every poster on screen. Entries exist only for titles whose saved score was asked for.
+    private val keyVersions = ConcurrentHashMap<String, MutableIntState>()
+
+    internal fun versionOf(key: String): MutableIntState = keyVersions.getOrPut(key) { mutableIntStateOf(0) }
 
     var base = MdbList.BASE
 
     /** Saved score for a provider title ("m:123" or "s:45"), fresh or not. */
     fun saved(key: String): Score? {
-        version.intValue
+        versionOf(key).intValue
         return cache.get(key)
     }
 
@@ -273,9 +278,9 @@ class Ratings(client: OkHttpClient, cacheFile: File?, private val clock: () -> L
         }
     }
 
-    private fun keep(key: String, s: Score): Score {
+    internal fun keep(key: String, s: Score): Score {
         cache.put(key, s)
-        version.intValue++
+        keyVersions[key]?.let { it.intValue++ }
         return s
     }
 

@@ -403,9 +403,11 @@ fun PosterCard(
     onFocused: () -> Unit = {},
     parseTitle: Boolean = true,
     onLongClick: (() -> Unit)? = null,
+    /** The title already split into its parts by the caller, so it isn't parsed twice per card. */
+    titleParts: dev.relay.tv.data.TitleParts? = null,
 ) {
     // Provider names like "ES - Nocturno (2026) (US)" show as "Nocturno" with an "ES" tag on the art.
-    val parts = remember(title, parseTitle) { if (parseTitle) dev.relay.tv.data.TitleParts.parse(title) else null }
+    val parts = titleParts ?: remember(title, parseTitle) { if (parseTitle) dev.relay.tv.data.TitleParts.parse(title) else null }
     val shown = parts?.title ?: title
     val tag = parts?.tag
     Column(modifier.width(width)) {
@@ -647,8 +649,10 @@ fun PinDialog(title: String, onDismiss: () -> Unit, check: (String) -> Boolean, 
 fun Backdrop(url: String?) {
     Box(Modifier.fillMaxSize()) {
         if (!url.isNullOrBlank()) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val request = remember(url) { coil.request.ImageRequest.Builder(ctx).data(url).crossfade(true).build() }
             AsyncImage(
-                model = url, contentDescription = null, contentScale = ContentScale.Crop,
+                model = request, contentDescription = null, contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.45f },
             )
         }
