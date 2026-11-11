@@ -24,6 +24,8 @@ mark() {
   local top
   top=$(adb shell dumpsys activity activities 2>/dev/null | grep -m1 -E "topResumedActivity|mResumedActivity" | sed 's/^ *//' | cut -c1-110)
   echo "== $1   ($top)"
+  adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1
+  adb shell cat /sdcard/ui.xml 2>/dev/null | python3 tools/bench/uidump.py || true
   adb shell log -t RelayBench "stretch:$1"
 }
 # One key press every $1 seconds: keys 0.3 $DOWN $DOWN $RIGHT
