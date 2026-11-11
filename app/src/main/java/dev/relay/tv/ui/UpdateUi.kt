@@ -141,13 +141,13 @@ private fun Title(text: String) {
 
 @Composable
 private fun Body(text: String) {
-    Text(text, fontSize = 16.sp, color = Palette.dim, lineHeight = 23.sp)
+    Text(text, fontSize = Type.bodyLarge, color = Palette.dim, lineHeight = 23.sp)
 }
 
 @Composable
 private fun Notes(text: String) {
     Text(
-        text, fontSize = 15.sp, color = Palette.text, lineHeight = 22.sp,
+        text, fontSize = Type.body, color = Palette.text, lineHeight = 22.sp,
         maxLines = 8, overflow = TextOverflow.Ellipsis,
     )
 }

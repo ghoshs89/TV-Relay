@@ -26,6 +26,14 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 
 /**
  * Programme reminders. Checked every 15 s while Relay is open (Android TV doesn't reliably show
@@ -92,9 +100,13 @@ fun ReminderDialog(r: Reminder) {
     val first = remember { FocusRequester() }
     InitialFocus(first)
     TvDialog(onDismiss = { ReminderCenter.due = null }) {
-        Text("⏰  Starting now", fontSize = 15.sp, color = Palette.accent, fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Notifications, contentDescription = null, tint = Palette.accent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Starting now", fontSize = Type.body, color = Palette.accent, fontWeight = FontWeight.SemiBold)
+        }
         Text(r.title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.text)
-        Text("on ${r.channelName}", fontSize = 16.sp, color = Palette.dim)
+        Text("on ${r.channelName}", fontSize = Type.bodyLarge, color = Palette.dim)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Watch", { ReminderCenter.watch(ctx, r) }, focusRequester = first, primary = true)
             PillButton("Dismiss", { ReminderCenter.due = null })

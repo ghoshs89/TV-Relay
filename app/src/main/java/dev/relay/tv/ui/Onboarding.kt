@@ -148,13 +148,13 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
             "Tip: copy the message your provider sent you and press Paste provider message. " +
                 "Add every server URL you were given; if one stops answering, Relay moves to the next " +
                 "automatically. Your login stays on this device only.",
-            fontSize = 14.sp, color = Palette.dim, lineHeight = 21.sp,
+            fontSize = Type.small, color = Palette.dim, lineHeight = 21.sp,
         )
     }
     val form: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Paste provider message", paste, icon = Icons.Filled.Edit)
-            note?.let { Text(it, color = Palette.accent, fontSize = 14.sp) }
+            note?.let { Text(it, color = Palette.accent, fontSize = Type.small) }
             TvTextField(name, { name = it }, "Playlist name", Modifier.fillMaxWidth(), focusRequester = first)
             TvTextField(host, { host = it }, "Server URL (e.g. http://example.com:8080)", Modifier.fillMaxWidth())
             TvTextField(backups, { backups = it }, "Backup servers (comma separated, optional)", Modifier.fillMaxWidth())
@@ -163,7 +163,7 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
                 pass, { pass = it }, "Password", Modifier.fillMaxWidth(), password = true,
                 imeAction = ImeAction.Done, onDone = submit,
             )
-            err?.let { Text(it, color = Palette.danger, fontSize = 15.sp) }
+            err?.let { Text(it, color = Palette.danger, fontSize = Type.body) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PillButton(if (busy) "Checking…" else "Sign in", submit, primary = true)
                 if (onCancel != null) PillButton("Cancel", onCancel)
@@ -268,7 +268,7 @@ fun ProfilesScreen(onPick: (Profile) -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Add profile", color = Palette.dim, fontSize = 16.sp)
+                Text("Add profile", color = Palette.dim, fontSize = Type.bodyLarge)
             }
         }
     }
@@ -327,7 +327,7 @@ private fun ProfileTile(
         }
         Spacer(Modifier.height(12.dp))
         Text(name, color = Palette.text, fontSize = 18.sp)
-        if (kids) Text("Kids", color = Palette.accent, fontSize = 13.sp)
+        if (kids) Text("Kids", color = Palette.accent, fontSize = Type.caption)
     }
 }
 

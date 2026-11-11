@@ -29,6 +29,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -206,6 +209,10 @@ fun PillButton(
     focusRequester: FocusRequester? = null,
     primary: Boolean = false,
     danger: Boolean = false,
+    /** Tighter padding and a smaller label, for bars and side panels. */
+    compact: Boolean = false,
+    /** Fill the width it is given and centre the label (two buttons side by side). */
+    fill: Boolean = false,
 ) {
     Focusable(onClick, modifier, key = key, shape = RoundedCornerShape(50), focusRequester = focusRequester) { f ->
         val bg = when {
@@ -215,14 +222,20 @@ fun PillButton(
         }
         val fg = if (f) Color.Black else if (danger) Palette.danger else Palette.text
         Row(
-            Modifier.background(bg).padding(horizontal = 22.dp, vertical = 11.dp),
+            (if (fill) Modifier.fillMaxWidth() else Modifier)
+                .background(bg)
+                .padding(horizontal = if (compact) 12.dp else 22.dp, vertical = if (compact) 8.dp else 11.dp),
+            horizontalArrangement = if (fill) Arrangement.Center else Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (icon != null) {
-                Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
+                Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(if (compact) 16.dp else 20.dp))
+                Spacer(Modifier.width(if (compact) 6.dp else 8.dp))
             }
-            Text(text, color = fg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1)
+            Text(
+                text, color = fg, fontWeight = FontWeight.SemiBold, fontSize = if (compact) Type.caption else Type.body,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -239,6 +252,10 @@ fun ListRow(
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
     textColor: Color = Palette.text,
+    /** Drawn before the text (a pin, a star, a language mark). */
+    icon: ImageVector? = null,
+    /** Drawn after the count (open or closed section arrow). */
+    trailingIcon: ImageVector? = null,
 ) {
     Focusable(
         onClick, modifier.fillMaxWidth(), key = key, shape = RoundedCornerShape(8.dp),
@@ -255,14 +272,22 @@ fun ListRow(
                 Box(Modifier.size(width = 3.dp, height = 18.dp).background(Palette.accent))
                 Spacer(Modifier.width(10.dp))
             }
+            if (icon != null) {
+                Icon(icon, contentDescription = null, tint = if (selected) Palette.accent else textColor, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+            }
             // A long name scrolls while focused so the whole of it can be read.
             Text(
                 text, Modifier.weight(1f).then(if (f) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier),
                 color = if (selected) Palette.accent else textColor,
-                fontSize = 15.sp, maxLines = 1, overflow = if (f) TextOverflow.Clip else TextOverflow.Ellipsis,
+                fontSize = Type.body, maxLines = 1, overflow = if (f) TextOverflow.Clip else TextOverflow.Ellipsis,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             )
-            if (trailing != null) Text(trailing, color = Palette.dim, fontSize = 13.sp, maxLines = 1)
+            if (trailing != null) Text(trailing, color = Palette.dim, fontSize = Type.caption, maxLines = 1)
+            if (trailingIcon != null) {
+                Spacer(Modifier.width(4.dp))
+                Icon(trailingIcon, contentDescription = null, tint = Palette.dim, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }
@@ -280,6 +305,8 @@ fun PosterCard(
     progress: Float? = null,
     badge: String? = null,
     badgeColor: Color = Palette.accent,
+    /** Draw a star before the badge text (a rating). */
+    badgeStar: Boolean = false,
     fit: Boolean = false,
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
@@ -315,19 +342,24 @@ fun PosterCard(
                             .padding(6.dp)
                             .background(Color(0xCC000000), RoundedCornerShape(4.dp))
                             .padding(horizontal = 5.dp, vertical = 1.dp),
-                        color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                        color = Color.White, fontSize = Type.label, fontWeight = FontWeight.Bold,
                     )
                 }
                 if (badge != null) {
-                    Text(
-                        badge,
+                    Row(
                         Modifier
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
                             .background(Color(0xCC000000), RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp),
-                        color = badgeColor, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                    )
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (badgeStar) {
+                            Icon(Icons.Filled.Star, contentDescription = null, tint = badgeColor, modifier = Modifier.size(12.dp))
+                            Spacer(Modifier.width(3.dp))
+                        }
+                        Text(badge, color = badgeColor, fontSize = Type.label, fontWeight = FontWeight.Bold)
+                    }
                 }
                 if (progress != null) {
                     Box(
@@ -340,9 +372,9 @@ fun PosterCard(
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(shown, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, color = Palette.text)
+        Text(shown, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = Type.caption, color = Palette.text)
         if (subtitle != null) {
-            Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp, color = Palette.dim)
+            Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = Type.label, color = Palette.dim)
         }
     }
 }
@@ -470,8 +502,8 @@ fun TextEditDialog(
     val fr = remember { FocusRequester() }
     InitialFocus(fr)
     TvDialog(onDismiss) {
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
-        if (hint != null) Text(hint, fontSize = 14.sp, color = Palette.dim)
+        Text(title, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+        if (hint != null) Text(hint, fontSize = Type.small, color = Palette.dim)
         TvTextField(
             text, { text = it }, title, Modifier.fillMaxWidth(), password = password,
             focusRequester = fr, imeAction = ImeAction.Done, onDone = { onSave(text.trim()) },
@@ -498,12 +530,12 @@ fun PinDialog(title: String, onDismiss: () -> Unit, check: (String) -> Boolean, 
         }
     }
     TvDialog(onDismiss, width = 440.dp) {
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text(title, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         TvTextField(
             pin, { if (it.length <= 8) pin = it.filter(Char::isDigit) }, "PIN", Modifier.fillMaxWidth(),
             password = true, number = true, focusRequester = fr, imeAction = ImeAction.Done, onDone = submit,
         )
-        if (wrong) Text("Wrong PIN, try again", color = Palette.danger, fontSize = 14.sp)
+        if (wrong) Text("Wrong PIN, try again", color = Palette.danger, fontSize = Type.small)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Unlock", submit, primary = true)
             PillButton("Cancel", onDismiss)
@@ -539,8 +571,16 @@ fun Backdrop(url: String?) {
 
 @Composable
 fun EmptyState(text: String, modifier: Modifier = Modifier) {
+    // "Loading…" gets a small spinner so a list that is still being built never reads as empty.
+    val loading = text.startsWith("Loading")
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, color = Palette.dim, fontSize = 16.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (loading) {
+                CircularProgressIndicator(Modifier.size(18.dp), color = Palette.accent, strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(text, color = Palette.dim, fontSize = Type.bodyLarge)
+        }
     }
 }
 
@@ -592,7 +632,7 @@ fun ChannelTile(
                     contentAlignment = Alignment.Center,
                 ) {
                     // Initials stay visible until the logo actually loads, so a broken logo never leaves a blank tile.
-                    if (!logoOk) Text(initials(title), color = Color(0xFF5B6B85), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    if (!logoOk) Text(initials(title), color = Color(0xFF5B6B85), fontSize = Type.heading, fontWeight = FontWeight.Bold)
                     if (!ch.logo.isNullOrBlank() && !LogoFailures.has(ch.logo)) {
                         AsyncImage(
                             model = ch.logo, contentDescription = null, contentScale = ContentScale.Fit,
@@ -613,7 +653,7 @@ fun ChannelTile(
                             .padding(6.dp)
                             .background(Palette.bg.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
                             .padding(horizontal = 5.dp, vertical = 1.dp),
-                        color = Palette.accent, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                        color = Palette.accent, fontSize = Type.label, fontWeight = FontWeight.Bold,
                     )
                 }
                 if (ch.hasArchive) {
@@ -624,15 +664,15 @@ fun ChannelTile(
                             .padding(6.dp)
                             .background(Palette.bg.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
                             .padding(horizontal = 5.dp, vertical = 1.dp),
-                        color = Palette.accent2, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                        color = Palette.accent2, fontSize = Type.label, fontWeight = FontWeight.Bold,
                     )
                 }
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, color = Palette.text, fontWeight = FontWeight.SemiBold)
+        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = Type.caption, color = Palette.text, fontWeight = FontWeight.SemiBold)
         if (nowPlaying != null) {
-            Text(nowPlaying, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp, color = Palette.dim)
+            Text(nowPlaying, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = Type.label, color = Palette.dim)
         }
     }
 }

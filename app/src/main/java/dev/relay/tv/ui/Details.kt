@@ -92,7 +92,7 @@ fun MovieDetailScreen(m: Movie) {
         tmdb?.year ?: info?.year ?: m.year,
         tp.tag, tp.region,
         info?.durationSecs?.takeIf { it > 0 }?.let { fmtDuration(it * 1000L) },
-        rating?.let { "★ %.1f".format(it) },
+        rating?.let { "%.1f/10".format(it) },
         tmdb?.genres?.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", ") ?: info?.genre,
     )
 
@@ -112,7 +112,7 @@ fun MovieDetailScreen(m: Movie) {
                     color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(8.dp))
-                if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = 15.sp)
+                if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = Type.body)
                 if (store.settings.ratingsKey.isNotBlank() && score?.none == false) {
                     Spacer(Modifier.height(8.dp))
                     RtScores(score)
@@ -143,9 +143,9 @@ fun MovieDetailScreen(m: Movie) {
                 } else if (!plot.isNullOrBlank()) {
                     Text(plot, color = Palette.text, fontSize = if (compact) 15.sp else 17.sp, lineHeight = if (compact) 22.sp else 25.sp)
                 }
-                info?.director?.let { Text("Director: $it", color = Palette.dim, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp)) }
+                info?.director?.let { Text("Director: $it", color = Palette.dim, fontSize = Type.small, modifier = Modifier.padding(top = 12.dp)) }
                 val cast = tmdb?.cast?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: info?.cast
-                cast?.let { Text("Cast: $it", color = Palette.dim, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp)) }
+                cast?.let { Text("Cast: $it", color = Palette.dim, fontSize = Type.small, modifier = Modifier.padding(top = 4.dp)) }
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -208,7 +208,7 @@ fun SeriesDetailScreen(s: Series) {
         tmdb?.year ?: info?.year ?: s.year,
         tp.tag, tp.region,
         if (seasonKeys.isNotEmpty()) "${seasonKeys.size} season${if (seasonKeys.size == 1) "" else "s"}" else null,
-        rating?.let { "★ %.1f".format(it) },
+        rating?.let { "%.1f/10".format(it) },
         tmdb?.genres?.takeIf { it.isNotEmpty() }?.take(3)?.joinToString(", ") ?: info?.genre,
     )
 
@@ -226,7 +226,7 @@ fun SeriesDetailScreen(s: Series) {
                         color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(8.dp))
-                    if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = 15.sp)
+                    if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = Type.body)
                     if (store.settings.ratingsKey.isNotBlank() && score?.none == false) {
                         Spacer(Modifier.height(8.dp))
                         RtScores(score)
@@ -313,7 +313,7 @@ fun SeriesDetailScreen(s: Series) {
 @Composable
 fun LoadFailed(text: String, key: String? = null, onRetry: () -> Unit) {
     Column {
-        Text(text, color = Palette.danger, fontSize = 15.sp)
+        Text(text, color = Palette.danger, fontSize = Type.body)
         Spacer(Modifier.height(8.dp))
         PillButton("Retry", onRetry, icon = Icons.Filled.Refresh, key = key)
     }

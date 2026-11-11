@@ -25,7 +25,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -76,7 +85,10 @@ private sealed interface CatRow {
     /** Unique in the list: a pinned category also appears again under its country. */
     val lazyKey: String
 
-    data class Item(val id: String, val label: String, val count: Int?, val indent: Boolean = false, val pinned: Boolean = false) : CatRow {
+    data class Item(
+        val id: String, val label: String, val count: Int?, val indent: Boolean = false, val pinned: Boolean = false,
+        val icon: ImageVector? = null,
+    ) : CatRow {
         override val lazyKey: String get() = (if (pinned) "pin:" else "lc:") + id
     }
 
@@ -156,21 +168,21 @@ fun LiveTab() {
     val byCat = catalog.channelsByCat
     val rows: List<CatRow> = remember(providerCats, countries, shortName, openCountry, pinned, groups, langCounts, langOrder, byCat, total) {
       buildList {
-        add(CatRow.Item(UiState.FAV, "★ Favourites", null))
+        add(CatRow.Item(UiState.FAV, "Favourites", null, icon = Icons.Filled.Star))
         add(CatRow.Item(UiState.HISTORY, "Recently watched", null))
         pinned.forEach { id ->
             if (providerCats.any { it.id == id }) {
                 val g = countries?.firstOrNull { gr -> gr.cats.any { it.id == id } }
                 val prefix = if (g != null && g.key != "__other") "${g.label} · " else ""
-                add(CatRow.Item(id, "📌 $prefix${ProviderNames.clean(shortName[id] ?: id)}", byCat[id]?.size, pinned = true))
+                add(CatRow.Item(id, "$prefix${ProviderNames.clean(shortName[id] ?: id)}", byCat[id]?.size, pinned = true, icon = Icons.Filled.Place))
             }
         }
-        groups.forEach { add(CatRow.Item("${ChannelEdits.GROUP}${it.id}", "▸ ${it.name}", it.channelIds.size)) }
+        groups.forEach { add(CatRow.Item("${ChannelEdits.GROUP}${it.id}", it.name, it.channelIds.size, icon = Icons.Filled.List)) }
         add(CatRow.Item(UiState.ALL, "All channels", total))
         // By language: Bangladesh sits right under Bengali.
         Langs.viewOrder(langOrder).forEach { k ->
             val n = langCounts[k] ?: 0
-            if (n > 0) add(CatRow.Item("$LANG$k", "🗣 ${Langs.label(k)}", n))
+            if (n > 0) add(CatRow.Item("$LANG$k", Langs.label(k), n, icon = RelayIcons.Language))
         }
         if (countries == null) {
             providerCats.forEach { add(CatRow.Item(it.id, ProviderNames.clean(it.name), byCat[it.id]?.size)) }
@@ -209,6 +221,8 @@ fun LiveTab() {
     }
     val shown = ui.liveResult?.takeIf { it.query.cat == cat }
     val channels: List<Channel> = shown?.channels ?: emptyList()
+    // Providers that don't number channels would leave an empty column; leave it out then.
+    val showNumbers = remember(channels) { channels.any { it.num > 0 } }
     val focused = remember { mutableStateOf<Channel?>(null) }
     val isTv = rememberIsTv()
     val showPanel by remember { derivedStateOf { isTv || focused.value != null } }
@@ -217,12 +231,15 @@ fun LiveTab() {
     val isProviderCat = providerCats.any { it.id == ui.liveCat }
     val isPinned = ui.liveCat in pinned
 
-    // 1080p TVs are 960 dp wide and phones in landscape ~750 dp: size columns to fit the channel list.
+    // The channel list keeps at least 45% of the width, whatever the screen: the category and
+    // panel columns take shares of the real width instead of switching at one fixed size.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val narrow = maxWidth < 900.dp
-        val catWidth = if (narrow) 170.dp else 220.dp
-        val panelWidth = if (narrow) 240.dp else 300.dp
-        Row(Modifier.fillMaxSize().padding(start = if (narrow) 16.dp else 32.dp, end = if (narrow) 16.dp else 32.dp, bottom = 16.dp)) {
+        val side = if (narrow) 16.dp else 32.dp
+        val widths = LiveLayout.widths(maxWidth.value, side.value)
+        val catWidth = widths.category.dp
+        val panelWidth = widths.panel.dp
+        Row(Modifier.fillMaxSize().padding(start = side, end = side, bottom = 16.dp)) {
             LazyColumn(
                 Modifier.width(catWidth).fillMaxHeight().fadeEdges(),
                 state = ui.liveCatList,
@@ -241,12 +258,14 @@ fun LiveTab() {
                             selected = ui.liveCat == row.id,
                             key = "lc:${row.id}",
                             trailing = row.count?.toString(),
+                            icon = row.icon,
                         )
                         is CatRow.Header -> ListRow(
                             row.label,
                             onClick = { ui.liveCountry = if (row.open) "" else row.key },
                             key = "lh:${row.key}",
-                            trailing = "${row.count}  ${if (row.open) "▾" else "▸"}",
+                            trailing = row.count.toString(),
+                            trailingIcon = if (row.open) Icons.Filled.ArrowDropDown else Icons.Filled.KeyboardArrowRight,
                             textColor = Palette.accent2,
                         )
                     }
@@ -326,6 +345,7 @@ fun LiveTab() {
                             ChannelRow(
                                 ch,
                                 fav = ch.id in favSet,
+                                showNumber = showNumbers,
                                 onFocused = { focused.value = ch },
                                 onClick = { Playback.live(ctx, channels, i) },
                             )
@@ -388,7 +408,7 @@ private fun Chip(label: String, on: Boolean, key: String, compact: Boolean = fal
                 .background(if (f) Palette.accent else if (on) Palette.surface2 else Palette.surface)
                 .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = 7.dp),
             color = if (f) Color.Black else if (on) Palette.accent else Palette.text,
-            fontSize = 13.sp, maxLines = 1, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+            fontSize = Type.caption, maxLines = 1, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
         )
     }
 }
@@ -399,7 +419,7 @@ fun LiveTextDialog(title: String, value: String, onValueChange: (String) -> Unit
     val fr = remember { FocusRequester() }
     InitialFocus(fr)
     TvDialog(onDismiss) {
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text(title, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         TvTextField(
             value, onValueChange, title, Modifier.fillMaxWidth(),
             focusRequester = fr, autoOpen = true, imeAction = ImeAction.Done, onDone = onDismiss,
@@ -412,7 +432,7 @@ fun LiveTextDialog(title: String, value: String, onValueChange: (String) -> Unit
 }
 
 @Composable
-private fun ChannelRow(ch: Channel, fav: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
+private fun ChannelRow(ch: Channel, fav: Boolean, showNumber: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
     val catalog = RelayApp.instance.catalog
     // Each row loads and shows its own programmes, so one arriving doesn't redraw the whole list.
     val guideRound = catalog.epgVersion
@@ -432,32 +452,32 @@ private fun ChannelRow(ch: Channel, fav: Boolean, onFocused: () -> Unit, onClick
             Modifier.fillMaxSize().background(if (f) Palette.surface2 else Palette.surface).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(if (ch.num > 0) ch.num.toString() else "", Modifier.width(52.dp), color = Palette.dim, fontSize = 14.sp)
+            if (showNumber) Text(if (ch.num > 0) ch.num.toString() else "", Modifier.width(52.dp), color = Palette.dim, fontSize = Type.small)
             Box(
                 Modifier.size(width = 76.dp, height = 46.dp).background(Palette.bg, RoundedCornerShape(6.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 LogoImage(ch.logo, Modifier.fillMaxSize().padding(4.dp)) {
-                    Text(initials(ch.name), color = Palette.dim, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(initials(ch.name), color = Palette.dim, fontSize = Type.small, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(name, color = Palette.text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(name, color = Palette.text, fontSize = Type.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val cur = nn?.first
                 val next = nn?.second
                 when {
                     nn == null -> {}
-                    cur == null && next == null -> Text("No guide available", color = Palette.dim, fontSize = 12.sp)
+                    cur == null && next == null -> Text("No guide available", color = Palette.dim, fontSize = Type.label)
                     else -> {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 cur?.title ?: "Nothing on now", Modifier.weight(1f, fill = false),
-                                color = Palette.text.copy(alpha = 0.8f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                color = Palette.text.copy(alpha = 0.8f), fontSize = Type.label, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
                             if (next != null) {
                                 Text(
-                                    "   Next: ${next.title}", color = Palette.dim, fontSize = 12.sp,
+                                    "   Next: ${next.title}", color = Palette.dim, fontSize = Type.label,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 )
                             }
@@ -473,7 +493,7 @@ private fun ChannelRow(ch: Channel, fav: Boolean, onFocused: () -> Unit, onClick
                 }
             }
             if (ch.hasArchive) {
-                Text("CATCH-UP", color = Palette.accent2, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("CATCH-UP", color = Palette.accent2, fontSize = Type.label, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(8.dp))
             }
             if (fav) Icon(Icons.Filled.Star, null, tint = Palette.accent, modifier = Modifier.size(18.dp))
@@ -489,9 +509,9 @@ private fun hm(sec: Long) = timeFmt.format(Date(sec * 1000))
 private fun ChannelPanel(focus: State<Channel?>, modifier: Modifier, groupId: String?) {
     // Read here, not by the screen, so moving through the list only redraws the panel.
     val ch = focus.value
-    Column(modifier.background(Palette.surface, RoundedCornerShape(12.dp)).padding(20.dp)) {
+    Column(modifier.background(Palette.surface, RoundedCornerShape(12.dp)).padding(16.dp)) {
         if (ch == null) {
-            Text("Move through the list to see what's on.", color = Palette.dim, fontSize = 15.sp)
+            Text("Move through the list to see what's on.", color = Palette.dim, fontSize = Type.body)
         } else {
             ChannelDetails(ch, groupId)
         }
@@ -540,34 +560,45 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
                 LogoImage(ch.logo, Modifier.fillMaxSize().padding(6.dp)) {}
             }
             Spacer(Modifier.width(14.dp))
-            Text(ch.name, color = Palette.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+            // The same cleaned name the list shows, not the provider's raw one.
+            Text(ProviderNames.clean(ch.name), color = Palette.text, fontSize = Type.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
         val fav = store.isFav(pid, "live", ch.id)
-        // Stacked so both buttons fit the narrower panel on 1080p TVs and phones.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PillButton(if (fav) "★ Favourite" else "☆ Favourite", {
+        val current = epg?.firstOrNull { it.start <= nowSec && nowSec < it.end }
+        val versions = remember(ch.id, app.catalog.channels, store.settings.preferredVersions) { app.catalog.versionsOf(ch.id) }
+        // Two buttons per row, so up to five of them leave room for the programme list on a 540 dp screen.
+        val actions = buildList {
+            add(PanelAction("Favourite", if (fav) Icons.Filled.Star else Icons.Filled.Add, "pf:${ch.id}") {
                 store.toggleFav(pid, FavItem("live", ch.id, ch.name, ch.logo))
-            }, key = "pf:${ch.id}")
+            })
             if (ch.hasArchive) {
-                PillButton(if (showArchive) "Guide" else "Catch-up", {
+                add(PanelAction(if (showArchive) "Guide" else "Catch-up", Icons.Filled.DateRange, "pa:${ch.id}") {
                     showArchive = !showArchive
                     if (archive == null) loadArchive()
-                }, key = "pa:${ch.id}")
+                })
             }
-            val current = epg?.firstOrNull { it.start <= nowSec && nowSec < it.end }
             if (ch.hasArchive && current != null) {
-                PillButton("⟲ Start over", { Playback.catchup(ctx, ch, current) }, key = "ps:${ch.id}")
+                add(PanelAction("Start over", Icons.Filled.Refresh, "ps:${ch.id}") { Playback.catchup(ctx, ch, current) })
             }
-            val versions = remember(ch.id, app.catalog.channels, store.settings.preferredVersions) { app.catalog.versionsOf(ch.id) }
             if (versions.size > 1) {
-                PillButton("Versions (${versions.size})", { versionsOpen = true }, key = "pv:${ch.id}")
+                add(PanelAction("Versions", Icons.Filled.List, "pv:${ch.id}") { versionsOpen = true })
             }
-            PillButton("Options", { options = true }, key = "po:${ch.id}")
+            add(PanelAction("Options", Icons.Filled.Settings, "po:${ch.id}") { options = true })
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            actions.chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    pair.forEach { a ->
+                        PillButton(a.text, a.onClick, Modifier.weight(1f), icon = a.icon, key = a.key, compact = true, fill = true)
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
         }
         if (options) ChannelOptionsDialog(ch, groupId, onDismiss = { options = false })
         if (versionsOpen) ChannelVersionsDialog(ch, onDismiss = { versionsOpen = false })
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         if (!showArchive) {
             val list = epg
@@ -581,12 +612,12 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
                         Column {
                             Text(
                                 (if (live) "NOW  " else "") + "${hm(e.start)} – ${hm(e.end)}",
-                                color = if (live) Palette.accent else Palette.dim, fontSize = 12.sp,
+                                color = if (live) Palette.accent else Palette.dim, fontSize = Type.label,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            Text(e.title, color = Palette.text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(e.title, color = Palette.text, fontSize = Type.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (live && e.description.isNotBlank()) {
-                                Text(e.description, color = Palette.dim, fontSize = 13.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                                Text(e.description, color = Palette.dim, fontSize = Type.caption, maxLines = 4, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -610,9 +641,9 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
                             Column(Modifier.fillMaxWidth().background(if (f) Palette.surface2 else Palette.bg).padding(10.dp)) {
                                 Text(
                                     "${dayFmt.format(Date(e.start * 1000))}  ${hm(e.start)}",
-                                    color = Palette.dim, fontSize = 12.sp,
+                                    color = Palette.dim, fontSize = Type.label,
                                 )
-                                Text(e.title, color = Palette.text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(e.title, color = Palette.text, fontSize = Type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -621,6 +652,8 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
         }
     }
 }
+
+private class PanelAction(val text: String, val icon: ImageVector, val key: String, val onClick: () -> Unit)
 
 /** Every version of a channel: play one, or make it the one lists show and play first. */
 @Composable
@@ -635,11 +668,11 @@ private fun ChannelVersionsDialog(ch: Channel, onDismiss: () -> Unit) {
     val first = remember { FocusRequester() }
     InitialFocus(first)
     TvDialog(onDismiss, width = 620.dp) {
-        Text("Versions of ${ProviderNames.clean(ch.name)}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("Versions of ${ProviderNames.clean(ch.name)}", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
             "Lists show the first one. If it fails to play, Relay tries the next. OK plays a version; " +
                 "Use as main moves it to the top.",
-            fontSize = 14.sp, color = Palette.dim,
+            fontSize = Type.small, color = Palette.dim,
         )
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(versions.size) { i ->

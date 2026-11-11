@@ -75,11 +75,11 @@ fun ParentPinDialog(onDismiss: () -> Unit, intro: String? = null) {
         }
     }
     TvDialog(onDismiss, width = 480.dp) {
-        Text("Parent PIN", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("Parent PIN", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
             intro ?: "Needed to add or remove profiles, leave a kids profile, show adult categories, " +
                 "restore a backup, change servers or sign out.",
-            fontSize = 14.sp, color = Palette.dim,
+            fontSize = Type.small, color = Palette.dim,
         )
         TvTextField(
             pin, { pin = it.filter(Char::isDigit).take(8) }, "New PIN (4 to 8 digits)", Modifier.fillMaxWidth(),
@@ -89,7 +89,7 @@ fun ParentPinDialog(onDismiss: () -> Unit, intro: String? = null) {
             again, { again = it.filter(Char::isDigit).take(8) }, "Same PIN again", Modifier.fillMaxWidth(),
             password = true, number = true, imeAction = ImeAction.Done, onDone = save,
         )
-        err?.let { Text(it, color = Palette.danger, fontSize = 14.sp) }
+        err?.let { Text(it, color = Palette.danger, fontSize = Type.small) }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Save", save, primary = true)
             if (store.hasParentPin) {

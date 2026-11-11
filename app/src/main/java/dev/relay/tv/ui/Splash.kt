@@ -53,12 +53,12 @@ fun SplashScreen(onDone: () -> Unit) {
                 modifier = Modifier.graphicsLayer { alpha = fade.value },
             )
             Text(
-                "Live TV  ·  Movies  ·  Series", fontSize = 16.sp, color = Palette.dim,
+                "Live TV  ·  Movies  ·  Series", fontSize = Type.bodyLarge, color = Palette.dim,
                 modifier = Modifier.graphicsLayer { alpha = fade.value },
             )
         }
         Text(
-            "v${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = Palette.dim,
+            "v${BuildConfig.VERSION_NAME}", fontSize = Type.label, color = Palette.dim,
             modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp).graphicsLayer { alpha = fade.value },
         )
     }

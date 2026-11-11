@@ -43,6 +43,7 @@ import dev.relay.tv.ui.InitialFocus
 import dev.relay.tv.ui.LogoImage
 import dev.relay.tv.ui.Palette
 import dev.relay.tv.ui.initials
+import dev.relay.tv.ui.Type
 
 /** Channel list drawn over live video. OK picks a channel; Back closes it. */
 @Composable
@@ -69,8 +70,8 @@ fun ChannelOverlay(items: List<PlayItem>, current: Int, onPick: (Int) -> Unit) {
             .background(Brush.horizontalGradient(0f to Color(0xEE000000), 0.45f to Color(0x99000000), 0.7f to Color.Transparent)),
     ) {
         Column(Modifier.width(440.dp).fillMaxHeight().padding(start = 32.dp, top = 28.dp, bottom = 20.dp)) {
-            Text("Channels", color = Palette.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("OK to watch  ·  Back to close", color = Palette.dim, fontSize = 12.sp)
+            Text("Channels", color = Palette.text, fontSize = Type.title, fontWeight = FontWeight.Bold)
+            Text("OK to watch  ·  Back to close", color = Palette.dim, fontSize = Type.label)
             Spacer(Modifier.height(10.dp))
             LazyColumn(
                 state = state,
@@ -93,24 +94,24 @@ fun ChannelOverlay(items: List<PlayItem>, current: Int, onPick: (Int) -> Unit) {
                                 .padding(horizontal = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(item.subtitle ?: "", Modifier.width(44.dp), color = Palette.dim, fontSize = 13.sp)
+                            Text(item.subtitle ?: "", Modifier.width(44.dp), color = Palette.dim, fontSize = Type.caption)
                             Box(
                                 Modifier.size(width = 58.dp, height = 38.dp).background(Color(0xFFF2F5FA), RoundedCornerShape(6.dp)),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 LogoImage(item.image, Modifier.fillMaxSize().padding(3.dp)) {
-                                    Text(initials(item.title), color = Color(0xFF5B6B85), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(initials(item.title), color = Color(0xFF5B6B85), fontSize = Type.label, fontWeight = FontWeight.Bold)
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    item.title, color = if (playing) Palette.accent else Palette.text, fontSize = 15.sp,
+                                    item.title, color = if (playing) Palette.accent else Palette.text, fontSize = Type.body,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     fontWeight = if (playing) FontWeight.SemiBold else FontWeight.Normal,
                                 )
                                 item.streamId.toIntOrNull()?.let { app.catalog.nowPlaying(it) }?.let {
-                                    Text(it, color = Palette.dim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(it, color = Palette.dim, fontSize = Type.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }

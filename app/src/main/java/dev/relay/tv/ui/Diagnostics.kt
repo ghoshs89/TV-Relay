@@ -52,10 +52,10 @@ fun LogViewer(onDismiss: () -> Unit) {
     val first = remember { FocusRequester() }
     InitialFocus(first)
     TvDialog(onDismiss, width = 980.dp) {
-        Text("Recent activity", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("Recent activity", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
             "Newest first. Passwords, usernames and tokens are hidden. Important lines are kept across restarts; Save detailed logs keeps everything.",
-            fontSize = 13.sp, color = Palette.dim,
+            fontSize = Type.caption, color = Palette.dim,
         )
         LazyColumn(
             Modifier.fillMaxWidth().height(420.dp).background(Palette.bg, RoundedCornerShape(8.dp)),
@@ -74,7 +74,7 @@ fun LogViewer(onDismiss: () -> Unit) {
                         line,
                         Modifier.fillMaxWidth().background(if (f) Palette.surface2 else Palette.bg).padding(horizontal = 10.dp, vertical = 4.dp),
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
+                        fontSize = Type.label,
                         color = when {
                             " E/" in line -> Palette.danger
                             " W/" in line -> Palette.accent2
@@ -109,20 +109,20 @@ fun LibraryReportDialog(onDismiss: () -> Unit) {
     val first = remember { FocusRequester() }
     InitialFocus(first)
     TvDialog(onDismiss, width = 900.dp) {
-        Text("Library and language report", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("Library and language report", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
             "Counts only: no login, history or titles you watched. Add it to the log, then use Share logs (on a TV, Download logs on the phone companion).",
-            fontSize = 13.sp, color = Palette.dim,
+            fontSize = Type.caption, color = Palette.dim,
         )
         LazyColumn(
             Modifier.fillMaxWidth().height(380.dp).background(Palette.bg, RoundedCornerShape(8.dp)).padding(10.dp),
         ) {
             val lines = text.lines()
             items(lines.size) { i ->
-                Text(lines[i], fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Palette.text)
+                Text(lines[i], fontFamily = FontFamily.Monospace, fontSize = Type.label, color = Palette.text)
             }
         }
-        note?.let { Text(it, fontSize = 13.sp, color = Palette.accent) }
+        note?.let { Text(it, fontSize = Type.caption, color = Palette.accent) }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Add to log", {
                 text.lines().forEach { AppLog.i("Report", it) }

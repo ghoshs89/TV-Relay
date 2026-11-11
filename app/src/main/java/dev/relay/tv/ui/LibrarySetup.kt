@@ -34,6 +34,9 @@ import dev.relay.tv.data.LanguageDetector
 import dev.relay.tv.data.Langs
 import dev.relay.tv.data.ProviderNames
 import dev.relay.tv.data.moved
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 
 /**
  * Language order with Home rows: one row per language group; OK on a row offers Move up,
@@ -63,7 +66,7 @@ fun LanguageOrderList(
     }
     acting?.let { k ->
         TvDialog({ acting = null }, width = 420.dp) {
-            Text(Langs.label(k), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+            Text(Langs.label(k), fontSize = Type.title, fontWeight = FontWeight.Bold, color = Palette.text)
             val fr = remember { FocusRequester() }
             InitialFocus(fr)
             PillButton("Move up", { onChange(all.moved(k, -1), featured) }, focusRequester = fr)
@@ -98,11 +101,11 @@ fun MyLanguagesDialog(onDismiss: () -> Unit) {
         AppLog.i("Languages", "Order ${order.joinToString()} · Home rows ${featured.joinToString()}")
     }
     TvDialog(onDismiss, width = 620.dp) {
-        Text("My languages", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("My languages", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
             "${profile?.name ?: "This device"}: lists, search and the guide show these first, in this order. " +
                 "Everything else still appears, lower down.",
-            fontSize = 14.sp, color = Palette.dim,
+            fontSize = Type.small, color = Palette.dim,
         )
         LanguageOrderList(
             app.session.langOrder(s), app.session.langFeatured(s), save,
@@ -137,8 +140,8 @@ fun HomeLayoutDialog(onDismiss: () -> Unit) {
         }
     }
     TvDialog(onDismiss, width = 640.dp) {
-        Text("Home screen", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
-        Text("Rows for ${profile?.name ?: "this profile"}. Empty rows never show.", fontSize = 14.sp, color = Palette.dim)
+        Text("Home screen", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("Rows for ${profile?.name ?: "this profile"}. Empty rows never show.", fontSize = Type.small, color = Palette.dim)
         LazyColumn(Modifier.fillMaxWidth().height(300.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(all.size) { i ->
                 val id = all[i]
@@ -160,7 +163,7 @@ fun HomeLayoutDialog(onDismiss: () -> Unit) {
     }
     acting?.let { id ->
         TvDialog({ acting = null }, width = 420.dp) {
-            Text(HomeLayout.label(id), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+            Text(HomeLayout.label(id), fontSize = Type.title, fontWeight = FontWeight.Bold, color = Palette.text)
             val fr = remember { FocusRequester() }
             InitialFocus(fr)
             PillButton(if (id in visible) "Hide this row" else "Show this row", { save(HomeLayout.toggle(visible, id)) }, focusRequester = fr)
@@ -221,10 +224,10 @@ fun CategoryManagerDialog(onDismiss: () -> Unit) {
     }
 
     TvDialog(onDismiss, width = 760.dp) {
-        Text("Manage categories", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("Manage categories", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
             "Hidden categories leave Live TV, Movies and Series lists; search still finds them. Pinned ones go to the top.",
-            fontSize = 14.sp, color = Palette.dim,
+            fontSize = Type.small, color = Palette.dim,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             listOf("Live TV", "Movies", "Series").forEachIndexed { i, t ->
@@ -238,13 +241,14 @@ fun CategoryManagerDialog(onDismiss: () -> Unit) {
                     add("${r.count}")
                     if (hiddenNow) add("Hidden")
                     if (pinned(r.key)) add("Pinned")
-                    if (r.header) add(if (open == r.groupKey ?: r.key.substringAfter(':')) "▾" else "▸")
                 }.joinToString("  ·  ")
                 ListRow(
                     r.label,
                     onClick = { acting = r.key to r.label.trim() },
                     key = "cm:${r.key}",
                     trailing = status,
+                    trailingIcon = if (!r.header) null
+                    else if (open == r.groupKey ?: r.key.substringAfter(':')) Icons.Filled.ArrowDropDown else Icons.Filled.KeyboardArrowRight,
                     textColor = if (hiddenNow) Palette.dim else if (r.header) Palette.accent2 else Palette.text,
                 )
             }
@@ -256,7 +260,7 @@ fun CategoryManagerDialog(onDismiss: () -> Unit) {
         val isGroup = key.startsWith("livegroup:")
         val hiddenNow = key in s.hiddenCats
         TvDialog({ acting = null }, width = 460.dp) {
-            Text(label, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+            Text(label, fontSize = Type.title, fontWeight = FontWeight.Bold, color = Palette.text)
             val fr = remember { FocusRequester() }
             InitialFocus(fr)
             PillButton(
@@ -322,13 +326,13 @@ fun SetupScreen(onDone: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(Palette.bg).padding(horizontal = 56.dp, vertical = 32.dp)) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Set up your library · step ${step + 1} of 2", fontSize = 14.sp, color = Palette.dim)
+            Text("Set up your library · step ${step + 1} of 2", fontSize = Type.small, color = Palette.dim)
             if (step == 0) {
                 Text("Your languages", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.text)
                 Text(
                     "Lists, search and the guide put these first, in this order. Other languages still appear, lower down. " +
                         "Languages marked Home row get a \"New in\" row on Home.",
-                    fontSize = 15.sp, color = Palette.dim,
+                    fontSize = Type.body, color = Palette.dim,
                 )
                 LanguageOrderList(order, featured, { o, f -> order = o; featured = f }, Modifier.width(560.dp).weight(1f), first)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -340,12 +344,12 @@ fun SetupScreen(onDone: () -> Unit) {
                 Text(
                     "Untick countries you never watch to shorten Live TV. You can show them again any time in " +
                         "Settings → Manage categories.",
-                    fontSize = 15.sp, color = Palette.dim,
+                    fontSize = Type.body, color = Palette.dim,
                 )
                 if (groups.isEmpty()) {
                     Text(
                         if (catalog.loading) "Loading your channel list…" else "Your provider doesn't group channels by country, so there's nothing to choose here.",
-                        color = Palette.dim, fontSize = 15.sp,
+                        color = Palette.dim, fontSize = Type.body,
                     )
                     Spacer(Modifier.weight(1f))
                 } else {

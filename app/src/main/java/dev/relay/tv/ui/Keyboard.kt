@@ -217,7 +217,7 @@ fun RelayTextField(
                 .background(if (f) Palette.surface2 else Palette.surface)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Text(label, color = if (f) Palette.accent else Palette.dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, color = if (f) Palette.accent else Palette.dim, fontSize = Type.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 when {
                     value.isEmpty() -> "Press OK to type"
@@ -225,7 +225,7 @@ fun RelayTextField(
                     else -> value
                 },
                 color = if (value.isEmpty()) Palette.dim else Palette.text,
-                fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                fontSize = Type.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -258,7 +258,7 @@ fun KeyboardDialog(
     InitialFocus(first)
     TvDialog(onDismiss, width = 780.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, color = Palette.dim, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text(label, color = Palette.dim, fontSize = Type.small, modifier = Modifier.weight(1f))
             if (password) PillButton(if (reveal) "Hide" else "Show", { reveal = !reveal })
         }
         Box(
@@ -266,7 +266,7 @@ fun KeyboardDialog(
         ) {
             Text(
                 (if (password && !reveal) "•".repeat(value.length) else value) + "▏",
-                color = Palette.text, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                color = Palette.text, fontSize = Type.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
         }
         RelayKeyboard(

@@ -57,6 +57,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
 
 private const val DP_PER_MIN = 4f // 1 hour = 240 dp
 private const val HOURS_BACK = 3
@@ -125,7 +129,7 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
                 Box(Modifier.width(CHANNEL_COL).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
                     Text(
                         SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(now * 1000)),
-                        color = Palette.dim, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp),
+                        color = Palette.dim, fontSize = Type.label, modifier = Modifier.padding(start = 8.dp),
                     )
                 }
                 Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
@@ -140,7 +144,7 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
                         val fmt = rulerFormat
                         while (t < windowEnd) {
                             val x = ((t - windowStart) / 60f * DP_PER_MIN).dp
-                            Text(fmt.format(Date(t * 1000)), color = Palette.dim, fontSize = 12.sp, modifier = Modifier.offset(x = x + 4.dp, y = 6.dp))
+                            Text(fmt.format(Date(t * 1000)), color = Palette.dim, fontSize = Type.label, modifier = Modifier.offset(x = x + 4.dp, y = 6.dp))
                             t += 1800
                         }
                         NowLine(((now - windowStart) / 60f * DP_PER_MIN).dp)
@@ -178,7 +182,7 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
                     .padding(12.dp)
                     .background(Palette.surface2, RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-                color = Palette.text, fontSize = 14.sp,
+                color = Palette.text, fontSize = Type.small,
             )
         }
     }
@@ -230,15 +234,15 @@ private fun GuideRow(
                     contentAlignment = Alignment.Center,
                 ) {
                     LogoImage(ch.logo, Modifier.fillMaxSize().padding(2.dp)) {
-                        Text(initials(title), color = Color(0xFF5B6B85), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(initials(title), color = Color(0xFF5B6B85), fontSize = Type.label, fontWeight = FontWeight.Bold)
                     }
                 }
                 Spacer(Modifier.width(8.dp))
                 Column {
-                    Text(title, color = Palette.text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(title, color = Palette.text, fontSize = Type.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         listOfNotNull(ch.num.takeIf { it > 0 }?.toString(), tag).joinToString("  "),
-                        color = Palette.dim, fontSize = 11.sp, maxLines = 1,
+                        color = Palette.dim, fontSize = Type.label, maxLines = 1,
                     )
                 }
             }
@@ -260,17 +264,17 @@ private fun GuideRow(
                         val w = 180f
                         Focusable({ failed = false; retry++ }, Modifier.offset(x = (s * DP_PER_MIN).dp).width((w * DP_PER_MIN).dp).fillMaxHeight(), key = "gfail:${ch.id}", shape = RoundedCornerShape(6.dp), scaleOnFocus = 1f, onFocused = { onReveal(s, s + w) }) { f ->
                             Box(Modifier.fillMaxSize().background(if (f) Palette.surface2 else Palette.surface).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
-                                Text("Couldn't load guide · OK to retry", color = Palette.danger, fontSize = 13.sp, maxLines = 1)
+                                Text("Couldn't load guide · OK to retry", color = Palette.danger, fontSize = Type.caption, maxLines = 1)
                             }
                         }
                     }
-                    list == null -> Text("Loading…", color = Palette.dim, fontSize = 12.sp, modifier = Modifier.offset(x = nowX + 8.dp, y = 20.dp))
+                    list == null -> Text("Loading…", color = Palette.dim, fontSize = Type.label, modifier = Modifier.offset(x = nowX + 8.dp, y = 20.dp))
                     list.isEmpty() -> {
                         val s = ((now - windowStart) / 60f).coerceAtLeast(0f)
                         val w = 180f
                         Focusable(onWatch, Modifier.offset(x = (s * DP_PER_MIN).dp).width((w * DP_PER_MIN).dp).fillMaxHeight(), key = "gnone:${ch.id}", shape = RoundedCornerShape(6.dp), scaleOnFocus = 1f, onFocused = { onReveal(s, s + w) }) { f ->
                             Box(Modifier.fillMaxSize().background(if (f) Palette.surface2 else Palette.surface).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
-                                Text("No guide data · OK to watch", color = Palette.dim, fontSize = 13.sp, maxLines = 1)
+                                Text("No guide data · OK to watch", color = Palette.dim, fontSize = Type.caption, maxLines = 1)
                             }
                         }
                     }
@@ -313,14 +317,24 @@ private fun GuideRow(
                                     .padding(horizontal = 8.dp, vertical = 5.dp),
                             ) {
                                 val fg = if (f) Color.Black else if (past && !canCatchUp) Palette.dim else Palette.text
-                                Text(
-                                    (if (reminder) "⏰ " else "") + (if (canCatchUp) "⟲ " else "") + e.title,
-                                    color = fg, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    fontWeight = if (live) FontWeight.SemiBold else FontWeight.Normal,
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (reminder) {
+                                        Icon(Icons.Filled.Notifications, contentDescription = null, tint = fg, modifier = Modifier.size(12.dp))
+                                        Spacer(Modifier.width(3.dp))
+                                    }
+                                    if (canCatchUp) {
+                                        Icon(Icons.Filled.Refresh, contentDescription = null, tint = fg, modifier = Modifier.size(12.dp))
+                                        Spacer(Modifier.width(3.dp))
+                                    }
+                                    Text(
+                                        e.title,
+                                        color = fg, fontSize = Type.caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        fontWeight = if (live) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                }
                                 Text(
                                     "${hhmm(e.start)} – ${hhmm(e.end)}",
-                                    color = if (f) Color.Black else Palette.dim, fontSize = 11.sp, maxLines = 1,
+                                    color = if (f) Color.Black else Palette.dim, fontSize = Type.label, maxLines = 1,
                                 )
                             }
                         }

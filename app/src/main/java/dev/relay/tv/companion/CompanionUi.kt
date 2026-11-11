@@ -42,6 +42,7 @@ import dev.relay.tv.ui.Palette
 import dev.relay.tv.ui.PillButton
 import dev.relay.tv.ui.TvDialog
 import kotlinx.coroutines.launch
+import dev.relay.tv.ui.Type
 
 /** Starts the phone page while this composable is on screen; returns its URL (or null). */
 @Composable
@@ -94,11 +95,11 @@ fun CompanionPanel(url: String?, title: String, subtitle: String) {
         }
         Column(Modifier.width(300.dp)) {
             Text(title, color = Palette.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, color = Palette.dim, fontSize = 13.sp, lineHeight = 19.sp)
+            Text(subtitle, color = Palette.dim, fontSize = Type.caption, lineHeight = 19.sp)
             Spacer(Modifier.size(6.dp))
             Text(
                 url ?: "Not available: connect this device to Wi-Fi or Ethernet first.",
-                color = if (url != null) Palette.accent2 else Palette.danger, fontSize = 13.sp,
+                color = if (url != null) Palette.accent2 else Palette.danger, fontSize = Type.caption,
             )
         }
     }
@@ -163,14 +164,14 @@ fun CompanionDialog(onDismiss: () -> Unit, onSignedIn: () -> Unit) {
         }
     }
     TvDialog(onDismiss, width = 640.dp) {
-        Text("Phone companion", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("Phone companion", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         CompanionPanel(
             url,
             "Scan with your phone",
             "Your phone must be on the same Wi-Fi. The page lets you sign in, download a backup, or restore one. " +
                 "It closes when you close this window.",
         )
-        status?.let { Text(it, color = Palette.accent, fontSize = 14.sp) }
+        status?.let { Text(it, color = Palette.accent, fontSize = Type.small) }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Close", onDismiss, focusRequester = close)
         }

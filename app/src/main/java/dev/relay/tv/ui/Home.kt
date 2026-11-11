@@ -32,6 +32,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.relay.tv.RelayApp
@@ -197,7 +198,7 @@ fun HomeScreen() {
                 CircularProgressIndicator(Modifier.size(18.dp), color = Palette.accent, strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
                 catalog.progress?.percent?.let {
-                    Text("$it%", color = Palette.dim, fontSize = 14.sp, maxLines = 1)
+                    Text("$it%", color = Palette.dim, fontSize = Type.small, maxLines = 1)
                     Spacer(Modifier.width(12.dp))
                 }
             }
@@ -206,7 +207,7 @@ fun HomeScreen() {
                 PillButton("Update", { Updater.dialogOpen = true }, key = "tab:update", primary = true, icon = Icons.Filled.Refresh)
             } else {
                 app.session.profile?.let {
-                    Text(it.name, color = Palette.dim, fontSize = 15.sp, maxLines = 1)
+                    Text(it.name, color = Palette.dim, fontSize = Type.body, maxLines = 1)
                     Spacer(Modifier.width(16.dp))
                 }
                 Clock()
@@ -227,7 +228,7 @@ fun HomeScreen() {
                     Spacer(Modifier.height(16.dp))
                     Text("Loading your channels and library…", color = Palette.dim)
                     catalog.progress?.let { Text(it.text, color = Palette.text, fontSize = 18.sp) }
-                    Text("Large playlists can take a few minutes on a TV the first time.", color = Palette.dim, fontSize = 13.sp)
+                    Text("Large playlists can take a few minutes on a TV the first time.", color = Palette.dim, fontSize = Type.caption)
                 }
             }
             expiryNote?.let { note ->
@@ -238,21 +239,37 @@ fun HomeScreen() {
                         .padding(top = 8.dp)
                         .background(Color(0xF0B8462E), RoundedCornerShape(10.dp))
                         .padding(horizontal = 22.dp, vertical = 12.dp),
-                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                )
-            }
-            catalog.error?.let { msg ->
-                Text(
-                    msg,
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(16.dp)
-                        .background(Color(0xEE3A1D24), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                    color = Palette.text, fontSize = 14.sp,
+                    color = Color.White, fontSize = Type.bodyLarge, fontWeight = FontWeight.SemiBold,
                 )
             }
         }
+        // Below the content (not on top of it) so D-pad down from the last row reaches the buttons.
+        catalog.error?.let { msg ->
+            ErrorBar(
+                msg,
+                onRetry = { app.appScope.launch { catalog.load(force = true) } },
+                onDismiss = { catalog.error = null },
+            )
+        }
+    }
+}
+
+/** A load problem you can act on: try again, or put the message away. */
+@Composable
+private fun ErrorBar(message: String, onRetry: () -> Unit, onDismiss: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .background(Color(0xEE3A1D24), RoundedCornerShape(10.dp))
+            .padding(start = 18.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(message, Modifier.weight(1f), color = Palette.text, fontSize = Type.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(12.dp))
+        PillButton("Retry", onRetry, key = "err:retry", icon = Icons.Filled.Refresh, compact = true)
+        Spacer(Modifier.width(8.dp))
+        PillButton("Dismiss", onDismiss, key = "err:dismiss", compact = true)
     }
 }
 
@@ -272,7 +289,7 @@ private fun TabChip(
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             color = if (f) Color.Black else if (selected) Palette.text else Palette.dim,
             fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Normal,
-            fontSize = 16.sp,
+            fontSize = Type.bodyLarge,
         )
     }
 }
@@ -287,7 +304,7 @@ private fun Clock() {
             delay(15_000)
         }
     }
-    Text(now, color = Palette.text, fontSize = 16.sp)
+    Text(now, color = Palette.text, fontSize = Type.bodyLarge)
 }
 
 @Composable
@@ -398,7 +415,7 @@ fun HomeTab() {
                             catalog.moviesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
                         }
                         Rail(HomeLayout.label(row), list, key = { it.id }) { m ->
-                            PosterCard(m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "trm:${m.id}", badge = "★ %.1f".format(m.rating))
+                            PosterCard(m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "trm:${m.id}", badge = "%.1f".format(m.rating), badgeStar = true)
                         }
                     }
                     row == HomeLayout.TOP_SERIES -> {
@@ -406,7 +423,7 @@ fun HomeTab() {
                             catalog.seriesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
                         }
                         Rail(HomeLayout.label(row), list, key = { it.id }) { x ->
-                            PosterCard(x.name, x.cover, { nav.push(Route.SeriesDetail(x)) }, key = "trs:${x.id}", badge = "★ %.1f".format(x.rating))
+                            PosterCard(x.name, x.cover, { nav.push(Route.SeriesDetail(x)) }, key = "trs:${x.id}", badge = "%.1f".format(x.rating), badgeStar = true)
                         }
                     }
                 }

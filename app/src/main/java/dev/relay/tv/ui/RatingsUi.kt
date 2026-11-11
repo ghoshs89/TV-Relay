@@ -36,26 +36,26 @@ fun RtScores(score: Score?) {
         score.critics?.let { c ->
             TomatoMark(fresh = c >= 60)
             Spacer(Modifier.width(6.dp))
-            Text("Critics $c%", color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Critics $c%", color = Palette.text, fontSize = Type.body, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(18.dp))
         }
         score.audience?.let { a ->
             PopcornMark(full = a >= 60)
             Spacer(Modifier.width(6.dp))
-            Text("Audience $a%", color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Audience $a%", color = Palette.text, fontSize = Type.body, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(18.dp))
         }
         if (score.critics != null || score.audience != null) {
-            Text("Rotten Tomatoes", color = Palette.dim, fontSize = 12.sp)
+            Text("Rotten Tomatoes", color = Palette.dim, fontSize = Type.label)
         } else {
             score.imdb?.let { i ->
                 // No Rotten Tomatoes score (common for Hindi and Bengali films): show IMDb instead.
                 Text(
                     "IMDb", Modifier.background(ImdbYellow, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
-                    color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                    color = Color.Black, fontSize = Type.label, fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.width(6.dp))
-                Text("%.1f".format(i), color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("%.1f".format(i), color = Palette.text, fontSize = Type.body, fontWeight = FontWeight.SemiBold)
             }
         }
     }

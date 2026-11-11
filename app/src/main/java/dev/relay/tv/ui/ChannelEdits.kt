@@ -24,6 +24,9 @@ import dev.relay.tv.data.Channel
 import dev.relay.tv.data.ChannelCustom
 import dev.relay.tv.data.ChannelGroup
 import java.util.UUID
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Add
 
 /** Channel renames and the user's own groups, stored per device. */
 object ChannelEdits {
@@ -90,13 +93,13 @@ fun ChannelOptionsDialog(ch: Channel, groupId: String?, onDismiss: () -> Unit) {
     val inGroup = groups.firstOrNull { it.id == groupId }
 
     TvDialog(onDismiss, width = 560.dp) {
-        Text(ch.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text(ch.name, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             PillButton("Rename", { renaming = true }, focusRequester = first)
             if (ChannelEdits.isRenamed(ch.id)) PillButton("Original name", { ChannelEdits.rename(ch.id, "") })
         }
         if (inGroup != null) {
-            Text("In ${inGroup.name}", color = Palette.dim, fontSize = 14.sp)
+            Text("In ${inGroup.name}", color = Palette.dim, fontSize = Type.small)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PillButton("Move up", { ChannelEdits.move(inGroup.id, ch.id, -1) })
                 PillButton("Move down", { ChannelEdits.move(inGroup.id, ch.id, +1) })
@@ -106,14 +109,15 @@ fun ChannelOptionsDialog(ch: Channel, groupId: String?, onDismiss: () -> Unit) {
                 }, danger = true)
             }
         }
-        Text("Your groups", color = Palette.dim, fontSize = 14.sp)
+        Text("Your groups", color = Palette.dim, fontSize = Type.small)
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(groups) { g ->
                 val member = ch.id in g.channelIds
                 ListRow(
-                    (if (member) "✓  " else "+  ") + g.name,
+                    g.name,
                     { ChannelEdits.toggle(g.id, ch.id) },
                     selected = member,
+                    icon = if (member) Icons.Filled.Check else Icons.Filled.Add,
                     trailing = "${g.channelIds.size}",
                 )
             }
@@ -152,8 +156,8 @@ fun GroupManageDialog(group: ChannelGroup, onDismiss: () -> Unit) {
     val first = remember { FocusRequester() }
     InitialFocus(first)
     TvDialog(onDismiss) {
-        Text(group.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
-        Text("${group.channelIds.size} channels. Reorder them from Live TV → this group → a channel → Options.", color = Palette.dim, fontSize = 14.sp)
+        Text(group.name, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("${group.channelIds.size} channels. Reorder them from Live TV → this group → a channel → Options.", color = Palette.dim, fontSize = Type.small)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PillButton("Rename", { renaming = true }, focusRequester = first)

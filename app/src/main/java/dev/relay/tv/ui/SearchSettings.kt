@@ -235,11 +235,11 @@ private fun ProgrammeCard(ch: Channel, e: EpgEntry, onClick: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Text(
-                if (live) "NOW · OK to watch" else progTime.format(java.util.Date(e.start * 1000)) + if (reminder) " · 🔔 Reminder set" else "",
-                color = if (live) Palette.accent else Palette.dim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                if (live) "NOW · OK to watch" else progTime.format(java.util.Date(e.start * 1000)) + if (reminder) " · Reminder set" else "",
+                color = if (live) Palette.accent else Palette.dim, fontSize = Type.label, fontWeight = FontWeight.SemiBold,
             )
-            Text(e.title, color = Palette.text, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(ProviderNames.clean(ch.name), color = Palette.dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(e.title, color = Palette.text, fontSize = Type.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(ProviderNames.clean(ch.name), color = Palette.dim, fontSize = Type.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -943,15 +943,15 @@ fun SettingsTab() {
 private fun Section(title: String) {
     Text(
         title.uppercase(), Modifier.padding(top = 22.dp, bottom = 6.dp, start = 4.dp),
-        color = Palette.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+        color = Palette.accent, fontSize = Type.caption, fontWeight = FontWeight.Bold,
     )
 }
 
 @Composable
 private fun Info(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
-        Text(label, Modifier.width(260.dp), color = Palette.dim, fontSize = 15.sp)
-        Text(value, color = Palette.text, fontSize = 15.sp)
+        Text(label, Modifier.width(260.dp), color = Palette.dim, fontSize = Type.body)
+        Text(value, color = Palette.text, fontSize = Type.body)
     }
 }
 
@@ -970,8 +970,8 @@ private fun Setting(label: String, value: String, locked: Boolean, danger: Boole
 @Composable
 private fun ConfirmDialog(title: String, body: String, action: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     TvDialog(onDismiss) {
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
-        Text(body, color = Palette.dim, fontSize = 15.sp)
+        Text(title, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text(body, color = Palette.dim, fontSize = Type.body)
         Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Cancel", onDismiss)
@@ -1011,8 +1011,8 @@ private fun StepperDialog(
     val first = remember { FocusRequester() }
     InitialFocus(first)
     TvDialog(onDismiss) {
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
-        Text(hint, fontSize = 14.sp, color = Palette.dim)
+        Text(title, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text(hint, fontSize = Type.small, color = Palette.dim)
         Text(value, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.accent)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("−", onMinus, focusRequester = first)
@@ -1040,11 +1040,11 @@ private fun KidsLimitsDialog(pid: String, onDismiss: () -> Unit) {
     val usedMin = store.usedToday(pid) / 60_000
     val extraLeft = ((store.allowUntil(pid) - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)
     TvDialog(onDismiss, width = 600.dp) {
-        Text("Viewing time for ${p.name}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("Viewing time for ${p.name}", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
             "Watched today: ${KidsLimits.label(usedMin.toInt()).let { if (it == "Off") "nothing yet" else it }}" +
                 if (extraLeft > 0) " · extra time: $extraLeft min left" else "",
-            fontSize = 14.sp, color = Palette.dim,
+            fontSize = Type.small, color = Palette.dim,
         )
         ListRow(
             "Daily limit", { save(p.copy(dailyLimitMin = KidsLimits.next(KidsLimits.DAILY_CHOICES, p.dailyLimitMin))) },
@@ -1067,6 +1067,6 @@ private fun KidsLimitsDialog(pid: String, onDismiss: () -> Unit) {
                 AppLog.i("Access", "Extra ${KidsLimits.EXTRA_MINUTES} minutes allowed for ${p.name}")
             })
         }
-        Text("Only time spent playing counts. Grown-up profiles have no limits.", fontSize = 13.sp, color = Palette.dim)
+        Text("Only time spent playing counts. Grown-up profiles have no limits.", fontSize = Type.caption, color = Palette.dim)
     }
 }

@@ -19,6 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.relay.tv.RelayApp
@@ -64,12 +67,13 @@ fun MoviesTab() {
             ui.movieCat == UiState.FAV -> "Movies you add to My list show up here."
             else -> "Nothing here."
         },
+        pinnedIds = s.pinnedVod.toSet(),
     ) { m ->
         val rt = posterScore("m", m.id)
         val tp = remember(m.name, m.year) { TitleParts.parse(m.name, m.year) }
         PosterCard(
             m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "mv:${m.id}",
-            subtitle = listOfNotNull(tp.year, tp.region, m.rating.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString(" · "),
+            subtitle = listOfNotNull(tp.year, tp.region, m.rating.takeIf { it > 0 }?.let { "%.1f/10".format(it) }).joinToString(" · "),
             badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
     }
@@ -109,12 +113,13 @@ fun SeriesTab() {
             ui.seriesCat == UiState.FAV -> "Series you add to My list show up here."
             else -> "Nothing here."
         },
+        pinnedIds = s.pinnedSeries.toSet(),
     ) { s ->
         val rt = posterScore("s", s.id)
         val tp = remember(s.name, s.year) { TitleParts.parse(s.name, s.year) }
         PosterCard(
             s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "sr:${s.id}",
-            subtitle = listOfNotNull(tp.year, tp.region, s.rating.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString(" · "),
+            subtitle = listOfNotNull(tp.year, tp.region, s.rating.takeIf { it > 0 }?.let { "%.1f/10".format(it) }).joinToString(" · "),
             badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
     }
@@ -178,13 +183,13 @@ private fun arrangeCats(
     val topIds = top.map { it.id }.toSet()
     val rest = visible.filter { it.id !in topIds }.sortedBy { rank(it.id) }
     return specials() + featured.map { Category("$LANG$it", Langs.label(it)) } +
-        top.map { it.copy(name = "📌 ${ProviderNames.clean(it.name)}") } + rest
+        top.map { it.copy(name = ProviderNames.clean(it.name)) } + rest
 }
 
 private fun specials() = listOf(
     Category(UiState.RECENT, "Recently added"),
     Category(UiState.TOP, "Top rated"),
-    Category(UiState.FAV, "★ My list"),
+    Category(UiState.FAV, "My list"),
     Category(UiState.ALL, "All A–Z"),
 )
 
@@ -198,6 +203,7 @@ private fun <T> Browser(
     gridState: LazyGridState,
     items: List<T>?,
     empty: String,
+    pinnedIds: Set<String>,
     card: @Composable (T) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -220,6 +226,12 @@ private fun <T> Browser(
                     selected = selected == c.id,
                     key = "cat:${c.id}",
                     trailing = counts(c.id)?.toString(),
+                    icon = when {
+                        c.id == UiState.FAV -> Icons.Filled.Star
+                        c.id in pinnedIds -> Icons.Filled.Place
+                        c.id.startsWith(LANG) -> RelayIcons.Language
+                        else -> null
+                    },
                 )
             }
         }
