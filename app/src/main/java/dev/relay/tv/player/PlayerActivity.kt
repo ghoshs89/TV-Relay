@@ -63,6 +63,7 @@ import dev.relay.tv.data.PlayRequest
 import dev.relay.tv.data.TrackPref
 import dev.relay.tv.data.WatchEntry
 import dev.relay.tv.data.KidsLimits
+import dev.relay.tv.data.LazyItems
 import dev.relay.tv.tv.WatchNext
 import kotlinx.coroutines.Dispatchers
 import dev.relay.tv.ui.RelayTheme
@@ -1014,13 +1015,17 @@ class PlayerActivity : ComponentActivity() {
     private fun tryNextVersion(): Boolean {
         if (!req.live) return false
         val item = req.items.getOrNull(liveIndex) ?: return false
-        val altId = item.alternates.firstOrNull() ?: return false
+        // Entries from long lists don't carry their versions yet; work them out the first time a channel fails.
+        val alts = if (item.alternatesKnown) item.alternates
+        else item.streamId.toIntOrNull()?.let { req.fallbacks?.invoke(it) }.orEmpty()
+        val altId = alts.firstOrNull() ?: return false
         val ch = altId.toIntOrNull()?.let { app.catalog.channelById[it] } ?: return false
         val next = item.copy(
             key = "live:${ch.id}", title = ch.name, streamId = altId, image = ch.logo ?: item.image,
-            alternates = item.alternates.drop(1),
+            alternates = alts.drop(1), alternatesKnown = true,
         )
-        req = req.copy(items = req.items.toMutableList().also { it[liveIndex] = next })
+        val queue = req.items
+        req = req.copy(items = (queue as? LazyItems)?.with(liveIndex, next) ?: queue.toMutableList().also { it[liveIndex] = next })
         AppLog.w("Player", "'${item.title}' failed; trying another version: ${ch.name}")
         playLive(liveIndex)
         showOverlay("Trying another version\n${ch.name}")
@@ -1093,7 +1098,7 @@ class PlayerActivity : ComponentActivity() {
         val num = digits.toString().toIntOrNull()
         digits.clear()
         if (num == null) return
-        val inList = req.items.indexOfFirst { it.subtitle == num.toString() }
+        val inList = (req.items as? LazyItems)?.indexOfNumber(num) ?: req.items.indexOfFirst { it.subtitle == num.toString() }
         if (inList >= 0) {
             switchLive(inList)
             return
@@ -1107,18 +1112,11 @@ class PlayerActivity : ComponentActivity() {
         }
         // Switch to that channel's category so Up/Down keep making sense.
         val list = app.catalog.channelsByCat[ch.categoryId].orEmpty().filter { access.allowsCategory(it.categoryId) }.ifEmpty { listOf(ch) }
-        val ext = app.store.settings.liveExt
-        val items = list.map {
-            PlayItem(
-                key = "live:${it.id}", kind = "live", title = it.name,
-                subtitle = it.num.takeIf { n -> n > 0 }?.toString(), image = it.logo,
-                streamId = it.id.toString(), ext = ext,
-            )
-        }
+        val items = Playback.liveItems(list)
         val prevItem = req.items.getOrNull(liveIndex)
-        req = req.copy(items = items, index = items.indexOfFirst { it.streamId == ch.id.toString() }.coerceAtLeast(0))
+        req = req.copy(items = items, index = items.indexOfChannel(ch.id).coerceAtLeast(0))
         // Keep the flip-back target valid in the new list when possible.
-        previousLiveIndex = prevItem?.let { p -> items.indexOfFirst { it.key == p.key }.takeIf { i -> i >= 0 } }
+        previousLiveIndex = prevItem?.streamId?.toIntOrNull()?.let { items.indexOfChannel(it) }?.takeIf { it >= 0 }
         playLive(req.index)
     }
 

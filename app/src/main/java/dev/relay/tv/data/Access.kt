@@ -37,7 +37,7 @@ class Restrictions(
     fun admit(req: PlayRequest): PlayRequest? {
         val chosen = req.items.getOrNull(req.index) ?: return null
         if (!allows(chosen)) return null
-        if (!restrict) return req
+        if (!restrict || req.vetted) return req
         val kept = req.items.filter(::allows)
         val index = kept.indexOf(chosen).coerceAtLeast(0)
         // Fallback versions of a channel must pass too.
@@ -47,6 +47,13 @@ class Restrictions(
         }
         return req.copy(items = clean, index = index)
     }
+
+    /**
+     * Stream ids to try when a channel fails: its other versions, in the order given, minus any
+     * this profile can't see (a kids profile must never fall back into an adult category).
+     */
+    fun fallbackIds(channelId: Int, versions: List<Channel>): List<String> =
+        versions.filter { it.id != channelId && allowsCategory(it.categoryId) }.map { it.id.toString() }
 
     /** Channel-number lookup across the whole catalog, skipping channels this profile can't see. */
     fun findByNumber(channels: List<Channel>, num: Int): Channel? =

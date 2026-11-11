@@ -1,8 +1,9 @@
 package dev.relay.tv.ui
 
-import dev.relay.tv.RelayApp
 import dev.relay.tv.data.Category
 import dev.relay.tv.data.Channel
+import dev.relay.tv.data.ChannelKeys
+import dev.relay.tv.data.LiveFilters
 
 /** Provider categories grouped under a country or language, e.g. "CA | News" -> Canada / News. */
 data class CatGroup(val key: String, val label: String, val cats: List<Category>)
@@ -100,38 +101,9 @@ object LiveBrowse {
 
     val SORTS = listOf("Provider order", "Number", "A–Z", "Favourites first")
 
-    const val F_CATCHUP = "catchup"
-    const val F_HD = "hd"
-    const val F_GUIDE = "guide"
+    const val F_CATCHUP = LiveFilters.CATCHUP
+    const val F_HD = LiveFilters.HD
+    const val F_GUIDE = LiveFilters.GUIDE
 
-    private val HD = Regex("(?i)\\b(HD|FHD|UHD|4K|HEVC|H265)\\b")
-    private val NON_ALNUM = Regex("[^\\p{L}\\p{N} ]+")
-
-    fun sortKey(ch: Channel): String = splitChannelName(ch.name).second.lowercase().replace(NON_ALNUM, "").trim()
-
-    fun apply(
-        base: List<Channel>,
-        sort: Int,
-        filters: Set<String>,
-        find: String,
-        favIds: Set<Int>,
-    ): List<Channel> {
-        val guide = RelayApp.instance.catalog.guide
-        var list = base.asSequence()
-        if (F_CATCHUP in filters) list = list.filter { it.hasArchive }
-        if (F_HD in filters) list = list.filter { HD.containsMatchIn(it.name) }
-        if (F_GUIDE in filters) list = list.filter { !it.epgId.isNullOrBlank() || guide?.entries(it.id)?.isNotEmpty() == true }
-        val q = find.trim().lowercase()
-        if (q.isNotEmpty()) {
-            val tokens = q.split(' ').filter { it.isNotEmpty() }
-            list = list.filter { ch -> val n = ch.name.lowercase(); tokens.all { n.contains(it) } }
-        }
-        val out = list.toList()
-        return when (sort) {
-            1 -> out.sortedWith(compareBy<Channel>({ if (it.num > 0) 0 else 1 }, { it.num }, { sortKey(it) }))
-            2 -> out.sortedBy { sortKey(it) }
-            3 -> out.sortedBy { if (it.id in favIds) 0 else 1 }
-            else -> out
-        }
-    }
+    fun sortKey(ch: Channel): String = ChannelKeys.sortKey(ch.name)
 }

@@ -2,6 +2,7 @@ package dev.relay.tv.player
 
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import android.widget.Toast
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AppLog
@@ -9,6 +10,7 @@ import dev.relay.tv.data.Channel
 import dev.relay.tv.data.EpgEntry
 import dev.relay.tv.data.Episode
 import dev.relay.tv.data.KidsLimits
+import dev.relay.tv.data.LazyItems
 import dev.relay.tv.data.Movie
 import dev.relay.tv.data.PlayItem
 import dev.relay.tv.data.PlayRequest
@@ -39,19 +41,35 @@ object Playback {
         ctx.startActivity(Intent(ctx, PlayerActivity::class.java))
     }
 
-    fun live(ctx: Context, channels: List<Channel>, index: Int) {
-        if (channels.isEmpty()) return
+    /** Entries for live channels, created only as the player reaches them (see [LazyItems]). */
+    fun liveItems(channels: List<Channel>): LazyItems {
         val ext = app.store.settings.liveExt
-        val merge = app.store.settings.mergeVariants
-        val items = channels.map {
+        return LazyItems(channels) {
             PlayItem(
                 key = "live:${it.id}", kind = "live", title = it.name,
                 subtitle = it.num.takeIf { n -> n > 0 }?.toString(), image = it.logo,
-                streamId = it.id.toString(), ext = ext,
-                alternates = if (merge) app.catalog.versionsOf(it.id).filter { v -> v.id != it.id }.map { v -> v.id.toString() } else emptyList(),
+                streamId = it.id.toString(), ext = ext, alternatesKnown = false,
             )
         }
-        launch(ctx, PlayRequest(pid, items, index.coerceIn(0, items.lastIndex), live = true))
+    }
+
+    fun live(ctx: Context, channels: List<Channel>, index: Int) {
+        if (channels.isEmpty()) return
+        val t = SystemClock.elapsedRealtime()
+        val chosen = channels[index.coerceIn(0, channels.lastIndex)]
+        val r = app.catalog.restrictions(app.session.restrict(app.store.settings))
+        // Restricted profiles lose blocked channels here, from the channels, so no play entries are built for them.
+        val visible = if (r.restrict) channels.filter { r.allowsCategory(it.categoryId) } else channels
+        val at = if (visible === channels) index.coerceIn(0, channels.lastIndex) else visible.indexOfFirst { it.id == chosen.id }
+        if (at < 0) {
+            // The chosen channel is blocked: let the usual check refuse it and say so.
+            launch(ctx, PlayRequest(pid, liveItems(listOf(chosen)), 0, live = true))
+            return
+        }
+        val fallbacks: ((Int) -> List<String>)? =
+            if (app.store.settings.mergeVariants) { id -> r.fallbackIds(id, app.catalog.versionsOf(id)) } else null
+        launch(ctx, PlayRequest(pid, liveItems(visible), at, live = true, vetted = true, fallbacks = fallbacks))
+        AppLog.d("Player", "Play request for ${visible.size} channels built in ${SystemClock.elapsedRealtime() - t} ms")
     }
 
     fun movie(ctx: Context, m: Movie, ext: String, resumeMs: Long) {

@@ -1,5 +1,6 @@
 package dev.relay.tv.ui
 
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.text.input.ImeAction
@@ -29,6 +30,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +59,14 @@ import androidx.compose.foundation.layout.heightIn
 import dev.relay.tv.data.LanguageDetector
 import dev.relay.tv.data.Langs
 import dev.relay.tv.player.Playback
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import dev.relay.tv.data.ChannelGroup
+import dev.relay.tv.data.LiveQuery
+import dev.relay.tv.data.LiveSelection
+import dev.relay.tv.data.Store
+import dev.relay.tv.data.buildLiveList
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -120,9 +130,9 @@ fun LiveTab() {
             ?.filter { it.cats.isNotEmpty() }
             ?.sortedBy { g -> rank.rank(LanguageDetector.ofCode(g.key) ?: LanguageDetector.ofCategory(g.label)) }
     }
-    val langCounts = remember(catalog.channels, catalog.langVersion) {
-        catalog.channels.groupingBy { catalog.channelLang(it.id) }.eachCount()
-    }
+    // Counted once when the library is indexed, not on every recomposition.
+    val langCounts = remember(catalog.channels, catalog.langVersion) { catalog.channelLangCounts }
+    val langOrder = app.session.langOrder(st)
     val shortName: Map<String, String> = remember(providerCats, countries) {
         countries?.flatMap { g -> g.cats.map { it.id to it.name } }?.toMap() ?: providerCats.associate { it.id to it.name }
     }
@@ -134,78 +144,67 @@ fun LiveTab() {
         else -> c
     }
 
-    val rows: List<CatRow> = buildList {
+    val total = catalog.channels.size
+    val byCat = catalog.channelsByCat
+    val rows: List<CatRow> = remember(providerCats, countries, shortName, openCountry, pinned, groups, langCounts, langOrder, byCat, total) {
+      buildList {
         add(CatRow.Item(UiState.FAV, "★ Favourites", null))
         add(CatRow.Item(UiState.HISTORY, "Recently watched", null))
         pinned.forEach { id ->
             if (providerCats.any { it.id == id }) {
                 val g = countries?.firstOrNull { gr -> gr.cats.any { it.id == id } }
                 val prefix = if (g != null && g.key != "__other") "${g.label} · " else ""
-                add(CatRow.Item(id, "📌 $prefix${ProviderNames.clean(shortName[id] ?: id)}", catalog.channelsByCat[id]?.size))
+                add(CatRow.Item(id, "📌 $prefix${ProviderNames.clean(shortName[id] ?: id)}", byCat[id]?.size))
             }
         }
         groups.forEach { add(CatRow.Item("${ChannelEdits.GROUP}${it.id}", "▸ ${it.name}", it.channelIds.size)) }
-        add(CatRow.Item(UiState.ALL, "All channels", catalog.channels.size))
+        add(CatRow.Item(UiState.ALL, "All channels", total))
         // By language: Bangladesh sits right under Bengali.
-        Langs.viewOrder(app.session.langOrder(st)).forEach { k ->
+        Langs.viewOrder(langOrder).forEach { k ->
             val n = langCounts[k] ?: 0
             if (n > 0) add(CatRow.Item("$LANG$k", "🗣 ${Langs.label(k)}", n))
         }
         if (countries == null) {
-            providerCats.forEach { add(CatRow.Item(it.id, ProviderNames.clean(it.name), catalog.channelsByCat[it.id]?.size)) }
+            providerCats.forEach { add(CatRow.Item(it.id, ProviderNames.clean(it.name), byCat[it.id]?.size)) }
         } else {
             countries.forEach { g ->
                 val open = g.key == openCountry
                 add(CatRow.Header(g.key, g.label, g.cats.size, open))
-                if (open) g.cats.forEach { add(CatRow.Item(it.id, ProviderNames.clean(it.name), catalog.channelsByCat[it.id]?.size, indent = true)) }
+                if (open) g.cats.forEach { add(CatRow.Item(it.id, ProviderNames.clean(it.name), byCat[it.id]?.size, indent = true)) }
             }
         }
+    }
     }
 
-    val base: List<Channel> = remember(ui.liveCat, catalog.channels, restrict, version, hiddenIds, rank, catalog.langVersion) {
-        val t = System.currentTimeMillis()
-        when (ui.liveCat) {
-            UiState.FAV -> store.favs(pid).filter { it.kind == "live" }.mapNotNull { catalog.channelById[it.id] }
-            UiState.HISTORY -> store.history(pid).filter { it.kind == "live" }
-                .mapNotNull { e -> e.streamId.toIntOrNull()?.let { catalog.channelById[it] } }
-            UiState.ALL -> catalog.channels
-                .filter { catalog.allowed(it.categoryId, restrict) && it.categoryId !in hiddenIds }
-                .sortedBy { rank.rank(catalog.channelLang(it.id)) }
-            else -> if (ui.liveCat.startsWith(LANG)) {
-                val k = ui.liveCat.removePrefix(LANG)
-                catalog.channels.filter {
-                    catalog.channelLang(it.id) == k && catalog.allowed(it.categoryId, restrict) && it.categoryId !in hiddenIds
-                }
-            } else if (ui.liveCat.startsWith(ChannelEdits.GROUP)) {
-                groups.firstOrNull { "${ChannelEdits.GROUP}${it.id}" == ui.liveCat }
-                    ?.let { catalog.groupChannels(it) }.orEmpty()
-                    .filter { catalog.allowed(it.categoryId, restrict) }
-            } else {
-                catalog.channelsByCat[ui.liveCat].orEmpty()
-            }
-        }.also {
-            val ms = System.currentTimeMillis() - t
-            if (ms > 150) AppLog.w("Live", "Picking channels for ${ui.liveCat} took $ms ms (${it.size})")
-        }
-    }
-    val sort = remember(ui.liveCat, version) { store.liveSort(ui.liveCat) }
-    val favIds = remember(version, pid) { store.favs(pid).filter { it.kind == "live" }.map { it.id }.toSet() }
+    val cat = ui.liveCat
+    val sort = remember(cat, version) { store.liveSort(cat) }
+    val favSet = remember(version, pid) { store.favs(pid).filter { it.kind == "live" }.map { it.id }.toSet() }
+    val selection = remember(cat, version, pid, groups) { liveSelection(store, pid, cat, groups) }
     // Several versions of one channel (HD, FHD, backup) show once, unless you list them yourself.
-    val merge = st.mergeVariants && ui.liveCat != UiState.FAV && ui.liveCat != UiState.HISTORY &&
-        !ui.liveCat.startsWith(ChannelEdits.GROUP)
-    val channels = remember(base, sort, ui.liveFilters, ui.liveFind, favIds, merge, st.preferredVersions) {
-        val t = System.currentTimeMillis()
-        val list = LiveBrowse.apply(base, sort, ui.liveFilters, ui.liveFind, favIds)
-        val out = if (merge) catalog.collapseVersions(list) else list
-        val ms = System.currentTimeMillis() - t
+    val merge = st.mergeVariants && cat != UiState.FAV && cat != UiState.HISTORY && !cat.startsWith(ChannelEdits.GROUP)
+    val query = LiveQuery(
+        cat = cat, selection = selection, sort = sort, filters = ui.liveFilters, find = ui.liveFind,
+        blockedCats = if (restrict) catalog.adultCats else emptySet(), hiddenCats = hiddenIds,
+        langOrder = langOrder, merge = merge,
+        favIds = if (sort == 3 || selection is LiveSelection.Favourites) favSet.toList() else emptyList(),
+        preferred = st.preferredVersions,
+    )
+    // The list is built off the screen thread. A new query cancels the one still running, and the
+    // previous list stays up until the new one is ready.
+    LaunchedEffect(query, catalog.channels, catalog.langVersion) {
+        val t = SystemClock.elapsedRealtime()
+        val built = withContext(Dispatchers.Default) { buildLiveList(catalog.liveData, query) }
+        ui.liveResult = built
+        val ms = SystemClock.elapsedRealtime() - t
         // Slow list building is what makes a TV feel frozen; log it when it happens.
-        if (ms > 150) AppLog.w("Live", "Channel list for ${ui.liveCat} took $ms ms (${base.size} channels, ${out.size} shown)")
-        out
+        if (ms > 150) AppLog.w("Live", "Channel list for $cat took $ms ms off the screen thread (${built.baseSize} channels, ${built.channels.size} shown)")
     }
-    var focused by remember { mutableStateOf<Channel?>(null) }
+    val shown = ui.liveResult?.takeIf { it.query.cat == cat }
+    val channels: List<Channel> = shown?.channels ?: emptyList()
+    val focused = remember { mutableStateOf<Channel?>(null) }
     val isTv = rememberIsTv()
+    val showPanel by remember { derivedStateOf { isTv || focused.value != null } }
     var finding by remember { mutableStateOf(false) }
-    catalog.epgVersion
 
     val isProviderCat = providerCats.any { it.id == ui.liveCat }
     val isPinned = ui.liveCat in pinned
@@ -293,10 +292,12 @@ fun LiveTab() {
                         }
                     }
                 }
-                if (channels.isEmpty()) {
+                if (shown == null) {
+                    EmptyState("Loading channels…", Modifier.weight(1f))
+                } else if (channels.isEmpty()) {
                     EmptyState(
                         when {
-                            base.isNotEmpty() -> "No channels match these filters."
+                            shown.baseSize > 0 -> "No channels match these filters."
                             ui.liveCat == UiState.FAV -> "No favourite channels yet. Open a channel's panel and press Favourite."
                             ui.liveCat == UiState.HISTORY -> "Channels you watch will show up here."
                             catalog.loading -> "Loading… ${catalog.progress?.text.orEmpty()}"
@@ -316,8 +317,8 @@ fun LiveTab() {
                         itemsIndexed(channels) { i, ch ->
                             ChannelRow(
                                 ch,
-                                fav = ch.id in favIds,
-                                onFocused = { focused = ch },
+                                fav = ch.id in favSet,
+                                onFocused = { focused.value = ch },
                                 onClick = { Playback.live(ctx, channels, i) },
                             )
                         }
@@ -325,7 +326,7 @@ fun LiveTab() {
                 }
             }
             // Phones show the panel only once a channel is selected; TVs keep it as a guide preview.
-            if (!ui.liveGrid && (isTv || focused != null)) {
+            if (!ui.liveGrid && showPanel) {
                 Spacer(Modifier.width(14.dp))
                 ChannelPanel(
                     focused,
@@ -350,6 +351,17 @@ fun LiveTab() {
             LiveTextDialog("Find in this list", ui.liveFind, { ui.liveFind = it }, onDismiss = { finding = false })
         }
     }
+}
+
+private fun liveSelection(store: Store, pid: String, cat: String, groups: List<ChannelGroup>): LiveSelection = when {
+    cat == UiState.FAV -> LiveSelection.Favourites(store.favs(pid).filter { it.kind == "live" }.map { it.id })
+    cat == UiState.HISTORY ->
+        LiveSelection.History(store.history(pid).filter { it.kind == "live" }.mapNotNull { it.streamId.toIntOrNull() })
+    cat == UiState.ALL -> LiveSelection.All
+    cat.startsWith(LANG) -> LiveSelection.Language(cat.removePrefix(LANG))
+    cat.startsWith(ChannelEdits.GROUP) ->
+        LiveSelection.Group(groups.firstOrNull { "${ChannelEdits.GROUP}${it.id}" == cat }?.channelIds.orEmpty())
+    else -> LiveSelection.Category(cat)
 }
 
 @Composable
@@ -464,7 +476,9 @@ private val dayFmt = SimpleDateFormat("EEE d MMM", Locale.getDefault())
 private fun hm(sec: Long) = timeFmt.format(Date(sec * 1000))
 
 @Composable
-private fun ChannelPanel(ch: Channel?, modifier: Modifier, groupId: String?) {
+private fun ChannelPanel(focus: State<Channel?>, modifier: Modifier, groupId: String?) {
+    // Read here, not by the screen, so moving through the list only redraws the panel.
+    val ch = focus.value
     Column(modifier.background(Palette.surface, RoundedCornerShape(12.dp)).padding(20.dp)) {
         if (ch == null) {
             Text("Move through the list to see what's on.", color = Palette.dim, fontSize = 15.sp)

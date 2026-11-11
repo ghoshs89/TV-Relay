@@ -555,14 +555,8 @@ fun fmtDuration(ms: Long): String {
     return if (h > 0) "${h}h ${m}m" else "${m}m"
 }
 
-private val CHANNEL_TAG = Regex("^\\s*[\\[(|]?\\s*([A-Za-z]{2,3})\\s*[\\])|]?\\s*[:|\\-]\\s*")
-
 /** "CA: CBC CALGARY" -> ("CA", "CBC CALGARY"). */
-fun splitChannelName(name: String): Pair<String?, String> {
-    val m = CHANNEL_TAG.find(name) ?: return null to name
-    val rest = name.substring(m.range.last + 1).trim()
-    return if (rest.isEmpty()) null to name else m.groupValues[1].uppercase() to rest
-}
+fun splitChannelName(name: String): Pair<String?, String> = dev.relay.tv.data.ChannelKeys.split(name)
 
 /**
  * Channel card: a near-square tile so square logos fill it, a soft light plate behind the

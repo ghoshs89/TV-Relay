@@ -46,9 +46,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
     var adultCats by mutableStateOf<Set<String>>(emptySet()); private set
 
-    var channelById: Map<Int, Channel> = emptyMap(); private set
-    var movieById: Map<Int, Movie> = emptyMap(); private set
-    var seriesById: Map<Int, Series> = emptyMap(); private set
+    @Volatile var channelById: Map<Int, Channel> = emptyMap(); private set
+    @Volatile var movieById: Map<Int, Movie> = emptyMap(); private set
+    @Volatile var seriesById: Map<Int, Series> = emptyMap(); private set
 
     var loading by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null)
@@ -78,6 +78,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     var preferredVersions: () -> Map<String, Int> = { emptyMap() }
     var settings: () -> Settings = { Settings() }
     var guide: XmltvGuide? = null
+
+    /** Wired by the app: runs [applyCustom] off the screen thread. Without it the work is done in place (tests). */
+    var appScope: kotlinx.coroutines.CoroutineScope? = null
     private val mutex = Mutex()
     private val dir: File get() = File(ctx.filesDir, "catalog").also { it.mkdirs() }
 
@@ -357,6 +360,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     private suspend fun applyParsed(p: ParsedCatalog, from: Int) {
         val t0 = System.currentTimeMillis()
         report("Preparing your lists", from, force = true)
+        customGen.incrementAndGet()
         val renames = custom().renames
         val (sorted, chIndex) = withContext(Dispatchers.Default) {
             val ix = Indexes(p) { f -> report("Preparing your lists", LoadSteps.span(from, 99, f)) }
@@ -392,7 +396,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     private var liveCatLang: Map<String, String> = emptyMap()
     private var vodCatLang: Map<String, String> = emptyMap()
     private var seriesCatLang: Map<String, String> = emptyMap()
-    private var chLang: Map<Int, String> = emptyMap()
+    @Volatile private var chLang: Map<Int, String> = emptyMap()
     private var mvLang: Map<Int, String> = emptyMap()
     private var srLang: Map<Int, String> = emptyMap()
 
@@ -481,6 +485,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val versionKey: Map<Int, String>,
         val versionsByKey: Map<String, List<Channel>>,
         val versionRank: Map<Int, Int>,
+        val sortKey: Map<Int, String>,
+        val hd: Set<Int>,
+        val langCounts: Map<String?, Int>,
     )
 
     private fun buildChannelIndex(
@@ -505,6 +512,16 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             .mapValues { (_, g) -> g.withIndex().sortedWith(compareBy({ -(quality[it.value.id] ?: 0) }, { it.index })).map { it.value } }
         val rank = HashMap<Int, Int>()
         groups.values.forEach { g -> g.forEachIndexed { i, c -> rank[c.id] = i } }
+        // Sort keys, HD flags and language counts, worked out once here so list screens don't redo them per rebuild.
+        val sortKeys = HashMap<Int, String>(ch.size * 2)
+        val hd = HashSet<Int>()
+        val langCounts = HashMap<String?, Int>()
+        for (c in ch) {
+            sortKeys[c.id] = ChannelKeys.sortKey(c.name)
+            if (ChannelKeys.isHd(c.name)) hd.add(c.id)
+            val l = lang[c.id]
+            langCounts[l] = (langCounts[l] ?: 0) + 1
+        }
         return ChannelIndex(
             channels = ch,
             byId = byId,
@@ -512,6 +529,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             versionKey = keys.filterValues { it in groups },
             versionsByKey = groups,
             versionRank = rank,
+            sortKey = sortKeys,
+            hd = hd,
+            langCounts = langCounts,
         )
     }
 
@@ -522,18 +542,43 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         channels = ix.channels
         channelById = ix.byId
         channelsByCat = ix.byCat
+        sortKeys = ix.sortKey
+        hdIds = ix.hd
+        channelLangCounts = ix.langCounts
     }
 
     /** Re-applies channel renames after the user edits them. */
     fun applyCustom() {
-        install(buildChannelIndex(rawChannels, custom().renames, rawVersionKeys, rawQuality, chLang))
+        val gen = customGen.incrementAndGet()
+        val raw = rawChannels
+        val renames = custom().renames
+        val keys = rawVersionKeys
+        val quality = rawQuality
+        val lang = chLang
+        val scope = appScope
+        if (scope == null) {
+            install(buildChannelIndex(raw, renames, keys, quality, lang))
+            return
+        }
+        scope.launch {
+            val ix = withContext(Dispatchers.Default) { buildChannelIndex(raw, renames, keys, quality, lang) }
+            // A newer edit, or a newly loaded library, makes this result stale.
+            if (gen == customGen.get() && raw === rawChannels) install(ix)
+        }
     }
+
+    private val customGen = java.util.concurrent.atomic.AtomicInteger()
 
     // ---------- Versions of one channel ----------
 
     @Volatile private var versionKey: Map<Int, String> = emptyMap()
     @Volatile private var versionsByKey: Map<String, List<Channel>> = emptyMap()
     @Volatile private var versionRank: Map<Int, Int> = emptyMap()
+    @Volatile private var sortKeys: Map<Int, String> = emptyMap()
+    @Volatile private var hdIds: Set<Int> = emptySet()
+
+    /** Channels per language group (null = unknown), counted with the index; read with [channels]. */
+    @Volatile var channelLangCounts: Map<String?, Int> = emptyMap(); private set
 
     private var rawVersionKeys: Map<Int, String> = emptyMap()
     private var rawQuality: Map<Int, Int> = emptyMap()
@@ -550,15 +595,26 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     }
 
     /** One entry per channel in a list, showing your chosen or the best version. */
-    fun collapseVersions(list: List<Channel>): List<Channel> {
+    fun collapseVersions(list: List<Channel>, prefs: Map<String, Int> = preferredVersions()): List<Channel> {
         if (versionKey.isEmpty()) return list
-        val prefs = preferredVersions()
         val keys = versionKey
         val rank = versionRank
         return ChannelVersions.collapse(list, { keys[it.id] }, { rank[it.id] ?: 0 }, { it.id }) { prefs[it] }
     }
 
     val versionGroupCount: Int get() = versionsByKey.size
+
+    /** Read-only view for [buildLiveList]; safe to use from a background thread. */
+    val liveData: LiveData = object : LiveData {
+        override val channels: List<Channel> get() = this@Catalog.channels
+        override fun byId(id: Int): Channel? = channelById[id]
+        override fun inCategory(cat: String): List<Channel> = channelsByCat[cat].orEmpty()
+        override fun lang(id: Int): String? = chLang[id]
+        override fun sortKey(ch: Channel): String = sortKeys[ch.id] ?: ChannelKeys.sortKey(ch.name)
+        override fun isHd(ch: Channel): Boolean = ch.id in hdIds
+        override fun hasGuide(ch: Channel): Boolean = guide?.entries(ch.id)?.isNotEmpty() == true
+        override fun collapse(list: List<Channel>, preferred: Map<String, Int>): List<Channel> = collapseVersions(list, preferred)
+    }
 
     fun groupChannels(g: ChannelGroup): List<Channel> = g.channelIds.mapNotNull { channelById[it] }
 

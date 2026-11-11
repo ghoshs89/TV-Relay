@@ -260,6 +260,11 @@ data class PlayItem(
     val urls: List<String> = emptyList(),
     /** Live: stream ids of other versions of this channel, tried in order if this one fails. */
     val alternates: List<String> = emptyList(),
+    /**
+     * False when [alternates] hasn't been worked out yet (long channel lists build entries lazily);
+     * the player then asks [PlayRequest.fallbacks] the first time the channel fails.
+     */
+    val alternatesKnown: Boolean = true,
 )
 
 data class PlayRequest(
@@ -267,6 +272,10 @@ data class PlayRequest(
     val items: List<PlayItem>,
     val index: Int,
     val live: Boolean = false,
+    /** True when the caller already removed what this profile may not play; [Restrictions.admit] then only checks the chosen item. */
+    val vetted: Boolean = false,
+    /** Live: other versions (HD, FHD, backup) of a channel by stream id, best first; null when versions aren't merged. */
+    val fallbacks: ((Int) -> List<String>)? = null,
 )
 
 // ---------- Tolerant JSON access (providers mix strings, numbers and nulls) ----------

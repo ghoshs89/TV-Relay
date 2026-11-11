@@ -82,4 +82,32 @@ class RestrictionsTest {
         assertEquals(req, restrictions(false).admit(req))
         assertEquals(req, Restrictions.NONE.admit(req))
     }
+
+    @Test
+    fun fallbackIdsSkipTheChannelItselfAndBlockedCategories() {
+        val versions = listOf(newsChannel, kidsChannel, adultChannel, ch(9, 9, "news"))
+        assertEquals(listOf("1", "9"), restrictions(true).fallbackIds(2, versions))
+        assertEquals(listOf("1", "3", "9"), restrictions(false).fallbackIds(2, versions))
+        assertEquals(emptyList<String>(), restrictions(true).fallbackIds(2, listOf(newsChannel)))
+    }
+
+    @Test
+    fun vettedRequestsOnlyCheckTheChosenItem() {
+        // The caller already removed blocked channels, so the list is passed on untouched.
+        val items = listOf(live(kidsChannel), live(newsChannel))
+        val req = PlayRequest("p", items, 1, live = true, vetted = true)
+        assertEquals(req, restrictions(true).admit(req))
+        // A blocked chosen item is still refused.
+        assertNull(restrictions(true).admit(PlayRequest("p", listOf(live(adultChannel)), 0, live = true, vetted = true)))
+    }
+
+    @Test
+    fun lazilyBuiltEntriesStayLazyForUnrestrictedProfiles() {
+        var made = 0
+        val lazy = LazyItems(channels) { made++; live(it) }
+        val req = PlayRequest("p", lazy, 0, live = true, vetted = true)
+        assertNotNull(restrictions(true).admit(req))
+        assertNotNull(restrictions(false).admit(req))
+        assertEquals(1, made) // only the chosen item was looked at, and it is cached
+    }
 }

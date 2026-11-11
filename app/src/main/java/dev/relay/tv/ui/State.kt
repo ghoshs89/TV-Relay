@@ -49,6 +49,9 @@ class UiState {
 
     val liveCatList = LazyListState()
     val liveChList = LazyListState()
+
+    /** The last Live TV list that was built; shown again at once when the tab is reopened. */
+    var liveResult by mutableStateOf<dev.relay.tv.data.LiveResult?>(null)
     val movieCatList = LazyListState()
     val movieGrid = LazyGridState()
     val seriesCatList = LazyListState()

@@ -78,6 +78,7 @@ class RelayApp : Application(), ImageLoaderFactory {
         }
         catalog = Catalog(this, api)
         catalog.custom = { store.channelCustom }
+        catalog.appScope = appScope
         catalog.preferredVersions = { store.settings.preferredVersions }
         catalog.guideSearchScope = {
             val s = store.settings
