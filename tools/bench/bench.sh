@@ -19,7 +19,13 @@ done
 
 UP=19; DOWN=20; LEFT=21; RIGHT=22; OK=23; BACK=4
 
-mark() { echo "== $1"; adb shell log -t RelayBench "stretch:$1"; }
+# The screen on top is printed too, so a run that wandered off (out of the app, say) shows up in the log.
+mark() {
+  local top
+  top=$(adb shell dumpsys activity activities 2>/dev/null | grep -m1 -E "topResumedActivity|mResumedActivity" | sed 's/^ *//' | cut -c1-110)
+  echo "== $1   ($top)"
+  adb shell log -t RelayBench "stretch:$1"
+}
 # One key press every $1 seconds: keys 0.3 $DOWN $DOWN $RIGHT
 keys() { local gap=$1; shift; for k in "$@"; do adb shell input keyevent "$k"; sleep "$gap"; done; }
 # $2 presses of key $1 sent as fast as the app takes them, like holding the button down.
