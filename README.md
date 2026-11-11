@@ -110,14 +110,17 @@ If your provider gives separate addresses for VPN and non-VPN use, enter the one
 | Play/Pause | Pause live TV; Relay keeps recording behind the scenes |
 | Left / Right while paused or behind live | Back 10 s / forward 30 s; going forward past the end returns to live |
 | Back | Previous channel; press twice quickly to exit |
+| Hold OK (in the channel list) | Add or remove the channel from favourites |
 
 **Movies and episodes**
 
 | Button | Action |
 |---|---|
-| Left / Right | Back 10 s / forward 30 s |
+| Left / Right | Back / forward by the sizes set in Settings → Playback (10 s and 30 s to begin with) |
 | OK | Show the player controls: audio, subtitles and speed |
 | Back | Hide the controls; otherwise press twice quickly to exit. Your position is saved. |
+
+**On Home:** hold OK on a Continue watching card or a Recently watched channel to remove it (Menu works too). The **Clear all** button at the end of the Continue watching row empties it after a confirmation.
 
 **In the guide grid:** OK on a past show plays it from catch-up, on a current show tunes in, and on a future show sets a reminder. In the Live TV list, **Right** opens the channel panel: favourite, guide, catch-up, rename and groups.
 
@@ -127,7 +130,7 @@ If your provider gives separate addresses for VPN and non-VPN use, enter the one
 |---|---|
 | **Profiles** | Kids profiles, profile PINs, and the **parent PIN**. Once set, it's needed to add or remove profiles, leave a kids profile, show adult categories, restore a backup, change servers or sign out. A kids profile used last reopens directly when Relay starts. |
 | **Profiles** › Viewing time | For each kids profile: minutes per day, bedtime and wake-up time, and **Allow 30 more minutes now**. Only time spent playing counts. |
-| **Playback** | Live stream format, pause & rewind buffer (15, 30 or 60 minutes, up to 1.5 GB, deleted when you leave the channel), refresh-rate matching, lip-sync, start on last channel, Continue watching on the TV home screen, audio language order |
+| **Playback** | Live stream format, pause & rewind buffer (15, 30 or 60 minutes, up to 1.5 GB, deleted when you leave the channel), refresh-rate matching, lip-sync, start on last channel, Continue watching on the TV home screen, audio language order, jump sizes for Left and Right, **Sleep timer** (30 to 120 minutes; a warning a minute before the end, and any key press then adds more time) and **Are you still watching?** (pauses after three episodes in a row or four hours of live TV with no key press; closes the player if nobody answers in five minutes) |
 | **Subtitles** | Size, colour and background |
 | **Channels & guide** | Channel groups, an external XMLTV guide, guide time offset, reminders, **Show each channel once**, **Search the whole TV guide** |
 | **Backup & phone** | Phone companion, backup to a file, restore |
@@ -255,6 +258,8 @@ Every push to `main` that changes the app builds it in GitHub Actions and publis
 
 Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. The release APK is shrunk with R8, then started on an Android emulator; if it crashes on launch, nothing is published. Test and lint reports are attached to each run as `reports-1.0.N`.
 
+Each run also starts a **benchmark** job beside the build: a benchmark variant of the app (`assembleBenchmark`, never published, and the build fails if the release APK contains any of it) is driven on an emulator against a made-up provider (`tools/fake-provider`, 12,000 channels, 40,000 movies, 8,000 series) by `tools/bench/bench.sh`. The job log ends with frame times per screen, list build times and time to first picture. These numbers are for comparing one build with another and spotting a regression. They are not how fast a TV is: the emulator runs on a shared build server with a software renderer, and a TV's processor is slower in different ways. The job never blocks or delays a release. To see the same numbers from a real device, turn on **Save detailed logs** under Diagnostics for a day, use the app as usual, then share the logs: frame timing, list build times and time to first picture are in them.
+
 To build locally (JDK 17 and the Android SDK):
 
 ```
@@ -291,6 +296,8 @@ app/src/main/java/dev/relay/tv/
   update/           in-app updater
 app/src/test/       unit tests
 tools/icon/         icon and banner generator
+tools/fake-provider/  made-up Xtream provider for the benchmark
+tools/bench/        benchmark driver and report
 docs/               README banner and screenshots
 ```
 
