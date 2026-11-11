@@ -52,10 +52,24 @@ fun <T> buildTitleList(src: TitleSource<T>, q: TitleQuery, check: () -> Unit = {
     }
     val allowed = if (q.blockedCats.isEmpty()) base else base.filterChecked(check) { src.category(it) !in q.blockedCats }
     val mixed = q.selection == TitleSelection.Recent || q.selection == TitleSelection.Top || q.selection == TitleSelection.All
-    if (!mixed) return allowed
-    val visible = if (q.hiddenCats.isEmpty()) allowed else allowed.filterChecked(check) { src.category(it) !in q.hiddenCats }
-    val rank = LangRank(q.langOrder)
-    return rankSorted(visible, q.langOrder.size + 1, check) { rank.rank(src.lang(src.id(it))) }
+    val ranked = if (!mixed) {
+        allowed
+    } else {
+        val visible = if (q.hiddenCats.isEmpty()) allowed else allowed.filterChecked(check) { src.category(it) !in q.hiddenCats }
+        val rank = LangRank(q.langOrder)
+        rankSorted(visible, q.langOrder.size + 1, check) { rank.rank(src.lang(src.id(it))) }
+    }
+    // Each title once (a provider can list an id twice, a favourite can be saved twice), so grids can key their cells by id.
+    return uniqueById(ranked, src)
+}
+
+private fun <T> uniqueById(list: List<T>, src: TitleSource<T>): List<T> {
+    val seen = HashSet<Int>(list.size * 2)
+    var clean = true
+    for (t in list) if (!seen.add(src.id(t))) { clean = false; break }
+    if (clean) return list
+    seen.clear()
+    return list.filter { seen.add(src.id(it)) }
 }
 
 /** Stable sort by name that lower-cases each name once instead of twice per comparison. */

@@ -138,12 +138,23 @@ class RelayApp : Application(), ImageLoaderFactory {
         appendLine("Servers saved: ${store.account?.hosts?.size ?: 0}; in use ${api.host ?: "none"}")
     }
 
-    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
-        .okHttpClient(http)
-        .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.20).build() }
-        .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(250L * 1024 * 1024).build() }
-        .crossfade(true)
-        .build()
+    /**
+     * Images load through their own request queue (8 at a time, 4 per server) built from the same
+     * client, so connections, timeouts and the user agent are shared but a screenful of posters can't
+     * crowd out the playlist and guide requests, or open dozens of connections to one provider.
+     * No fade-in by default: a fade per poster costs frames while scrolling; the large backdrops ask for one.
+     */
+    override fun newImageLoader(): ImageLoader {
+        val imageHttp = http.newBuilder()
+            .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 8; maxRequestsPerHost = 4 })
+            .build()
+        return ImageLoader.Builder(this)
+            .okHttpClient(imageHttp)
+            .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.20).build() }
+            .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(250L * 1024 * 1024).build() }
+            .crossfade(false)
+            .build()
+    }
 
     companion object {
         lateinit var instance: RelayApp
