@@ -64,6 +64,7 @@ Older checks:
 
 | Release | What |
 |---|---|
+| 1.0.91 | Plan 3: API keys sent from the phone, Trailer and Find a trailer buttons, optional sync between screens (profiles, favourites, history, kids' time, shared settings; encrypted file in your own private GitHub repository; pairing by matching six digits). Outcome and benchmark comparison in [PLAN-3.md](PLAN-3.md) section 9 |
 | 1.0.77 | Holding Up through a poster grid back to its old speed (found by the benchmark; see plan 2, section 11) |
 | 1.0.42 | Sleep timer and "Are you still watching?" (settings, tested rules, pause panel) |
 | 1.0.41 | Hold OK favourites a channel; Clear all on Continue watching; jump sizes for Left and Right; playlist byte-order mark fix |

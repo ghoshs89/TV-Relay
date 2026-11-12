@@ -219,3 +219,56 @@ Check on a device, for `docs/TODO.md`, once the release is installed:
 7. No token, key, login or PIN in the repo, in a commit message, in a log line, in the backup file or in the benchmark build. The benchmark build uses made-up values only.
 8. The release APK must still contain no benchmark code (the existing CI guard). Signing and update-token steps in `build.yml` are not touched.
 9. Stop and ask only for the questions in section 2 if their defaults turn out not to fit, or for something this plan does not cover.
+
+## 9. Outcome
+
+Released as **1.0.91**, from one push to `main` carrying the commits below. Release numbers 78 to 90 were used by branch checks and benchmark runs (they publish nothing), so the number jumps.
+
+| Commit | Phase | What |
+|---|---|---|
+| `8a64d35` | F | Keys from the phone: a keys form on the companion page, checked before saving, with a **Send from my phone** choice on both key rows |
+| `5bb03ae` | G | **Trailer** button (provider or TMDB, in the title's own language first) and **Find a trailer** (YouTube search), hidden on kids profiles |
+| `660fef4` | H1 | Mergeable data: change times, the shared/per-screen settings split, daily kids' time summed across screens, the sync clock, records and the merge |
+| `1d6190b` | H2 | The engine, encrypted file, GitHub storage, runner, turning sync on from the phone page, Settings status |
+| `450af3b` | H3 | Joining a screen (nearby discovery, matching six digits, pairing link), remove a screen, New household key, restore warning |
+| `3abc669` | H3 | **Join again** appears when the key or token stops working |
+| `5e184ab` and the commit that adds this section | | README, TODO, plan pointers, this outcome |
+
+Tests: 15 test files were added or extended (about 2,700 lines), including a randomised test that applies the same changes to two screens in both orders and requires the same result, and engine tests against a fake store and a fake GitHub (conflict, offline, wrong key, wrong account, too large, forgetting a screen, new key). The tests that need the serialization compiler plugin (`SyncCodecTest`, `SettingsSplitTest`) cannot be compiled in the workspace the plan was executed in, so they ran only on CI, where every branch run passed unit tests, lint, the release build, the signature check, the "no benchmark code in the release APK" check and the emulator launch.
+
+### What differs from the plan
+
+| Plan said | What was done | Why |
+|---|---|---|
+| H1.2: removals leave a `gone` record when they happen | Each screen remembers a fingerprint of every record as of the last sync. A record that has disappeared since is a removal and is written as a tombstone (dropped after 180 days) | Removals made anywhere, including code that knows nothing about sync, are found without touching each of them; fewer places to forget one |
+| Backup format 3 | The backup file is unchanged (format 2). Sync keeps its own safety copies (`before-sync-<time>.json`, the last three) using the same export | Nothing new needed to be in the backup; one less format to keep readable |
+| Pairing with a 6-digit code | The two screens swap public keys and agree on a secret (ECDH, P-256); the six digits shown on both are derived from both keys and only prove nobody sits in the middle. The bundle is sealed with the agreed key | A six-digit code used as a key can be guessed offline by anyone who recorded the exchange |
+| A new token on one screen spreads to the others | Not possible: with an expired token a screen can't read the file that would carry the new one. Each screen keeps its own token; **Replace the token** on the phone page, or **Join again from another screen**, which carries the current token | |
+| Benchmark stretch (5.7, item 2): a local look-alike of the GitHub endpoints and a wipe-and-pair run | **Not built.** The benchmark runs with sync off, so it shows what the code changes cost when sync is not in use, not what a sync costs | It needs a GitHub look-alike in `tools/fake-provider` and a way to wipe and re-pair an emulator; the engine's behaviour is covered by the fake-store tests. The first real round trip is a device check (TODO.md). Each sync logs its time and size (for example `Sync: Pulled in 420 ms`) |
+| (not in the plan) | **Join again from another screen** in Settings when the status says the key or token no longer works | Without it, a screen left behind by New household key had no way back |
+
+### Still open
+
+* Pairing link from a TV to a phone (TODO.md item 6): the copy-and-paste fallback works from a phone to a TV only.
+* H4 and H5 (hand-over hint, WebDAV), phase E, D4, D6, A1, A4, plan 1 item 4.5, and the device checks for 1.0.24 to 1.0.91: unchanged, in TODO.md.
+* Scratch branches `p2`, `p2r`, `p2s`, `p2base`, `pB`, `pC`, `pE1`, `pE2`, `pFA`, `pFB`, `pFC`, and now `p3base` and `plan3` can't be deleted from the workspace; delete them on GitHub when convenient.
+
+### Benchmark: `main` (1.0.77) against the plan 3 branch
+
+The same script as plan 2, on the CI emulator, five runs of the old code and three of the new. Medians, with the range in brackets. Sync was off in all of them. One extra run hung while making the test video and was cancelled, and the benchmark job of the final compile check was cancelled by GitHub's 30-minute limit at the same step, so both were repeated.
+
+| What | `main` (1.0.77) | Plan 3 branch |
+|---|---|---|
+| First picture after tuning | 948 ms (916 to 1071) | 946 ms (921 to 996) |
+| Start-up, 95th percentile frame | 1136 ms (829 to 1720) | 845 ms (812 to 848) |
+| Browsing Home, 95th percentile | 204 ms (134 to 293) | 154 ms (153 to 169) |
+| Holding Down in the channel list, 95th percentile | 39 ms (26 to 41) | 27 ms (23 to 32) |
+| Holding Up in the channel list, 95th percentile | 24 ms (21 to 38) | 21 ms (11 to 23) |
+| Coming back from the player, 95th percentile | 144 ms (64 to 223) | 107 ms (48 to 271) |
+| Holding Down in the Movies grid, 95th percentile | 56 ms (41 to 60) | 52 ms (43 to 71) |
+| Holding Up in the Movies grid, frames over 100 ms | 5 (1 to 8) | 5 (1 to 9) |
+| Holding Up in the Movies grid, 95th percentile | 113 ms (28 to 458) | 205 ms (24 to 228) |
+| Holding Down in the Series grid, 95th percentile | 28 ms (24 to 39) | 25 ms (23 to 28) |
+| Standing still on the channel list, 95th percentile | 25 ms (22 to 92) | 55 ms (23 to 76) |
+
+Two rows look worse in the middle value: Movies Up (95th percentile) and standing still on the channel list. In both the ranges overlap completely, the number of frames over 100 ms is the same (Movies Up) or zero (standing still), and the worst single frame in both is no worse (448 ms against 325 ms, and 97 ms against 81 ms). The old code spans as wide a range on its own, so this is read as run to run noise and not as a regression. No stretch was consistently worse, so the release went out. The same two rows are the ones to look at in a TV log, since the emulator uses a software renderer.
