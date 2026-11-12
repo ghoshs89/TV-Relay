@@ -2,7 +2,7 @@
 
 Nothing here is started until it's asked for. Newest additions at the top of each section.
 
-The step-by-step plan for the performance, code and UI work is in [PLAN.md](PLAN.md) (done, except the last part of the player split below). The review that followed it is [PLAN-2.md](PLAN-2.md): phases A to D are released as 1.0.33 to 1.0.42 plus a fix in 1.0.77, phase E is still open. [PLAN-3.md](PLAN-3.md) (trailers, API keys from the phone, sync between screens) is released as one build; its outcome, what was left out and the benchmark comparison are at the end of that file.
+The step-by-step plan for the performance, code and UI work is in [PLAN.md](PLAN.md) (done, except the last part of the player split below). The review that followed it is [PLAN-2.md](PLAN-2.md): phases A to D are released as 1.0.33 to 1.0.42 plus a fix in 1.0.77, phase E is still open. [PLAN-3.md](PLAN-3.md) (trailers, API keys from the phone, sync between screens) is released as one build; its outcome, what was left out and the benchmark comparison are at the end of that file. [PLAN-4.md](PLAN-4.md) (the saved copy of the library for fast start-up, and the TV measurements) is released as one build; its outcome and benchmark comparison are at the end of that file.
 
 ## To do
 
@@ -11,14 +11,24 @@ The step-by-step plan for the performance, code and UI work is in [PLAN.md](PLAN
 | 1 | **Finish splitting the player code** | Done so far (1.0.30): kids limit timing, audio and subtitle choices, failure panel, pause bar and its arithmetic, reminder banner, number entry and the picture-in-picture ratio are separate classes with tests. `PlayerActivity.kt` went from 1,324 to 1,071 lines. Not done: live channel switching and recovery (`LiveSession`), the pause buffer controller (`TimeshiftController`) and view construction (`PlayerViews`), which hold the shared playback state and are the riskiest to move without a device. Do them after the player checks below pass on a TV. |
 | 1a | Player checks on a TV for 1.0.33 to 1.0.77 | The "Check on a device" list below has what to try. Nothing from plan 2 has been seen on a TV: it is compiled, unit tested, started on an emulator and driven by the scripted benchmark, no more. |
 | 1b | Sleep timer and Up next card | The sleep timer and "Are you still watching?" are in (1.0.42). Up next card (plan 2 item D6) and a list of the last five channels (D4) are not; Back already flips to the previous channel. |
-| 2 | Saved binary index of the library (plan item 4.5) | Only worth it if a TV log shows start-up parsing over about 8 s. Needs a TV log first (plan phase 0). |
-| 3 | Read a TV log and fill the measurements table | Plan phase 0 and section 11 were skipped because no log was available. Download logs from the phone companion after a refresh and a few minutes of browsing. |
 | 4 | Real baseline profile (plan 2 item A4) | The profile in the repo is a wildcard list. A generated one needs a Macrobenchmark run on an emulator that can load a library; the benchmark job could be extended to produce it. |
 | 5 | Sync, later polish (plan 3 H4 and H5) | H4: a hint under a Continue watching card that came from another screen ("Living room TV, 20 minutes ago") and an extra pull when a detail page opens for a title in progress. H5: a WebDAV transport (TrueNAS, Nextcloud) if you would rather keep the data at home. Wait until sync has run on real screens for a while. |
 | 6 | Sync, pairing link from a TV | The pairing link can be copied on a phone and pasted on a TV's page. A TV can't hand it to a phone yet. Showing it as a QR code on the TV would close that gap for screens whose Wi-Fi blocks discovery. |
 | 7 | Sync, benchmark stretch | The plan wanted the benchmark to run a sync round trip against a local GitHub look-alike. See the outcome in plan 3: what was and wasn't done. |
 
 ## Check on a device
+
+Plan 4 (first build that contains it; see Done). Run this routine once after installing the release, so the numbers are comparable with the "Before" columns in [PLAN-4.md](PLAN-4.md) section 1 and the table in [PLAN.md](PLAN.md) section 11:
+
+| Step | What to do and look for |
+|---|---|
+| 1 | Settings → Diagnostics → **Save detailed logs** on. |
+| 2 | Install the update (the first start after it takes the long way once, about a minute, and writes the saved copy a few seconds after the lists are ready). Then unplug the TV for 10 seconds, so the next start is a real cold one. Open Relay and wait until channels show; this start should take seconds, not a minute. |
+| 3 | Open Live TV → All channels and scroll for 20 seconds. Open the guide. Open Movies, then Series. Search for a channel name. Tune three channels. Nothing should stutter more than before. |
+| 4 | Next day, when the library is more than 6 hours old, open Relay from cold again and leave it on Home for 2 minutes. This catches the refresh: it starts about 20 seconds after launch and should leave the first minute of browsing smooth. |
+| 5 | Settings → Backup & phone, scan the QR code, press **Download logs** on the phone and attach the file. The top of the log has a *Library snapshot:* line (used, or not used and why) and the library lines say *Library from saved copy in … ms*. |
+
+Fill the "After plan 4" column of the table in [PLAN-4.md](PLAN-4.md) section 1 from that log. Targets: channels on screen 10 s or less after process start (was 56.4 s), all lists 15 s or less (was 62.7 s), memory after load 160 MB or less (was 151 MB), refresh peak no higher than 241 MB.
 
 Plan 3 (first build that contains it; see Done):
 
@@ -64,6 +74,7 @@ Older checks:
 
 | Release | What |
 |---|---|
+| RELEASE | Plan 4: Relay keeps a ready-to-use copy of the prepared library, so a restart or an update shows channels in seconds instead of about a minute (the first start after an update that changed how names are read still takes the long way once); channel text work cleans each name once; refreshes reuse what they already know about unchanged items and wait 20 seconds after start-up; the screen-freeze watcher no longer reports the app being frozen by Android as a stall; the TV log read and the measurements table filled (TODO rows 2 and 3). Outcome and benchmark comparison in [PLAN-4.md](PLAN-4.md) |
 | 1.0.91 | Plan 3: API keys sent from the phone, Trailer and Find a trailer buttons, optional sync between screens (profiles, favourites, history, kids' time, shared settings; encrypted file in your own private GitHub repository; pairing by matching six digits). Outcome and benchmark comparison in [PLAN-3.md](PLAN-3.md) section 9 |
 | 1.0.77 | Holding Up through a poster grid back to its old speed (found by the benchmark; see plan 2, section 11) |
 | 1.0.42 | Sleep timer and "Are you still watching?" (settings, tested rules, pause panel) |

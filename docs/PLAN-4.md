@@ -91,7 +91,7 @@ So the before and after numbers are comparable, the owner runs the same routine 
 2. Unplug the TV for 10 seconds (a real cold start), or install the update. Open Relay, wait until channels show.
 3. Open Live TV → All channels, scroll for 20 seconds. Open the guide. Open Movies, then Series. Search for a channel name. Tune three channels.
 4. Next day, when the library is more than 6 hours old, open Relay from cold again and leave it on Home for 2 minutes (catches the refresh).
-5. Settings → Phone companion → Download logs, and attach.
+5. Settings → Backup & phone, scan the QR code, Download logs on the phone, and attach the file.
 
 ## 4. Phase A: make the per-item text work cheaper (no behaviour change)
 
@@ -264,3 +264,70 @@ Suggested release notes: "Faster start: Relay keeps a ready-to-use copy of your 
 * The 26 s parse of a freshly downloaded list (would need a different download format from the provider, which Xtream servers don't offer).
 * A faster keyword matcher for channel languages (only if phase A's numbers show the channel stage is still slow on the JSON path).
 * Running the refresh parse at lower priority while the viewer is browsing (worth a look once the C2 delay has been tried on the TV).
+
+## 12. Outcome
+
+**Status: built, tested and compile-checked, held at the section 7 gate. Not on `main`, no release yet.** The gate as written (saved copy at least 4 times faster to channels on screen, on all three runs, on the benchmark's default library) was not met, so per section 10 the work stopped there and the numbers went to the owner. The branch is `plan4` (CI runs used `plan4-exec`, the same commits). To release it, push it to `main` once; the commit message body of the last commit is the release notes.
+
+### What was built
+
+| Phase | Commit | What |
+|---|---|---|
+| M | 966996e | Stall watch ignores the whole app being frozen by Android (pure `StallVerdict`, tests); start-up times (seconds since process start) in the "Channels ready" and "all lists" log lines; a *Library snapshot:* line in the log header; measurements table in `PLAN.md` section 11; A1 marked done in `PLAN-2.md` |
+| A | 47c6d6b | Channel text work cleans each name once (`ChannelText.derive`), regexes compiled once; `LegacyText` frozen copy of the old rules and a golden test over more than 20,000 names |
+| B | 6350e6a | Saved copy of the prepared library (`SnapshotIo`, `LibrarySnapshot`, `LibraryDerive`): header with the six JSON files' sizes and dates, CRC per section, `LOGIC` version with a hash test, temp file and rename, streamed read and write, anything doubtful means JSON and the file is deleted |
+| C | 4131bd2 | Refreshes reuse facts for unchanged channels, movies and series (`RefreshReuseTest`); an overdue refresh waits 20 s after start-up (`Freshness.startDelay`) |
+| D | 0e0cb53, 9a234fb | Benchmark: after the normal run, two restarts on the same emulator (saved copy, then JSON path) with the file cache dropped before each; `report.py --cold` prints the table and the gate; `BENCH_PROVIDER_ARGS` sizes the made-up library |
+
+CI (run 43208988135 on the head of phase D): unit tests, lint, release build, signature check, the no-benchmark-code check and the emulator smoke test all passed. Two earlier runs (phase A, phase B) failed only at "Start the APK on an emulator" (no space for the emulator's data partition, then a boot time-out), after every compile, test and lint step had passed; the later green run covers the same code.
+
+### Benchmark, emulator on a build server (not a TV: compare builds, not absolute times)
+
+Three runs on `plan4-exec` against three on a copy of `main` (`p4base`, with only the new benchmark tools added). All seconds are from process start.
+
+**Cold start, saved copy against JSON path, same run** (file cache dropped before each restart)
+
+| Library | Run | Channels on screen, saved copy | Channels on screen, JSON path | Speed-up | All lists, saved copy | All lists, JSON path |
+|---|---|---|---|---|---|---|
+| 12,000 channels, 40,000 movies, 8,000 series (the default) | 1 | 1.8 s | 5.2 s | 2.9x | 2.6 s | 5.9 s |
+| | 2 | 2.3 s | 5.5 s | 2.4x | 3.0 s | 6.3 s |
+| | 3 | 2.1 s | 5.9 s | 2.8x | 2.9 s | 6.7 s |
+| 56,000 channels, 166,000 movies, 38,000 series (TV-sized, extra diagnostic runs) | 1 | 2.2 s | 10.9 s | 5.0x | 2.5 s | 12.7 s |
+| | 2 | 2.9 s | 11.2 s | 3.9x | 3.3 s | 13.1 s |
+
+The saved copy was used in every restart that had one and was 6.1 MB (default library) or 26.8 MB (TV-sized). The gate **failed on all three default-library runs**. It is a poor test at that size: about 0.8 s of every start is process start-up and code warm-up that no saved copy can remove, and the JSON path there is only 5 s to begin with. At the TV-sized library the ratio is 3.9x to 5.0x, around the threshold.
+
+**What the emulator numbers suggest for the TV** (an estimate, not a measurement): the TV is about 5 times slower than this emulator on the JSON path (56.4 s against 10.9 to 11.2 s). The same factor on the saved copy gives roughly 11 to 15 s to channels on screen, against the target of 10 s or less and the 56.4 s measured on 1.0.91. So a clear gain (about 4 to 5 times) is expected, but the 10 s target is probably missed. The M4 routine on the TV is what settles it.
+
+**First start after an update (JSON path), channel stage "Channels ready after … ms" on the first start of each run**
+
+| Library | `main` | Plan 4 |
+|---|---|---|
+| default, 3 runs | 1,183 / 1,310 / 1,017 ms (median 1,183) | 1,289 / 1,633 / 1,373 ms (median 1,373) |
+| TV-sized, 2 runs | 2,550 / 3,048 ms | 2,884 / 3,126 ms |
+
+This is the opposite of what phase A was meant to do: plan 4 is **slower by about 3 to 35 %** here, where a plain desktop JVM showed it 30 to 40 % faster (12,000 names in a fresh JVM: old rules 499 to 673 ms, `ChannelText.derive` 363 to 472 ms; 56,000 names warm: 735 ms against 454 ms). Samples are few and the build servers are noisy, but the plan's median is higher than `main`'s at both sizes. The cause is not found. If the TV shows the same, the first start after an update would be slightly slower than today (once per update), and phase A's text work needs a look on a device or with a profile.
+
+**Frames and first picture** (15 stretches, 3 runs each): the number of frames over 100 ms is the same or within the spread between `main`'s own runs in every stretch. Two things are a little higher with plan 4 and not conclusive with three runs: `live-play` 95th percentile 169 to 200 ms against 38 to 202 ms (one `main` run also reached 202 ms), and first picture after tuning median 971 ms against 930 ms (ranges 929 to 1,178 and 917 to 1,066 ms, nine tunings each).
+
+### Deviations from this plan
+
+* The gate was run a second way (a TV-sized library) to find out why it failed; that is a diagnostic, not a replacement for the gate.
+* `Freshness.startDelay` takes `(installedAt, now, due, force)` rather than `(installedJustNow, due, force)`, and lives in its own file, `Freshness.kt`.
+* A `LibraryDerive` object holds the pure stage logic (it was going to stay in `Catalog`); adult and year rules moved there with it.
+* The lap in the channel stage is called "channel texts"; there is no first-word keyword index (the non-goal in section 11).
+* `SnapshotWriter` refuses text with an unpaired surrogate; the write then fails safely and the JSON path stays.
+* `delete library.snap` in the benchmark uses `adb root` (the emulator image allows it) because the benchmark build is not debuggable and `run-as` cannot reach its files.
+* The plan's "items 3 and 8" are rows 2 and 3 of the table in `TODO.md`.
+* A refresh always re-derives ids that appear twice in the old library; the `LOGIC` hash covers the rules in the code but not the parser's defaults (stated in the doc comment on `LOGIC`).
+
+### Not verified
+
+* Nothing from `Catalog.kt` has run on a TV. It compiled and ran on the emulator, and the pure parts are covered by the tests above (69 tests on the pure parts, including the 20,000-name golden corpus, passed locally and on CI).
+* The TV timings in section 8 are for the M4 routine in `TODO.md` after a release.
+
+### Decision needed
+
+Release as is, or look at phase A's cold-start cost and the saved-path channel read first and then re-run the gate.
+
+Recommendation: release. At a TV-sized library the saved copy gets channels on screen 3.9 to 5.0 times sooner and all lists 4.0 to 5.1 times sooner, every doubtful case falls back to the JSON path, and the one unexplained cost (phase A on the first start after an update) is paid once per update against a saving on every other start. The 10 s target is probably missed, and the M4 routine will say by how much.
