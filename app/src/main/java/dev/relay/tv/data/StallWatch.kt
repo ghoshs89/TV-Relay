@@ -23,22 +23,33 @@ object StallWatch {
         Thread({
             var stalledSince = 0L
             var reported = false
+            var prevLoopAt = SystemClock.uptimeMillis()
             while (true) {
                 try {
                     main.post(beat)
                     Thread.sleep(CHECK_MS)
                     val now = SystemClock.uptimeMillis()
-                    val late = now - lastBeat
-                    if (late >= STALL_MS) {
-                        if (stalledSince == 0L) stalledSince = lastBeat
-                        if (!reported) {
-                            reported = true
-                            AppLog.w("Stall", "Screen thread not responding for ${late / 1000}s; it is in:\n${mainStack()}")
+                    val verdict = StallVerdict.verdict(prevLoopAt, now, lastBeat, STALL_MS, CHECK_MS)
+                    prevLoopAt = now
+                    when (verdict) {
+                        is StallVerdict.Verdict.ProcessPaused -> {
+                            // Android froze the whole app (cached, in the background); nobody saw a stall.
+                            lastBeat = now
+                            stalledSince = 0L
+                            reported = false
                         }
-                    } else if (stalledSince != 0L) {
-                        AppLog.w("Stall", "Screen thread responded again after ${(now - stalledSince) / 1000}s")
-                        stalledSince = 0L
-                        reported = false
+                        is StallVerdict.Verdict.Stalled -> {
+                            if (stalledSince == 0L) stalledSince = lastBeat
+                            if (!reported) {
+                                reported = true
+                                AppLog.w("Stall", "Screen thread not responding for ${verdict.ms / 1000}s; it is in:\n${mainStack()}")
+                            }
+                        }
+                        is StallVerdict.Verdict.Ok -> if (stalledSince != 0L) {
+                            AppLog.w("Stall", "Screen thread responded again after ${(now - stalledSince) / 1000}s")
+                            stalledSince = 0L
+                            reported = false
+                        }
                     }
                 } catch (_: InterruptedException) {
                     return@Thread

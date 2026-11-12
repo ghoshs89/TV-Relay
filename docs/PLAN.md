@@ -285,17 +285,26 @@ No behaviour change. One commit per extraction so a regression can be bisected, 
 
 **Release after phase 7, and again after phase 8.**
 
-## 11. Measurements (fill in during phase 0 and after each phase)
+## 11. Measurements
 
-| Measure (TV log) | 1.0.23 | After P1 | After P2 | After P3 | After P4 |
-|---|---|---|---|---|---|
-| Layout width in dp, cores, memory limit | | | | | |
-| Read saved library (ms) | | | | | |
-| Prepared lists (ms), slowest step | | | | | |
-| Time until channels are shown (ms) | n/a | n/a | n/a | n/a | |
-| Slowest "Channel list … took" (ms) | | | | | |
-| StallWatch warnings in a 5 minute browse | | | | | |
-| Memory in use after load (MB of limit) | | | | | |
+Filled from the first TV log (onn 4K Plus, 4 cores, 1917 MB RAM, 384 MB app limit, 960 dp wide), downloaded 11 Nov 2026. The last column is filled from the log taken after plan 4 ([PLAN-4.md](PLAN-4.md) section 3, routine M4).
+
+| Measure (TV log, onn 4K Plus) | 1.0.22 (8 Nov) | 1.0.77 (11 Nov) | 1.0.91 (11 Nov) | After plan 4 |
+|---|---|---|---|---|
+| Layout width, cores, memory limit | 960 dp, 4, 384 MB | same | same | |
+| Process start to channels on screen | 73.4 s and 70.0 s (one stage) | 53.0 s | 56.4 s | |
+| Process start to all lists ready | same as above | 59.0 s | 62.7 s | |
+| Read saved library | 40.7 s and 41.6 s (one file at a time) | 27.2 s | 29.6 s | |
+| Prepare lists (slowest step) | 28.5 s (channel versions 14.8 s) | 30.1 s (channel versions 13.4 s) | 32.2 s (channel versions 14.4 s) | |
+| Refresh: parse again, then prepare | 56.0 s, 32.8 s | 26.4 s, 29.2 s | no refresh in the log | |
+| Memory after load, after refresh (of 384 MB) | 152 to 160 MB, 299 MB | 150 MB, 241 MB | 151 MB | |
+| Slowest Live list build | "All channels" 259 ms | not in the log | 4 ms (recent channels; All channels not opened) | |
+| Movies list, all titles (off the screen thread) | not logged | not logged | 444 ms | |
+| Search (whole-guide search on) | not logged | not logged | 1.2 to 2.2 s | |
+| First picture after tuning | not logged | not logged | median 902 ms (773 to 1,333, 7 tunings) | |
+| Real screen-thread stalls | none (2 false reports, see plan 4 M2) | none | none | |
+
+Decision recorded: 4.5 (saved library index) go. Reading the saved library takes 29.6 s against the 8 s threshold. Memory after load is 39% of the limit, so memory work is not needed first.
 
 ## 12. Phase checklist
 

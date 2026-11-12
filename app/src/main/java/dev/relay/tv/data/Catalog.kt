@@ -122,6 +122,12 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         progress = LoadProgress(step, percent)
     }
 
+    /** Seconds since this process started, for the log: shows how long a cold start took to reach each point. */
+    private fun sinceStart(): String {
+        val ms = android.os.SystemClock.uptimeMillis() - android.os.Process.getStartUptimeMillis()
+        return "%.1f s after start".format(ms / 1000.0)
+    }
+
     private fun memory(): String {
         val rt = Runtime.getRuntime()
         return "${(rt.totalMemory() - rt.freeMemory()) / 1_048_576} of ${rt.maxMemory() / 1_048_576} MB"
@@ -408,7 +414,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         install(chIndex)
         langVersion++
         val channelsMs = System.currentTimeMillis() - t0
-        AppLog.i("Catalog", "Channels ready after $channelsMs ms (${chLaps.text()})")
+        AppLog.i("Catalog", "Channels ready after $channelsMs ms, ${sinceStart()} (${chLaps.text()})")
 
         // Stage 2: movies.
         val mvLaps = stage("Preparing movies", 35, 80)
@@ -440,7 +446,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         updatedAt = file("get_live_streams").lastModified()
         AppLog.i(
             "Catalog",
-            "Channels ready after $channelsMs ms; all lists after $indexMs ms " +
+            "Channels ready after $channelsMs ms; all lists after $indexMs ms, ${sinceStart()} " +
                 "(${chLaps.text()}; ${mvLaps.text()}; ${srLaps.text()})",
         )
         AppLog.i("Catalog", loadSummary().replace("\n", "; ") + "; ${versionsByKey.size} channels with several versions")

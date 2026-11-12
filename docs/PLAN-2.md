@@ -40,7 +40,7 @@ Things reviewed and found fine: the staged library load, per-row guide loading, 
 
 Goal: numbers from a TV, and an emulator check that exercises the real screens.
 
-A1. **Read a TV log** (left over as plan 1 phase 0). Owner: Settings, Diagnostics, turn on detailed logs, refresh the library, browse Live TV, Movies and the guide for five minutes, zap ten channels, then Download logs from the phone page. Fill section 11 of `docs/PLAN.md`. Decide 4.5 (saved library index) from "Read saved library" time: only build it if that is over about 8 s.
+A1. **Read a TV log** (left over as plan 1 phase 0). *Done in plan 4: see the table in PLAN.md section 11.* Owner: Settings, Diagnostics, turn on detailed logs, refresh the library, browse Live TV, Movies and the guide for five minutes, zap ten channels, then Download logs from the phone page. Fill section 11 of `docs/PLAN.md`. Decide 4.5 (saved library index) from "Read saved library" time: only build it if that is over about 8 s.
 
 A2. **Log what is missing.** Add timing lines (always-saved level) for: time from OK on a channel to first picture; time from changing category to the list shown; history write time when over 8 ms; frames slower than 32 ms per minute while a list is scrolling (via `Choreographer` frame callback, only while detailed logs are on).
 
