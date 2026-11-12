@@ -2,6 +2,8 @@
 
 Written after reviewing the code released as 1.0.24 to 1.0.31. Nothing in the app was changed for this review. It follows the same rules as `docs/PLAN.md` (section 2): one release per phase, no behaviour change beyond what a task lists, pure logic gets unit tests, CI is the only Android compiler, no secrets in the repo.
 
+Plan 3 ([PLAN-3.md](PLAN-3.md)) carries on from here: its section 6 lists what is still open from plans 1 and 2 (phase E, D4, D6, A1, A4, 4.5), and [TODO.md](TODO.md) has the current state.
+
 ## 1. What the review could and could not check
 
 | Source | What it shows | Limit |

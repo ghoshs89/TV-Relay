@@ -12,6 +12,7 @@
   &nbsp;·&nbsp; <a href="#install">Install</a>
   &nbsp;·&nbsp; <a href="#remote-controls">Remote</a>
   &nbsp;·&nbsp; <a href="#settings-worth-knowing">Settings</a>
+  &nbsp;·&nbsp; <a href="#sync-between-screens">Sync</a>
   &nbsp;·&nbsp; <a href="#troubleshooting">Help</a>
 </p>
 
@@ -48,6 +49,7 @@ Relay signs in to an Xtream Codes account and plays what that account provides. 
   <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, daily viewing time and bedtime for kids, a parent PIN for anything that changes access</td></tr>
   <tr><td><b>Reliability</b></td><td>One entry per channel with automatic fallback to its other versions, backup servers, stalled streams reconnect on their own, failures explained in plain words, a library refresh that can't wipe your saved lists</td></tr>
   <tr><td><b>Picture and sound</b></td><td>Refresh-rate matching, Dolby and DTS audio, lip-sync adjustment, subtitle style, stream info on start</td></tr>
+  <tr><td><b>Several screens</b></td><td>Optional sync keeps profiles, favourites, watch history, kids' viewing time and shared settings the same on every TV and phone you own, through a private GitHub repository of your own, encrypted before it leaves the screen</td></tr>
   <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers that open in YouTube, API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates</td></tr>
 </table>
 
@@ -135,7 +137,8 @@ If your provider gives separate addresses for VPN and non-VPN use, enter the one
 | **Playback** | Live stream format, pause & rewind buffer (15, 30 or 60 minutes, up to 1.5 GB, deleted when you leave the channel), refresh-rate matching, lip-sync, start on last channel, Continue watching on the TV home screen, audio language order, jump sizes for Left and Right, **Sleep timer** (30 to 120 minutes; a warning a minute before the end, and any key press then adds more time) and **Are you still watching?** (pauses after three episodes in a row or four hours of live TV with no key press; closes the player if nobody answers in five minutes) |
 | **Subtitles** | Size, colour and background |
 | **Channels & guide** | Channel groups, an external XMLTV guide, guide time offset, reminders, **Show each channel once**, **Search the whole TV guide** |
-| **Backup & phone** | Phone companion, backup to a file, restore |
+| **Backup & phone** | Phone companion, backup to a file, restore (asks first while sync is on, because a restore spreads to your other screens) |
+| **Sync between screens** | Turn on sync, join from another screen, add or remove a screen, sync now, **New household key**, stop syncing on this screen. See [Sync between screens](#sync-between-screens) |
 | **Library** | **My languages**, **Home screen** rows, **Manage categories** (hide, show, pin, whole countries), start screen, set up my library again, TMDB key and Rotten Tomatoes scores (both optional, below). The two key rows offer **Send from my phone**, so nothing has to be typed with the remote |
 | **Diagnostics** | Recent activity, saved logs, sharing logs, **Library and language report** (what Relay recognised in your playlist) |
 
@@ -171,9 +174,11 @@ A backup holds profiles, favourites, history, channel groups and renames, sort c
 
 A restore checks the whole file first, so nothing changes if it's damaged or from a newer Relay. It then replaces those items on the device, so back up the device first if you might want its current setup back. PINs already set on the device are kept, and Relay lists any profiles that need a PIN set again. Backups from older versions still restore, without their PINs.
 
+**Restoring while sync is on:** Relay asks first, because the restored items count as changes made on this screen and spread to your other screens. To restore on this screen only, stop syncing on it first, restore, and join again afterwards. Before the first sync and before a merged file from your other screens is applied, Relay saves a safety copy of this screen's data (the last three are kept), so a sync that does something unexpected can be undone by restoring that copy.
+
 Treat backup files as personal: they include your viewing history, and an external guide address can contain your provider login if the provider builds it that way.
 
-The phone companion (Settings → Backup & phone, or the sign-in screen) is a page a phone on the same Wi-Fi opens by scanning a QR code. It can sign the TV in, **send API keys** (they are checked before they are saved, and a saved key is never shown on the page), download a backup and restore one, and **edit your library** with the phone's keyboard: hide, show or pin categories and whole countries, reorder or remove favourite channels, and rename channels. It exists only while that screen is open, and its address includes a random code.
+The phone companion (Settings → Backup & phone, or the sign-in screen) is a page a phone on the same Wi-Fi opens by scanning a QR code. It can sign the TV in, **send API keys** (they are checked before they are saved, and a saved key is never shown on the page), turn on **sync** or replace its token, download a backup and restore one, and **edit your library** with the phone's keyboard: hide, show or pin categories and whole countries, reorder or remove favourite channels, and rename channels. It exists only while that screen is open, and its address includes a random code.
 
 </details>
 
@@ -183,6 +188,81 @@ The phone companion (Settings → Backup & phone, or the sign-in screen) is a pa
 - **Search** shows an *On TV* row: programmes on now (OK to watch) and later (OK sets a reminder). By default it covers channels whose guide Relay has already loaded. **Search the whole TV guide** downloads your provider's full guide for your languages and favourite channels (up to 1,500) every 12 hours. An external XMLTV guide, if set, is searched instead.
 - **Start over** in the channel panel plays the current programme from its beginning on channels with catch-up.
 - **Continue watching on the home screen** (Google TV and Android TV): movies and episodes you're partway through appear on the TV's own home screen. Choosing one opens Relay and resumes it on the same profile. Kids profiles and adult categories never appear there.
+
+</details>
+
+## Sync between screens
+
+Optional. With sync on, every TV and phone you have shows the same profiles, favourites, Continue watching, kids' viewing time and shared settings. Stop a film on one screen and the next one offers to resume it. Nothing is on until you set it up, and a screen that is offline just carries on by itself and catches up later.
+
+Relay does not run a server for this. The data lives in **one encrypted file in a private GitHub repository of your own**. Each screen reads and writes that file with a token that can reach only that repository. The file is encrypted on the screen before it leaves (AES-256-GCM), with a household key that stays on your screens and never goes to GitHub, so GitHub holds a file it cannot read.
+
+<details>
+<summary><b>What you need to make once (about five minutes, on a computer or a phone)</b></summary>
+
+1. On GitHub, make a **private** repository, for example `relay-sync`. Tick **Add a README file** so it isn't empty.
+2. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
+3. Name it `Relay sync`, pick the longest expiry offered, and under Repository access choose **Only select repositories** and pick the sync repository.
+4. Repository permissions → **Contents: Read and write**. Nothing else. This is a different token from the update token: that one only reads this app's releases.
+5. Copy the token (it starts with `github_pat_`). GitHub shows it once.
+
+</details>
+
+**Turn it on (first screen):** Settings → Sync between screens → **Turn on sync** (parent PIN if you have one). Scan the QR code with your phone, open the page, find *Sync between screens*, type the repository as `your-name/relay-sync`, paste the token and press **Turn on sync**. Relay checks that the repository is private and that the token can write to it, makes the household key, and does the first sync. The window closes when it is on, and Settings shows the status and the list of screens.
+
+**Add another screen:**
+
+1. On the new screen open Settings → Sync between screens → **Join sync from another screen**. On a fresh install the sign-in page has **I already use Relay on another screen** instead; a screen that joins signs in by itself.
+2. On a screen that already syncs open Settings → Sync between screens → **Add a screen** and choose the waiting screen from the list.
+3. Both screens now show the same six digits. If they match, press **Yes, they match** on the first screen, then **Join** on the new one. If they differ, press **No** and stop: someone else on your network is getting in the way. The details sent between the screens are sealed with a key worked out from the two screens' own keys, so nothing useful travels in the clear.
+
+The new screen keeps a safety copy of what it had before it joins, then brings its favourites and history together with the others'.
+
+If your Wi-Fi stops the screens from finding each other (some routers block this between devices), and the screen that already syncs is a **phone**: on the phone choose **Add a screen** → **Copy pairing link**, scan the new TV's QR code with the same phone, paste the link into the *Join sync* box on that page and press **Join** on the TV. Anyone who has the link can join your sync, so don't share it. A TV can't pass the pairing link to a phone yet, so this fallback needs the first screen to be a phone.
+
+<details>
+<summary><b>What is shared and what stays on each screen</b></summary>
+
+| Shared | Combined how |
+|---|---|
+| Watch history and positions, per profile | The later entry for each title wins. Removing a card on one screen doesn't come back from another |
+| Favourites, per profile | Each add or remove counts separately; the later one wins |
+| Profiles: name, colour, kids flag, limits, languages, Home rows, **profile PINs and the parent PIN** | The later change wins, per profile. A deleted profile stays deleted |
+| Kids' viewing time today, and "Allow 30 more minutes" | Added up across screens, so 60 minutes a day means 60 minutes in the whole house |
+| Your provider login | The later change wins. Changing servers on one screen reloads the library on the others |
+| TMDB and MDBList keys, audio and subtitle languages, language order and Home languages, hidden and pinned categories, show each channel once, chosen channel versions, guide address and offset, search the whole guide, scores on posters, hide adult titles, play next episode, jump sizes, "Are you still watching?" and whether setup is done | The later change wins, one setting at a time. Changing the audio language on one screen and the hidden categories on another keeps both |
+| Channel groups, renames, chosen channel versions, sort choices, audio and subtitle choice per series, reminders | The later change wins, per item |
+
+| Stays on each screen | Why |
+|---|---|
+| Lip-sync, refresh-rate matching, stream info, subtitle size, colour and background, theme, keyboard, pause buffer, start screen, sleep timer, live stream format, user agent | They depend on the TV and the room |
+| The playlist itself, images, logs, last channel, scroll positions | Each screen downloads and keeps its own |
+
+Two households never mix: the file is tied to the provider account, and a screen signed in to a different account refuses to merge and says so.
+
+</details>
+
+<details>
+<summary><b>How and when it runs</b></summary>
+
+- A screen syncs a few seconds after Relay opens, when it comes back to the front, about 30 seconds after you change something, when a film or channel closes, and every 10 minutes while it is open. **Sync now** in Settings does it straight away.
+- Relay writes only when something changed, and an idle screen touches the file about once every six hours to show it is still there.
+- Two screens changing different things at the same time both win. Two screens changing the same thing: the later change wins, and screens' clocks are compared safely, so a TV whose clock is slow or fast can't win or lose for ever.
+- Playback position reaches the other screens when the player closes, not every few seconds.
+- **Offline:** nothing breaks. Each screen keeps its own copy, retries after 1, 5 and then 15 minutes, and merges when the network is back. Both screens' changes survive.
+- Sync never blocks playback or start-up, and it waits while a slow TV is still reading its library.
+- Every change is a commit in your repository, so its history slowly grows (a few kilobytes per change). If you ever want a clean start: stop syncing on every screen, delete the repository, make a new one and a new token, turn sync on from one screen and join the others.
+
+</details>
+
+<details>
+<summary><b>Removing a screen, a lost screen, a new token, stopping</b></summary>
+
+- **Remove a screen** (Settings → Sync between screens) only takes it off the list. A screen that still has the key puts itself back the next time it syncs.
+- **A lost or sold screen:** on a screen you still have, choose **New household key**. The file is sealed again, and a screen with the old key can no longer open it. Because the old token can still change the file even though it can't read it, also make a new GitHub token (as above) and delete the old one in GitHub. Paste the new token on this screen: Settings → Backup & phone → Phone companion, scan the code, and use *Replace the token* under *Sync between screens*. Then, on each of your other screens, choose **Join again from another screen** (it appears once the status says the key or token no longer works) and add it from this one; the new token travels with the pairing.
+- **The token expired or was removed:** the status says *The sync token was refused*. Make a new token as above and paste it under *Replace the token* on the phone page (Settings → Backup & phone → Phone companion). The token is kept on each screen, not in the shared file, so every screen needs it; the quick way is **Join again from another screen** on the others.
+- **Stop syncing on this screen** keeps everything on it, forgets the repository, token and key, and takes it off the list. The others keep going. Signing out on a screen that syncs stops sync there too, because the login would otherwise come back from the other screens.
+- The token and key are kept in Relay's private storage on each screen, and are removed from every log line. They aren't in backups.
 
 </details>
 
@@ -217,6 +297,8 @@ To get the logs off a **TV**, open the phone companion (Settings → Backup & ph
 **Refreshing the playlist:** the top bar shows how far along it is, and Settings → Account shows the step (downloading, checking, preparing). The percentage is based on how big each list was last time, so the very first download shows megabytes instead. A refresh keeps going if you move to another screen.
 
 **Updates stopped arriving:** the update token has probably expired. See *Update token* under Maintaining Relay, then install the next build by hand once.
+
+**Sync status** (Settings → Sync between screens): *In sync, N minutes ago* is normal. *Waiting for the network* means the last try couldn't reach GitHub; it retries by itself. *The sync token was refused* or *can't be found with this token*: the token expired, was removed, or doesn't cover the repository; make a new one (Contents: read and write) and paste it under *Replace the token* on the phone page. *This screen's sync key doesn't open the file*: the household key was changed; choose **Join again from another screen**. *This screen is signed in to a different provider account*: sync is for one account; sign in with the same one or stop syncing here. *Update Relay on this screen to keep syncing*: another screen has a newer Relay that writes a newer file format; install the update. A message about the repository being public or the token being unable to write appears when sync is turned on; fix the repository or token and try again.
 
 **A channel won't play:** try Settings → Playback → Live stream format (MPEG-TS or HLS). Pause & rewind needs MPEG-TS.
 
@@ -290,10 +372,12 @@ app/src/main/java/dev/relay/tv/
   MainActivity.kt   navigation root and splash
   data/             Xtream client with server failover, catalog, local store,
                     backups, restrictions, languages, channel versions,
-                    kids limits, TMDB and Rotten Tomatoes
+                    kids limits, TMDB and Rotten Tomatoes, trailers,
+                    mergeable records and encryption for sync
   ui/               Compose screens for TV and phone
   player/           Media3 player, pause-buffer recorder, stream recovery
   companion/        phone companion web page and library editor
+  sync/             sync engine, GitHub storage, pairing and status text
   tv/               Google TV home screen (Continue watching)
   update/           in-app updater
 app/src/test/       unit tests

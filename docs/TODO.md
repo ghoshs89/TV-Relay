@@ -2,7 +2,7 @@
 
 Nothing here is started until it's asked for. Newest additions at the top of each section.
 
-The step-by-step plan for the performance, code and UI work is in [PLAN.md](PLAN.md) (done, except the last part of the player split below). The review that followed it is [PLAN-2.md](PLAN-2.md): phases A to D are released as 1.0.33 to 1.0.42 plus a fix in 1.0.77, phase E is still open.
+The step-by-step plan for the performance, code and UI work is in [PLAN.md](PLAN.md) (done, except the last part of the player split below). The review that followed it is [PLAN-2.md](PLAN-2.md): phases A to D are released as 1.0.33 to 1.0.42 plus a fix in 1.0.77, phase E is still open. [PLAN-3.md](PLAN-3.md) (trailers, API keys from the phone, sync between screens) is released as one build; its outcome, what was left out and the benchmark comparison are at the end of that file.
 
 ## To do
 
@@ -14,8 +14,28 @@ The step-by-step plan for the performance, code and UI work is in [PLAN.md](PLAN
 | 2 | Saved binary index of the library (plan item 4.5) | Only worth it if a TV log shows start-up parsing over about 8 s. Needs a TV log first (plan phase 0). |
 | 3 | Read a TV log and fill the measurements table | Plan phase 0 and section 11 were skipped because no log was available. Download logs from the phone companion after a refresh and a few minutes of browsing. |
 | 4 | Real baseline profile (plan 2 item A4) | The profile in the repo is a wildcard list. A generated one needs a Macrobenchmark run on an emulator that can load a library; the benchmark job could be extended to produce it. |
+| 5 | Sync, later polish (plan 3 H4 and H5) | H4: a hint under a Continue watching card that came from another screen ("Living room TV, 20 minutes ago") and an extra pull when a detail page opens for a title in progress. H5: a WebDAV transport (TrueNAS, Nextcloud) if you would rather keep the data at home. Wait until sync has run on real screens for a while. |
+| 6 | Sync, pairing link from a TV | The pairing link can be copied on a phone and pasted on a TV's page. A TV can't hand it to a phone yet. Showing it as a QR code on the TV would close that gap for screens whose Wi-Fi blocks discovery. |
+| 7 | Sync, benchmark stretch | The plan wanted the benchmark to run a sync round trip against a local GitHub look-alike. See the outcome in plan 3: what was and wasn't done. |
 
 ## Check on a device
+
+Plan 3 (first build that contains it; see Done):
+
+| Item | What to look for |
+|---|---|
+| Keys from the phone (F) | Settings → Library → TMDB API key (or Rotten Tomatoes scores) → **Send from my phone**. Scan, paste a good key and a bad one. The phone and the TV both say whether each was accepted; the TV window closes after a good key; scores and artwork appear on a movie page. |
+| Trailers (G) | On a movie and on a series with a trailer, **Trailer** opens YouTube and Back returns to the same page. On a title without one, **Find a trailer** opens a YouTube search (G6: confirm the search lands on a sensible page on the TV). No button on a kids profile. On a TV without YouTube a QR code appears. |
+| Nothing looks different after the storage change (H1) | Remove a Continue watching card, add and remove a favourite, change a setting, restart Relay: everything is as you left it. Kids viewing time still counts and still stops at the limit. |
+| Turn on sync (H2) | Make the private repository and token (README, *Sync between screens*). Settings → Sync between screens → Turn on sync, scan, paste. The status says *In sync*; change a favourite and a commit appears in the repository within about a minute. Sync stays off until you do this. |
+| Add a second screen (H3) | On the new TV: Settings → Join sync from another screen (or the sign-in page's *I already use Relay on another screen*). On the first: Add a screen. Check: the new TV is listed within a few seconds (does discovery work on your Wi-Fi?), both show the same six digits, Join signs the new TV in by itself and shows the same Continue watching, favourites, keys and languages. |
+| Hand-over | Stop a film on one screen, open it on the other: it resumes near the same place. Remove a Continue watching card on one; it doesn't come back from the other. |
+| Offline | Switch Wi-Fi off on one screen, change things on both, switch it back on: both sets of changes survive. |
+| Lost screen | On a screen, **New household key**; another screen then shows that its key no longer opens the file and offers **Join again from another screen**. |
+| Kids time across screens | A kids profile with 60 minutes a day: 30 minutes on each TV ends the day. |
+| Speed on a TV | The sync status shows the last time and size in the logs; with Save detailed logs on, check no list or playback stutter lines appear around a sync, especially right after the app opens. |
+
+Plans 1 and 2:
 
 | Item | What to look for |
 |---|---|

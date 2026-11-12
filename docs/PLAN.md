@@ -2,6 +2,8 @@
 
 Written 2026-11-11 against commit `f9ab6a5` (release 1.0.23). Line numbers refer to that commit; search by function name if they have moved.
 
+Later plans: [PLAN-2.md](PLAN-2.md) (review and TV speed) and [PLAN-3.md](PLAN-3.md) (trailers, keys from the phone, sync between screens). Items from this plan that are still open are tracked in PLAN-3.md section 6 and in [TODO.md](TODO.md).
+
 This plan is meant to be executed by a model that has not seen the earlier work. Read sections 1 and 2 before touching code. Do the phases in order. Each phase ends in one push to `main`, which builds and publishes one release.
 
 ## 1. Context
