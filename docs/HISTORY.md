@@ -1,0 +1,87 @@
+# Relay: what plans 1 to 4 did, and what they found out
+
+Plans 1 to 4 are finished and their full text is in the repository's history (`git log -- docs/PLAN.md docs/PLAN-2.md docs/PLAN-3.md docs/PLAN-4.md`). This file keeps the parts that still matter: the measurements, the benchmark results, the rules that came out of the work, and where each plan differed from what it set out to do. The current plan is [PLAN-5.md](PLAN-5.md); what is open is in [TODO.md](TODO.md).
+
+## 1. The four plans in one table
+
+| Plan | About | Released as | Left out (now tracked in TODO.md) |
+|---|---|---|---|
+| 1 | Live TV, Movies, Series and Home lists built off the screen thread; staged library load; type scale, icons, channel panel; remove from Continue watching; Start over; player split, part 1; lint | 1.0.24 to 1.0.31 | Player split, second half |
+| 2 | Frame and list timing in the log; the scripted benchmark; hold OK on a remote; cheaper focus; 1 s live start buffer; saves off the screen thread; cancellable list builds; image pool; sleep timer; "Are you still watching?" | 1.0.33 to 1.0.42, fix in 1.0.77 | Generated baseline profile, last five channels, Up next card, player split |
+| 3 | API keys from the phone; Trailer buttons; sync between screens (mergeable data, encrypted file in a private GitHub repository, pairing) | 1.0.91 | Hand-over hint, WebDAV, pairing link from a TV, sync benchmark stretch |
+| 4 | Saved ready-to-use copy of the prepared library; channel text work done once per name; cheaper refreshes; stall watch false alarm; first TV log read | 1.0.108 | Phase A's cost on the first start after an update; the saved copy's channel read |
+
+## 2. Measurements from the TV
+
+onn 4K Plus: 4 cores, 1917 MB RAM, 384 MB app limit, 1920x1080 at 320 dpi (960x540 dp), 60 Hz. Library: 56,019 channels, 165,672 movies, 38,104 series, 1,510 categories; saved JSON 132.7 MB.
+
+| Measure | 1.0.22 (8 Nov) | 1.0.77 (11 Nov) | 1.0.91 (11 Nov) | After plan 4 (fill from the next log) | After plan 5 |
+|---|---|---|---|---|---|
+| Process start to channels on screen | 73.4 s and 70.0 s | 53.0 s | 56.4 s | | |
+| Process start to all lists ready | same (one stage) | 59.0 s | 62.7 s | | |
+| Read saved library | 40.7 s and 41.6 s | 27.2 s | 29.6 s | | |
+| Prepare lists (slowest step) | 28.5 s (channel versions 14.8 s) | 30.1 s (13.4 s) | 32.2 s (14.4 s) | | |
+| Refresh: parse again, then prepare | 56.0 s, 32.8 s | 26.4 s, 29.2 s | none in the log | | |
+| Memory after load, after refresh (of 384 MB) | 152 to 160 MB, 299 MB | 150 MB, 241 MB | 151 MB | | |
+| Slowest Live list build | "All channels" 259 ms | not logged | 4 ms (All channels not opened) | | |
+| Movies list, all titles (off the screen thread) | not logged | not logged | 444 ms | | |
+| Search (whole-guide search on) | not logged | not logged | 1.2 to 2.2 s | | |
+| First picture after tuning | not logged | not logged | median 902 ms (773 to 1,333) | | |
+| Real screen-thread stalls | none (2 false reports) | none | none | | |
+
+Where a cold start went on 1.0.91: reading the six JSON files 29.6 s (47%), channel languages 7.9 s, channel versions 14.4 s, channel index 3.5 s, movies 5.1 s, series 1.2 s.
+
+Targets set by plan 4 for the TV, still to be checked with the routine in TODO.md: channels on screen 10 s or less with the saved copy (the emulator runs suggest 11 to 15 s), all lists 15 s or less, memory after load 160 MB or less, refresh peak no higher than 241 MB.
+
+**No phone has ever been measured.** Plan 5 adds the means (frame counting that knows the screen's refresh rate, touch stretches in the benchmark); the phone column starts with the first phone log.
+
+## 3. Benchmark results (emulator on a build server: compare builds, never read as TV or phone speed)
+
+Plan 2, the same script on the phase A code and on 1.0.77, medians of four runs:
+
+| What | 1.0.33 | 1.0.77 |
+|---|---|---|
+| First picture after tuning a live channel | 1.86 s | 0.93 s |
+| Holding Up in the channel list, 95th percentile frame | 194 ms | 34 ms |
+| Starting a channel, 95th percentile | 176 ms | 137 ms |
+| Holding Up through the Movies grid, frames over 100 ms in 60 presses | 4 | 2 |
+| Coming back from the player to the channel list, 95th percentile | 88 ms | 258 ms (the list scrolls back to the channel you left; one heavy frame) |
+
+Plan 3 against 1.0.77 (sync off): no stretch consistently worse; first picture 946 against 948 ms.
+
+Plan 4, cold start on the same emulator, saved copy against JSON path:
+
+| Library | Channels on screen, saved copy | JSON path | Speed-up |
+|---|---|---|---|
+| 12,000 channels, 40,000 movies, 8,000 series | 1.8 to 2.3 s | 5.2 to 5.9 s | 2.4x to 2.9x |
+| 56,000 channels, 166,000 movies, 38,000 series | 2.2 to 2.9 s | 10.9 to 11.2 s | 3.9x to 5.0x |
+
+Plan 4 also found the channel stage on the JSON path 3 to 35% slower than `main` on the emulator, where a desktop JVM showed it 30 to 40% faster. The cause was not found.
+
+## 4. Rules that came out of the work
+
+1. **A push to `main` that changes the app is a release** to every device. Docs and tools alone do not build. Work on a branch; check it with **Run workflow** (publishes nothing, uses up a build number).
+2. **CI was the only Android compiler** for plans 1 to 4. Since plan 5 a session can build locally when its environment allows `dl.google.com` (the Android SDK and Google's Maven files): `./gradlew :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease`.
+3. **Pure logic gets unit tests in the same commit.** Tests are never deleted to make a build pass.
+4. **Holding a key is its own test.** The 1.0.38 slowdown (frames over 100 ms in the Movies grid went from 4 to 28 over 60 presses) passed every unit test and the launch check. It came from starting a coroutine inside the focus callback in `Focusable`. Anything that touches `Focusable`, the grids or the lists is run through the benchmark on a branch, three runs against `main`, before release.
+5. **Any doubt about the saved copy of the library means JSON.** Its header carries each JSON file's size and date, each section a checksum, and `LibrarySnapshot.LOGIC` (with a hash test) changes whenever the rules that read names change.
+6. **Sync is off until it is set up**, keeps safety copies before a first sync and before applying a merged file, and never blocks playback or start-up.
+7. **No secrets** in the repository, commit messages, logs, backups or the benchmark build. Signing and update-token steps in `build.yml` are not touched.
+8. **Text shown to the viewer** is plain and short, with the app's existing wording.
+
+## 5. Where the plans differed from what they set out to do
+
+| Plan | Said | Did | Why |
+|---|---|---|---|
+| 1 | Player split into six classes, `PlayerActivity` under 450 lines | Three classes moved out (1,324 to 1,071 lines; later features brought it to about 1,200) | The rest holds the shared playback state and was too risky without a device |
+| 2 | RGB 565 for posters | Dropped | Android 8 and later use hardware bitmaps; it would change nothing |
+| 3 | Removals leave a record when they happen | Each screen remembers a fingerprint of every record at the last sync; what has disappeared since is a removal | Catches removals made by code that knows nothing about sync |
+| 3 | Pairing with a 6-digit code as the key | The screens swap public keys (ECDH, P-256); the six digits only prove nobody is in the middle | A 6-digit key can be guessed offline |
+| 3 | A new token on one screen spreads to the others | Each screen keeps its own token; **Replace the token** on the phone page or **Join again from another screen** | A screen with an expired token can't read the file that would carry the new one |
+| 3 | Backup format 3 | Unchanged (format 2); sync keeps its own safety copies | Nothing new needed to be in the backup |
+| 4 | Release only if the saved copy is 4 times faster on the default benchmark library | Released on the owner's say after the numbers above | The gate was a poor test at that size: 0.8 s of every start is process start-up |
+
+## 6. Known gaps in what has been checked
+
+* Nothing from plans 2 to 5 has been seen on a TV or a phone by the people who wrote it. It is compiled, unit tested, started on an emulator and driven by the scripted benchmark. The "Check on a device" lists in TODO.md are the remaining check.
+* The benchmark covers lists, grids, one live channel and (since plan 5) the guide grid, Search and touch flings. It does not cover the player's retry paths, sync, or pairing.

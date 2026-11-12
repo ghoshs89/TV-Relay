@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -136,6 +137,12 @@ private val relayTypography = Typography().let { t ->
         bodySmall = t.bodySmall.copy(lineHeight = TextUnit.Unspecified),
     )
 }
+
+/**
+ * The least height a button or row gets on a touch screen, so a thumb can hit it. Zero on TVs, where
+ * a remote moves focus and the drawn size is all that matters (see DeviceTier).
+ */
+val minTouch: Dp get() = dev.relay.tv.data.DeviceTier.current.minTouchDp.dp
 
 /** False while a screen is covered by another one, so the D-pad can't wander underneath. */
 val LocalFocusEnabled = compositionLocalOf { true }
@@ -314,6 +321,7 @@ fun PillButton(
         Row(
             (if (fill) Modifier.fillMaxWidth() else Modifier)
                 .background(bg)
+                .defaultMinSize(minHeight = minTouch)
                 .padding(horizontal = if (compact) 12.dp else 22.dp, vertical = if (compact) 8.dp else 11.dp),
             horizontalArrangement = if (fill) Arrangement.Center else Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically,
@@ -355,6 +363,7 @@ fun ListRow(
             Modifier
                 .fillMaxWidth()
                 .background(if (f) Palette.surface2 else if (selected) Palette.surface else Color.Transparent)
+                .defaultMinSize(minHeight = minTouch)
                 .padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

@@ -75,7 +75,7 @@ object CatalogParser {
     suspend fun parseConcurrently(
         dir: File,
         strict: Boolean,
-        limit: Int = Runtime.getRuntime().availableProcessors().let { if (it >= 4) 3 else 2 },
+        limit: Int = DeviceTier.current.parallelLists,
         progress: (Float) -> Unit = {},
     ): ParsedCatalog = coroutineScope {
         val r = Reader(dir, strict, progress)

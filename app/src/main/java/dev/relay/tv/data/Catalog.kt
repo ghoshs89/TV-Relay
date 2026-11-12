@@ -191,7 +191,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                         }
                         if (installedAt < 0 && !isEmpty) installedAt = android.os.SystemClock.elapsedRealtime()
                         val due = force || libraryDue()
-                        wait = Freshness.startDelay(installedAt, android.os.SystemClock.elapsedRealtime(), due, force)
+                        wait = Freshness.startDelay(installedAt, android.os.SystemClock.elapsedRealtime(), due, force, DeviceTier.current.refreshStartDelayMs)
                         if (wait > 0) {
                             val hours = (System.currentTimeMillis() - file("get_live_streams").lastModified()) / 3_600_000
                             AppLog.i("Catalog", "Library is $hours h old; refreshing in ${(wait + 500) / 1000} s")
@@ -283,7 +283,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val readMs = ConcurrentHashMap<String, Long>()
         try {
             supervisorScope {
-                val gate = Semaphore(Runtime.getRuntime().availableProcessors().let { if (it >= 4) 3 else 2 })
+                val gate = Semaphore(DeviceTier.current.parallelLists)
                 fun <T> read(name: String, block: () -> T): Deferred<T> = async(Dispatchers.Default) {
                     gate.withPermit {
                         val t = System.currentTimeMillis()
@@ -343,7 +343,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             seriesByAdded = seriesByAdded, seriesByRating = seriesByRating, seriesByName = seriesByName,
         )
         scope.launch {
-            delay(5_000)
+            delay(DeviceTier.current.snapshotDelayMs)
             if (gen != snapGen.get()) return@launch
             withContext(Dispatchers.IO) { saveSnapshot(source, gen) }
         }
@@ -498,6 +498,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         rawChannels = emptyList()
         channelById = emptyMap(); movieById = emptyMap(); seriesById = emptyMap()
         epgCache.clear()
+        searchChannels.clear(); searchMovies.clear(); searchSeries.clear()
         error = null
         snapGen.incrementAndGet()
         snapshotStatus = "cleared"
@@ -745,24 +746,23 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
     /** Original languages learned from TMDB when a title is opened; they correct the guesses. Saved. */
     private val learnedFile: File get() = File(ctx.filesDir, "learned_langs.json")
-    private val learned: ConcurrentHashMap<String, String> by lazy {
-        ConcurrentHashMap<String, String>().also { m ->
+    private val learned: LearnedLangs by lazy {
+        LearnedLangs().also { m ->
             try {
-                if (learnedFile.exists()) {
-                    m.putAll(Jsons.json.decodeFromString(LANG_MAP, learnedFile.readText()))
-                }
+                if (learnedFile.exists()) m.load(Jsons.json.decodeFromString(LANG_MAP, learnedFile.readText()))
             } catch (e: Exception) {
                 AppLog.w("Catalog", "Saved title languages unreadable", e)
             }
         }
     }
+    private val learnedWrite = Any()
 
     var langVersion by mutableIntStateOf(0); private set
     var indexMs = 0L; private set
 
     fun channelLang(id: Int): String? = chLang[id]
-    fun movieLang(id: Int): String? = learned["m:$id"] ?: mvLang[id]
-    fun seriesLang(id: Int): String? = learned["s:$id"] ?: srLang[id]
+    fun movieLang(id: Int): String? = learned.movie(id) ?: mvLang[id]
+    fun seriesLang(id: Int): String? = learned.series(id) ?: srLang[id]
     fun liveCatLang(id: String): String? = liveCatLang[id]
     fun vodCatLang(id: String): String? = vodCatLang[id]
     fun seriesCatLang(id: String): String? = seriesCatLang[id]
@@ -777,16 +777,26 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             null, "" -> return
             else -> Langs.OTHER
         }
-        if (learned.put(key, g) != g) {
-            langVersion++
-            try {
-                // Capped so it can't grow without limit.
-                val keep = if (learned.size > 5000) learned.entries.take(5000).associate { it.key to it.value } else HashMap(learned)
-                learnedFile.writeText(Jsons.json.encodeToString(LANG_MAP, keep))
-            } catch (e: Exception) {
-                AppLog.w("Catalog", "Couldn't save title languages", e)
+        val guess: (Boolean, Int) -> String? = { movie, id -> if (movie) mvLang[id] else srLang[id] }
+        when (learned.learn(key, g, guess)) {
+            LearnedLangs.Change.None -> return
+            // Lists are only built again when the title really moved to another language group. Learning what
+            // was already guessed (the usual case) is saved and nothing on screen is redone.
+            LearnedLangs.Change.Moved -> langVersion++
+            LearnedLangs.Change.Confirmed -> Unit
+        }
+        val keep = learned.snapshot(LearnedLangs.MAX_SAVED)
+        val save = {
+            synchronized(learnedWrite) {
+                try {
+                    learnedFile.writeText(Jsons.json.encodeToString(LANG_MAP, keep))
+                } catch (e: Exception) {
+                    AppLog.w("Catalog", "Couldn't save title languages", e)
+                }
             }
         }
+        // Off the screen thread: this is called while a detail page is opening.
+        appScope?.launch(Dispatchers.IO) { save() } ?: save()
     }
 
     /** Library size, how long indexing took and memory in use, for the report and the log. */
@@ -845,20 +855,23 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val ch = if (renames.isEmpty()) raw else raw.map { c -> renames[c.id]?.let { c.copy(name = it) } ?: c }
         val byId = ch.associateBy { it.id }
         // Everything derived from a provider name comes from the background index; only renamed channels are redone.
-        val keys = HashMap(rawKeys)
-        val quality = HashMap(rawQuality)
-        // Without renames the raw maps are used as they are (nothing writes to them), which saves a copy in memory.
+        // Without renames the raw maps are used as they are (nothing writes to them), which saves four copies of
+        // a map with one entry per channel, in time and in memory.
+        val keysCopy = if (renames.isEmpty()) null else HashMap(rawKeys)
+        val qualityCopy = if (renames.isEmpty()) null else HashMap(rawQuality)
         val sortCopy = if (renames.isEmpty()) null else HashMap(rawSortKeys)
         val hdCopy = if (renames.isEmpty()) null else HashSet(rawHd)
         renames.keys.forEach { id ->
             byId[id]?.let { c ->
                 // The renamed name decides key, quality, sorting and HD; the language stays the provider name's.
-                keys[id] = ChannelVersions.key(c.name) + "|" + (lang[id] ?: "")
-                quality[id] = ChannelVersions.quality(c.name)
+                keysCopy!![id] = ChannelVersions.key(c.name) + "|" + (lang[id] ?: "")
+                qualityCopy!![id] = ChannelVersions.quality(c.name)
                 sortCopy!![id] = ChannelKeys.sortKey(c.name)
                 if (ChannelKeys.isHd(c.name)) hdCopy!!.add(id) else hdCopy!!.remove(id)
             }
         }
+        val keys: Map<Int, String> = keysCopy ?: rawKeys
+        val quality: Map<Int, Int> = qualityCopy ?: rawQuality
         val sortKeys: Map<Int, String> = sortCopy ?: rawSortKeys
         val hd: Set<Int> = hdCopy ?: rawHd
         val groups = ChannelVersions.group(ch) { keys[it.id] ?: "#${it.id}" }
@@ -992,8 +1005,6 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         override fun category(t: Series): String = t.categoryId
     }
 
-    fun groupChannels(g: ChannelGroup): List<Channel> = g.channelIds.mapNotNull { channelById[it] }
-
     // ---------- Guide ----------
 
     suspend fun shortEpg(id: Int): List<EpgEntry> = shortEpgOrNull(id).orEmpty()
@@ -1026,8 +1037,6 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         return list
     }
 
-    suspend fun archive(id: Int): List<EpgEntry> = archiveOrNull(id).orEmpty()
-
     /** Catch-up listings; null when the provider couldn't be reached. */
     suspend fun archiveOrNull(id: Int): List<EpgEntry>? = try {
         shift(api.epg(id, full = true))
@@ -1040,9 +1049,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
     // Guide grid: wider window per channel, cached, with a cap on parallel requests to the provider.
     private val gridCache = ConcurrentHashMap<Int, Pair<Long, List<EpgEntry>>>()
-    private val gridGate = kotlinx.coroutines.sync.Semaphore(4)
-
-    suspend fun gridEpg(ch: Channel, from: Long, to: Long): List<EpgEntry> = gridEpgOrNull(ch, from, to).orEmpty()
+    private val gridGate = kotlinx.coroutines.sync.Semaphore(DeviceTier.current.gridGuideRequests)
 
     /** Null when the provider failed and there's no external guide data for the channel. */
     suspend fun gridEpgOrNull(ch: Channel, from: Long, to: Long, fresh: Boolean = false): List<EpgEntry>? {
@@ -1096,13 +1103,20 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         return found.values.sortedBy { it.second.start }.take(limit)
     }
 
+    // ---------- Search ----------
+
+    /** Names ready for Search to compare, per list; rebuilt by themselves when a list is replaced. */
+    val searchChannels = NormalizedNames<Channel> { it.name }
+    val searchMovies = NormalizedNames<Movie> { it.name }
+    val searchSeries = NormalizedNames<Series> { it.name }
+
     fun clearGuideCache() {
         epgCache.clear()
         gridCache.clear()
         epgVersion++
     }
 
-    private val rowGate = kotlinx.coroutines.sync.Semaphore(3)
+    private val rowGate = kotlinx.coroutines.sync.Semaphore(DeviceTier.current.rowGuideRequests)
 
     /** Loads now and next for a channel row, a few at a time so scrolling doesn't flood the provider. */
     suspend fun prefetchNowNext(id: Int) {

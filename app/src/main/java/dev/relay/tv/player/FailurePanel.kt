@@ -24,7 +24,7 @@ class FailurePanel(
     private fun button(label: String, onClick: () -> Unit) = TextView(context).apply {
         text = label
         textSize = 18f
-        setPadding(40, 20, 40, 20)
+        setPadding(context.tvPx(40), context.tvPx(20), context.tvPx(40), context.tvPx(20))
         setTextColor(Color.WHITE)
         setBackgroundColor(0xFF1E2B45.toInt())
         isFocusable = true
@@ -39,14 +39,14 @@ class FailurePanel(
         setTextColor(Color.WHITE)
         textSize = 20f
         gravity = Gravity.CENTER
-        setPadding(0, 0, 0, 8)
+        setPadding(0, 0, 0, context.tvPx(8))
     }
     private val hint = TextView(context).apply {
         setTextColor(0xFFB8C2D3.toInt())
         textSize = 15f
         gravity = Gravity.CENTER
         maxWidth = 900
-        setPadding(0, 0, 0, 28)
+        setPadding(0, 0, 0, context.tvPx(28))
     }
     private val retry = button("Retry") { primary() }
     private val next = button("Next channel") { onNext() }
@@ -54,7 +54,7 @@ class FailurePanel(
     private val panel = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
-        setPadding(56, 44, 56, 44)
+        setPadding(context.tvPx(56), context.tvPx(44), context.tvPx(56), context.tvPx(44))
         setBackgroundColor(0xEE0B1220.toInt())
         visibility = View.GONE
         addView(title)

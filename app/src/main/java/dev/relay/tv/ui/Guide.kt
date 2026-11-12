@@ -216,7 +216,7 @@ private fun GuideRow(
     var failed by remember(ch.id) { mutableStateOf(false) }
     var retry by remember(ch.id) { mutableIntStateOf(0) }
     LaunchedEffect(ch.id, reload, retry) {
-        delay(120) // let fast scrolling skip rows before asking the provider
+        delay(dev.relay.tv.data.DeviceTier.current.gridRowDelayMs) // let fast scrolling skip rows before asking the provider
         val fresh = reload > 0 || retry > 0
         val got = app.catalog.gridEpgOrNull(ch, windowStart, windowEnd, fresh)
         // A failed reload keeps what's already on screen.

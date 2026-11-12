@@ -328,6 +328,9 @@ class PlayerActivity : ComponentActivity() {
                     .build(),
                 true,
             )
+            // Phones: headphones pulled out or a Bluetooth speaker dropping pauses instead of carrying on through the
+            // speaker. Not on TVs, where a sound bar switching inputs can look the same and would pause live TV.
+            .setHandleAudioBecomingNoisy(!isTv)
             .build()
         player.addListener(listener)
         if (s.audioDelayMs != 0) AppLog.i("Player", "Lip-sync offset ${s.audioDelayMs} ms")
@@ -352,7 +355,7 @@ class PlayerActivity : ComponentActivity() {
         overlay = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 20f
-            setPadding(36, 18, 36, 18)
+            setPadding(tvPx(36), tvPx(18), tvPx(36), tvPx(18))
             setBackgroundColor(0xDD0B1220.toInt())
             visibility = View.GONE
         }
@@ -360,7 +363,7 @@ class PlayerActivity : ComponentActivity() {
             setTextColor(0xFFE8EEF7.toInt())
             textSize = 14f
             typeface = Typeface.MONOSPACE
-            setPadding(28, 14, 28, 14)
+            setPadding(tvPx(28), tvPx(14), tvPx(28), tvPx(14))
             setBackgroundColor(0xC0000000.toInt())
             visibility = View.GONE
         }
@@ -386,7 +389,7 @@ class PlayerActivity : ComponentActivity() {
             text = "☰  Channels"
             setTextColor(Color.WHITE)
             textSize = 16f
-            setPadding(32, 18, 32, 18)
+            setPadding(tvPx(32), tvPx(18), tvPx(32), tvPx(18))
             setBackgroundColor(0xCC1E2B45.toInt())
             visibility = View.GONE
             isFocusable = false
@@ -409,7 +412,7 @@ class PlayerActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.START,
-            ).apply { setMargins(48, 40, 48, 0) },
+            ).apply { setMargins(tvPx(48), tvPx(40), tvPx(48), 0) },
         )
         root.addView(
             infoView,
@@ -417,7 +420,7 @@ class PlayerActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM or Gravity.START,
-            ).apply { setMargins(48, 0, 48, 48) },
+            ).apply { setMargins(tvPx(48), 0, tvPx(48), tvPx(48)) },
         )
         root.addView(
             channelsButton,
@@ -425,7 +428,7 @@ class PlayerActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.END,
-            ).apply { setMargins(48, 40, 48, 0) },
+            ).apply { setMargins(tvPx(48), tvPx(40), tvPx(48), 0) },
         )
         tsBar = TimeshiftBar(this, touchControls = !isTv, onSeek = ::tsSeek, onLive = ::tsGoLive)
         tsBar.addTo(root)
@@ -446,7 +449,42 @@ class PlayerActivity : ComponentActivity() {
         failure.addTo(root)
         root.addView(channelsView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
+        fillScreen(root)
         view.requestFocus()
+    }
+
+    /**
+     * Video uses the whole screen on phones: the status and navigation bars are hidden (a swipe from the
+     * edge shows them for a moment), and everything keeps clear of a camera cut-out, which would otherwise
+     * sit over the picture or the channel name. TVs have neither, so nothing changes there.
+     */
+    private fun fillScreen(root: View) {
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (Build.VERSION.SDK_INT >= 28) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        root.setBackgroundColor(Color.BLACK)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val cut = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+            v.setPadding(cut.left, cut.top, cut.right, cut.bottom)
+            insets
+        }
+        hideSystemBars()
+    }
+
+    private fun hideSystemBars() {
+        androidx.core.view.WindowInsetsControllerCompat(window, window.decorView).apply {
+            systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // The bars come back when a dialog or the notification shade takes the window; put them away again.
+        if (hasFocus && !isInPictureInPictureMode) hideSystemBars()
     }
 
     private val failing: Boolean get() = ::failure.isInitialized && failure.showing

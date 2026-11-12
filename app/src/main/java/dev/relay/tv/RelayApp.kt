@@ -71,6 +71,7 @@ class RelayApp : Application(), ImageLoaderFactory {
         }
         AppLog.saveUntil = store.settings.logUntil
         AppLog.init(this)
+        dev.relay.tv.data.DeviceTier.current = deviceTier()
         api = XtreamApi(http) { store.settings.userAgent.ifBlank { "RelayTV/1.0" } }
         api.account = store.account
         api.host = store.activeHost
@@ -101,6 +102,7 @@ class RelayApp : Application(), ImageLoaderFactory {
         ratings = Ratings(http, java.io.File(filesDir, "ratings.json"))
         AppLog.stateDump = { stateDump() }
         AppLog.i("App", deviceLine())
+        AppLog.i("App", dev.relay.tv.data.DeviceTier.current.describe())
         StallWatch.start()
         sync.start()
         if (BuildConfig.BENCH) {
@@ -112,6 +114,30 @@ class RelayApp : Application(), ImageLoaderFactory {
         }
     }
 
+    private fun refreshHz(): Float = try {
+        (getSystemService(DISPLAY_SERVICE) as android.hardware.display.DisplayManager)
+            .getDisplay(android.view.Display.DEFAULT_DISPLAY)?.refreshRate ?: 60f
+    } catch (e: Exception) {
+        60f
+    }
+
+    private fun isTv(): Boolean =
+        (getSystemService(UI_MODE_SERVICE) as android.app.UiModeManager).currentModeType ==
+            android.content.res.Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+
+    /** Decided once, before anything that reads it is built (the catalog's request limits, the image loader). */
+    private fun deviceTier(): dev.relay.tv.data.DeviceTier {
+        val am = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+        return dev.relay.tv.data.DeviceTier.of(
+            cores = Runtime.getRuntime().availableProcessors(),
+            memoryLimitMb = Runtime.getRuntime().maxMemory() / 1_048_576,
+            lowRam = am.isLowRamDevice,
+            tv = isTv(),
+            refreshHz = refreshHz(),
+        )
+    }
+
     /** Memory and processor facts that explain why a TV behaves differently from a phone. */
     private fun deviceLine(): String {
         val am = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
@@ -120,13 +146,14 @@ class RelayApp : Application(), ImageLoaderFactory {
         return "Device: ${Runtime.getRuntime().availableProcessors()} cores, RAM ${mi.totalMem / 1_048_576} MB " +
             "(${mi.availMem / 1_048_576} MB free${if (am.isLowRamDevice) ", low-RAM device" else ""}), " +
             "app memory limit ${Runtime.getRuntime().maxMemory() / 1_048_576} MB, " +
-            "screen ${dm.widthPixels}x${dm.heightPixels} at ${dm.densityDpi} dpi, " +
+            "screen ${dm.widthPixels}x${dm.heightPixels} at ${dm.densityDpi} dpi, ${"%.0f".format(refreshHz())} Hz, " +
             (if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)) "TV" else "phone or tablet")
     }
 
     /** Added to shared logs. No logins, keys or PINs. */
     private fun stateDump(): String = buildString {
         appendLine(deviceLine())
+        appendLine(dev.relay.tv.data.DeviceTier.current.describe())
         appendLine(catalog.loadSummary())
         appendLine("Loading now: ${if (catalog.loading) catalog.progress?.text ?: "yes" else "no"}; last error: ${catalog.error ?: "none"}")
         appendLine("Library saved: ${if (catalog.updatedAt > 0) java.util.Date(catalog.updatedAt) else "never"}")
@@ -143,20 +170,22 @@ class RelayApp : Application(), ImageLoaderFactory {
     }
 
     /**
-     * Images load through their own request queue (8 at a time, 4 per server) built from the same
+     * Images load through their own request queue (8 at a time, 4 per server; more on fast devices) built from the same
      * client, so connections, timeouts and the user agent are shared but a screenful of posters can't
      * crowd out the playlist and guide requests, or open dozens of connections to one provider.
-     * No fade-in by default: a fade per poster costs frames while scrolling; the large backdrops ask for one.
+     * No fade-in by default on TVs: a fade per poster costs frames while scrolling; the large backdrops ask for one.
+     * Channel logos never fade (see LogoImage).
      */
     override fun newImageLoader(): ImageLoader {
+        val tier = dev.relay.tv.data.DeviceTier.current
         val imageHttp = http.newBuilder()
-            .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 8; maxRequestsPerHost = 4 })
+            .dispatcher(okhttp3.Dispatcher().apply { maxRequests = tier.imageRequests; maxRequestsPerHost = tier.imageRequestsPerHost })
             .build()
         return ImageLoader.Builder(this)
             .okHttpClient(imageHttp)
             .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.20).build() }
             .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(250L * 1024 * 1024).build() }
-            .crossfade(false)
+            .crossfade(tier.posterFade)
             .build()
     }
 

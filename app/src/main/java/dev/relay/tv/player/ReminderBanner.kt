@@ -16,7 +16,7 @@ import dev.relay.tv.ui.ReminderCenter
  * tap (phone) calls [onWatch], and Back dismisses it.
  */
 class ReminderBanner(
-    context: Context,
+    private val context: Context,
     private val tv: Boolean,
     private val handler: Handler,
     private val onWatch: (Reminder) -> Unit,
@@ -30,7 +30,7 @@ class ReminderBanner(
     private val view = TextView(context).apply {
         setTextColor(Color.WHITE)
         textSize = 18f
-        setPadding(32, 20, 32, 20)
+        setPadding(context.tvPx(32), context.tvPx(20), context.tvPx(32), context.tvPx(20))
         setBackgroundColor(0xEEB8462E.toInt())
         visibility = View.GONE
         isFocusable = false
@@ -44,7 +44,7 @@ class ReminderBanner(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.END,
-            ).apply { setMargins(48, 110, 48, 0) },
+            ).apply { setMargins(context.tvPx(48), context.tvPx(110), context.tvPx(48), 0) },
         )
     }
 

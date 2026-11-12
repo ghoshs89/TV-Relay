@@ -12,7 +12,8 @@ import dev.relay.tv.BuildConfig
  * line if any frame was slow, and costs nothing when it is off beyond an empty callback.
  */
 object FrameWatch {
-    private val stats = FrameStats()
+    // Made on first use, after the app has worked out what kind of device this is.
+    private val stats by lazy { FrameStats(DeviceTier.current.framePeriodMs) }
     private val thread by lazy { HandlerThread("relay-frames").apply { start() } }
     @Volatile private var started = false
     @Volatile var label: String = "browse"
@@ -49,6 +50,6 @@ object FrameWatch {
     private fun report(onlyIfSlow: Boolean) {
         val s = stats.take() ?: return
         val line = s.text(label)
-        if (s.over32 > 0 || !onlyIfSlow) AppLog.i("Frames", line) else AppLog.d("Frames", line)
+        if (s.over32 > 0 || (s.highRefresh && s.late > 0) || !onlyIfSlow) AppLog.i("Frames", line) else AppLog.d("Frames", line)
     }
 }

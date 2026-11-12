@@ -164,3 +164,10 @@ object StreamInfo {
         else -> mime.substringAfter('/').uppercase()
     }
 }
+
+/**
+ * A size that was chosen in pixels on a 1080p TV (where one dp is two pixels), as pixels on this screen.
+ * On a TV it gives back the same number; on a phone, whose screen packs more pixels into the same space,
+ * margins and padding keep their size instead of shrinking.
+ */
+fun android.content.Context.tvPx(px: Int): Int = Math.round(px * resources.displayMetrics.density / 2f)

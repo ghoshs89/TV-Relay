@@ -54,4 +54,10 @@ class FreshnessTest {
         assertTrue(Freshness.libraryDue(saved, saved + 6 * 3600_000L))
         assertTrue(Freshness.libraryDue(0L, saved))
     }
+
+    @Test
+    fun aFastDeviceWaitsLess() {
+        org.junit.Assert.assertEquals(5_000L, Freshness.startDelay(1_000, 1_000, due = true, force = false, startDelayMs = 5_000))
+        org.junit.Assert.assertEquals(0L, Freshness.startDelay(1_000, 7_000, due = true, force = false, startDelayMs = 5_000))
+    }
 }

@@ -2,23 +2,62 @@
 
 Nothing here is started until it's asked for. Newest additions at the top of each section.
 
-The step-by-step plan for the performance, code and UI work is in [PLAN.md](PLAN.md) (done, except the last part of the player split below). The review that followed it is [PLAN-2.md](PLAN-2.md): phases A to D are released as 1.0.33 to 1.0.42 plus a fix in 1.0.77, phase E is still open. [PLAN-3.md](PLAN-3.md) (trailers, API keys from the phone, sync between screens) is released as one build; its outcome, what was left out and the benchmark comparison are at the end of that file. [PLAN-4.md](PLAN-4.md) (the saved copy of the library for fast start-up, and the TV measurements) is released as one build; its outcome and benchmark comparison are at the end of that file.
+Plans 1 to 4 are finished; what they did, measured and learned is in [HISTORY.md](HISTORY.md). [PLAN-5.md](PLAN-5.md) is the current plan: a review of the app and its documents, and the work to make Relay good on both fast phones and slower TVs. Its section 8 says which parts are built (on a branch, not released yet) and which are not.
+
+## For you to do (nobody else can)
+
+| # | What | Notes |
+|---|---|---|
+| A | **Move sync out of this repository** | Sync is pointed at this repository (`relay-sync.bin` is here). That gives every screen a token that can write to the repository whose `main` branch builds and installs on every device. The new private repository `ghoshs89/Relay-TV_Sync` exists. Still to do: on every screen **Stop syncing on this screen**; on one screen turn sync on with `ghoshs89/Relay-TV_Sync` and its token; join the others; delete the old token on GitHub. Then `relay-sync.bin` and its line in `.github/workflows/build.yml` can go (to-do 1 below). The token for the new repository was pasted into a chat: once sync runs there, replace it (*Replace the token* on the phone page, then **Join again** on the other screens) and delete it. |
+| B | **Device checks, on the TV and on the phone** | The lists under "Check on a device". Nothing since 1.0.24 has been looked at on a TV, and no phone has ever been measured. |
+| C | Delete the scratch branches on GitHub | `p2`, `p2base`, `p2r`, `p2s`, `p3base`, `p4base`, `p4base-big`, `pB`, `pC`, `pE1`, `pE2`, `pFA`, `pFB`, `pFC`, `plan3`, `plan4`, `plan4-big`, `plan4-exec`. |
 
 ## To do
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | **Finish splitting the player code** | Done so far (1.0.30): kids limit timing, audio and subtitle choices, failure panel, pause bar and its arithmetic, reminder banner, number entry and the picture-in-picture ratio are separate classes with tests. `PlayerActivity.kt` went from 1,324 to 1,071 lines. Not done: live channel switching and recovery (`LiveSession`), the pause buffer controller (`TimeshiftController`) and view construction (`PlayerViews`), which hold the shared playback state and are the riskiest to move without a device. Do them after the player checks below pass on a TV. |
-| 1a | Player checks on a TV for 1.0.33 to 1.0.77 | The "Check on a device" list below has what to try. Nothing from plan 2 has been seen on a TV: it is compiled, unit tested, started on an emulator and driven by the scripted benchmark, no more. |
-| 1b | Sleep timer and Up next card | The sleep timer and "Are you still watching?" are in (1.0.42). Up next card (plan 2 item D6) and a list of the last five channels (D4) are not; Back already flips to the previous channel. |
-| 4 | Real baseline profile (plan 2 item A4) | The profile in the repo is a wildcard list. A generated one needs a Macrobenchmark run on an emulator that can load a library; the benchmark job could be extended to produce it. |
-| 5 | Sync, later polish (plan 3 H4 and H5) | H4: a hint under a Continue watching card that came from another screen ("Living room TV, 20 minutes ago") and an extra pull when a detail page opens for a title in progress. H5: a WebDAV transport (TrueNAS, Nextcloud) if you would rather keep the data at home. Wait until sync has run on real screens for a while. |
-| 6 | Sync, pairing link from a TV | The pairing link can be copied on a phone and pasted on a TV's page. A TV can't hand it to a phone yet. Showing it as a QR code on the TV would close that gap for screens whose Wi-Fi blocks discovery. |
-| 7 | Sync, benchmark stretch | The plan wanted the benchmark to run a sync round trip against a local GitHub look-alike. See the outcome in plan 3: what was and wasn't done. |
+| 1 | Remove `relay-sync.bin` and its `paths-ignore` line | Only after A. Changing `build.yml` makes a release, so ship it with other work. |
+| 2 | Guide grid: draw only the programmes on screen (plan 5, U4) | Each row builds every programme in an 11 hour window. Needs a benchmark run before and after; the guide stretches now exist. |
+| 3 | Player correctness (plan 5, B1 to B3) | One automatic retry for a film after a network drop; re-tune live after coming back to the app; don't resume a film the viewer had paused. After the player checks in B. |
+| 4 | **Finish splitting the player code** | Done so far (1.0.30): kids limit timing, audio and subtitle choices, failure panel, pause bar and its arithmetic, reminder banner, number entry and the picture-in-picture ratio are separate classes with tests. `PlayerActivity.kt` is about 1,200 lines. Not done: live channel switching and recovery (`LiveSession`), the pause buffer controller (`TimeshiftController`) and view construction (`PlayerViews`). After the player checks in B. |
+| 5 | Up next card and last five channels | Plan 2 items D6 and D4. With to-do 4. |
+| 6 | Phone layout on short screens (plan 5, P7) and double-tap to skip (P8) | P7 after a look at the phone: a phone on its side is only about 360 to 410 dp tall. |
+| 7 | Media session on phones (plan 5, Q5) | Lock-screen, headset and picture-in-picture controls. Needs one more Media3 library. |
+| 8 | Tune the fast tier from a phone log | The phone's shorter waits in `data/DeviceTier.kt` are first guesses. |
+| 9 | Real baseline profile (plan 2 item A4) | The profile in the repo is a wildcard list. A generated one needs a Macrobenchmark run. |
+| 10 | Plan 4 leftovers | The first start after an update was 3 to 35% slower on the emulator (cause not found); the saved copy's channel read. Both need the TV log. |
+| 11 | Benchmark: a phone-shaped emulator pass and a `detail-open-and-back` stretch | Touch flings were added to the existing run in plan 5; a separate phone profile was not. |
+| 12 | Sync, later polish | Pairing link shown as a QR code on a TV; a hint under a Continue watching card that came from another screen; an extra pull when a detail page opens; WebDAV if you would rather keep the data at home. |
 
 ## Check on a device
 
-Plan 4 (first build that contains it; see Done). Run this routine once after installing the release, so the numbers are comparable with the "Before" columns in [PLAN-4.md](PLAN-4.md) section 1 and the table in [PLAN.md](PLAN.md) section 11:
+Plan 5 (first build that contains it), on the **phone**. Turn on Settings → Diagnostics → **Save detailed logs** first, and send the log afterwards (**Share logs** works on phones):
+
+| Item | What to look for |
+|---|---|
+| Player fills the screen | No status bar or gesture bar over the video. Nothing (channel name, stream info, Channels button, pause bar) hidden behind the camera cut-out. Turn the phone to the other landscape side: still right. A swipe from the edge shows the bars for a moment. |
+| After a dialog | Open the audio or subtitle menu in the player and close it: the bars go away again. |
+| Picture-in-picture | Leave with Home while a film plays, come back: full screen again, bars hidden. |
+| Headphones | Pull out or switch off headphones during playback: it pauses. |
+| Touch sizes | The Live TV toolbar chips, the A to Z letters and the buttons in the channel panel are easy to hit with a thumb. Say if the taller toolbar leaves too few channel rows. |
+| Overlay sizes | The channel name, stream info and failure panel look the same size as on the TV, not smaller. |
+| Flings | Fling Live TV → All channels, Movies, Home and the guide grid. Posters fade in on a fast phone. |
+| Typing | Search and Find in Live TV answer sooner after the last letter than on the TV. |
+| The log | The top has a *Device tier:* line; it should say *fast* on a recent phone. *Frames* lines end with *late for a 120 Hz screen* when frames were late. |
+
+Plan 5, on the **TV** (nothing should feel different except where listed):
+
+| Item | What to look for |
+|---|---|
+| The log | *Device tier: standard* with the same numbers as before (lists at once 3, guide wait 350/120 ms, images 8/4, refresh after 20 s). |
+| A to Z | Live TV → All channels → Sort: A–Z. No pause when the list appears; the letter strip jumps to the right place. |
+| Opening a title | Open a film (with a TMDB key), press Back: the grid is as you left it, not dimmed and rebuilt. |
+| Home | Rows *New in Hindi* and the like appear without holding up scrolling. |
+| Search | The second and later searches are quicker than the first. Memory in the log after a search: say if it is much above 180 MB. |
+| Pinned categories | Pin a category, open a channel from it, press Back: focus returns to the pinned row, not the one under its country. |
+| Player | Overlays, margins and the failure panel look exactly as before. |
+
+Plan 4 (first build that contains it; see Done). Run this routine once after installing the release, so the numbers are comparable with the table in [HISTORY.md](HISTORY.md) section 2. Run it on the TV, and once on the phone too:
 
 | Step | What to do and look for |
 |---|---|
@@ -28,7 +67,7 @@ Plan 4 (first build that contains it; see Done). Run this routine once after ins
 | 4 | Next day, when the library is more than 6 hours old, open Relay from cold again and leave it on Home for 2 minutes. This catches the refresh: it starts about 20 seconds after launch and should leave the first minute of browsing smooth. |
 | 5 | Settings → Backup & phone, scan the QR code, press **Download logs** on the phone and attach the file. The top of the log has a *Library snapshot:* line (used, or not used and why) and the library lines say *Library from saved copy in … ms*. |
 
-Fill the "After plan 4" column of the table in [PLAN-4.md](PLAN-4.md) section 1 from that log. Targets: channels on screen 10 s or less after process start (was 56.4 s), all lists 15 s or less (was 62.7 s), memory after load 160 MB or less (was 151 MB), refresh peak no higher than 241 MB.
+Fill the "After plan 4" column of the table in [HISTORY.md](HISTORY.md) section 2 from that log. Targets: channels on screen 10 s or less after process start (was 56.4 s), all lists 15 s or less (was 62.7 s), memory after load 160 MB or less (was 151 MB), refresh peak no higher than 241 MB.
 
 Plan 3 (first build that contains it; see Done):
 
@@ -74,9 +113,10 @@ Older checks:
 
 | Release | What |
 |---|---|
-| 1.0.108 | Plan 4: Relay keeps a ready-to-use copy of the prepared library, so a restart or an update shows channels in seconds instead of about a minute (the first start after an update that changed how names are read still takes the long way once); channel text work cleans each name once; refreshes reuse what they already know about unchanged items and wait 20 seconds after start-up; the screen-freeze watcher no longer reports the app being frozen by Android as a stall; the TV log read and the measurements table filled (TODO rows 2 and 3). Outcome and benchmark comparison in [PLAN-4.md](PLAN-4.md) |
-| 1.0.91 | Plan 3: API keys sent from the phone, Trailer and Find a trailer buttons, optional sync between screens (profiles, favourites, history, kids' time, shared settings; encrypted file in your own private GitHub repository; pairing by matching six digits). Outcome and benchmark comparison in [PLAN-3.md](PLAN-3.md) section 9 |
-| 1.0.77 | Holding Up through a poster grid back to its old speed (found by the benchmark; see plan 2, section 11) |
+| not released (branch `claude/loving-hopper-jtzdvb`) | Plan 5, in part: a device tier so recent phones use shorter waits and wider limits while TVs keep theirs; the player fills the screen on phones, keeps clear of the camera cut-out and pauses when headphones disconnect; touch-size buttons; frame counting that knows the screen's refresh rate; the A to Z strip, Home language rows and learned languages off the screen thread; quicker repeat searches; guide, Search and touch stretches in the benchmark. Outcome in [PLAN-5.md](PLAN-5.md) section 8 |
+| 1.0.108 | Plan 4: Relay keeps a ready-to-use copy of the prepared library, so a restart or an update shows channels in seconds instead of about a minute (the first start after an update that changed how names are read still takes the long way once); channel text work cleans each name once; refreshes reuse what they already know about unchanged items and wait 20 seconds after start-up; the screen-freeze watcher no longer reports the app being frozen by Android as a stall; the TV log read and the measurements table filled (TODO rows 2 and 3). Summary in [HISTORY.md](HISTORY.md) |
+| 1.0.91 | Plan 3: API keys sent from the phone, Trailer and Find a trailer buttons, optional sync between screens (profiles, favourites, history, kids' time, shared settings; encrypted file in your own private GitHub repository; pairing by matching six digits). Summary in [HISTORY.md](HISTORY.md) |
+| 1.0.77 | Holding Up through a poster grid back to its old speed (found by the benchmark; see [HISTORY.md](HISTORY.md) rule 4) |
 | 1.0.42 | Sleep timer and "Are you still watching?" (settings, tested rules, pause panel) |
 | 1.0.41 | Hold OK favourites a channel; Clear all on Continue watching; jump sizes for Left and Right; playlist byte-order mark fix |
 | 1.0.39 | Poster grid and images: own image network pool, cards keyed by id, per-title ratings updates |

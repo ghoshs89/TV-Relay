@@ -200,7 +200,7 @@ Relay does not run a server for this. The data lives in **one encrypted file in 
 <details>
 <summary><b>What you need to make once (about five minutes, on a computer or a phone)</b></summary>
 
-1. On GitHub, make a **private** repository, for example `relay-sync`. Tick **Add a README file** so it isn't empty.
+1. On GitHub, make a **private** repository, for example `relay-sync`. Tick **Add a README file** so it isn't empty. **Do not use this app's own repository:** every screen keeps the sync token, and a token that can write here could change the app that all your screens install.
 2. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
 3. Name it `Relay sync`, pick the longest expiry offered, and under Repository access choose **Only select repositories** and pick the sync repository.
 4. Repository permissions → **Contents: Read and write**. Nothing else. This is a different token from the update token: that one only reads this app's releases.
@@ -302,6 +302,8 @@ To get the logs off a **TV**, open the phone companion (Settings → Backup & ph
 
 **Sync status** (Settings → Sync between screens): *In sync, N minutes ago* is normal. *Waiting for the network* means the last try couldn't reach GitHub; it retries by itself. *The sync token was refused* or *can't be found with this token*: the token expired, was removed, or doesn't cover the repository; make a new one (Contents: read and write) and paste it under *Replace the token* on the phone page. *This screen's sync key doesn't open the file*: the household key was changed; choose **Join again from another screen**. *This screen is signed in to a different provider account*: sync is for one account; sign in with the same one or stop syncing here. *Update Relay on this screen to keep syncing*: another screen has a newer Relay that writes a newer file format; install the update. A message about the repository being public or the token being unable to write appears when sync is turned on; fix the repository or token and try again.
 
+**Phones and TVs:** Relay decides once, when it starts, whether the device is a recent phone (six or more processor cores, plenty of memory, not a TV) or anything else. A recent phone reads more of the library at once, waits less before loading guide text and searching, and fades posters in; a TV keeps the gentler settings it has always had. Buttons are thumb-sized on touch screens only. The first lines of the logs say which was chosen (*Device tier: fast* or *standard*) and the numbers in force.
+
 **A channel won't play:** try Settings → Playback → Live stream format (MPEG-TS or HLS). Pause & rewind needs MPEG-TS.
 
 ## Maintaining Relay
@@ -344,7 +346,7 @@ Every push to `main` that changes the app builds it in GitHub Actions and publis
 
 Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. The release APK is shrunk with R8, then started on an Android emulator; if it crashes on launch, nothing is published. Test and lint reports are attached to each run as `reports-1.0.N`.
 
-Each run also starts a **benchmark** job beside the build: a benchmark variant of the app (`assembleBenchmark`, never published, and the build fails if the release APK contains any of it) is driven on an emulator against a made-up provider (`tools/fake-provider`, 12,000 channels, 40,000 movies, 8,000 series) by `tools/bench/bench.sh`. The job log ends with frame times per screen, list build times and time to first picture. These numbers are for comparing one build with another and spotting a regression. They are not how fast a TV is: the emulator runs on a shared build server with a software renderer, and a TV's processor is slower in different ways. The job never blocks or delays a release. To see the same numbers from a real device, turn on **Save detailed logs** under Diagnostics for a day, use the app as usual, then share the logs: frame timing, list build times and time to first picture are in them.
+Each run also starts a **benchmark** job beside the build: a benchmark variant of the app (`assembleBenchmark`, never published, and the build fails if the release APK contains any of it) is driven on an emulator against a made-up provider (`tools/fake-provider`, 12,000 channels, 40,000 movies, 8,000 series) by `tools/bench/bench.sh`. The job log ends with frame times per screen, list build times and time to first picture. The run covers Home, Live TV, a live channel, the Movies and Series grids, the guide grid, Search, and touch flings. These numbers are for comparing one build with another and spotting a regression. They are not how fast a TV is: the emulator runs on a shared build server with a software renderer, and a TV's processor is slower in different ways. The job never blocks or delays a release. To see the same numbers from a real device, turn on **Save detailed logs** under Diagnostics for a day, use the app as usual, then share the logs: frame timing, list build times and time to first picture are in them.
 
 To build locally (JDK 17 and the Android SDK):
 
@@ -387,7 +389,10 @@ app/src/test/       unit tests
 tools/icon/         icon and banner generator
 tools/fake-provider/  made-up Xtream provider for the benchmark
 tools/bench/        benchmark driver and report
-docs/               README banner and screenshots
+app/src/benchmark/  sign-in to the made-up provider, benchmark build only
+.github/            build, release and benchmark workflow, lint gate, launch check
+docs/               banner and screenshots, TODO.md (what is open and what to check
+                    on a device), PLAN-5.md (current plan), HISTORY.md (earlier plans)
 ```
 
 </details>

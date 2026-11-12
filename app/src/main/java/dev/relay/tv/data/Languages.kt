@@ -15,7 +15,6 @@ object Langs {
 
     val GROUPS = listOf(EN, HI, BN, SOUTH, BD)
     val DEFAULT_ORDER = listOf(EN, HI, BN, SOUTH, BD)
-    val DEFAULT_FEATURED = listOf(EN, HI, BN)
 
     fun label(key: String?): String = when (key) {
         EN -> "English"

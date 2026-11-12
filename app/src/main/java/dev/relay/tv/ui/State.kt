@@ -63,6 +63,9 @@ class UiState {
     val seriesGrid = LazyGridState()
     val homeList = LazyListState()
 
+    /** "New in <language>" rows on Home: what each was built from, and the row. Main thread only. */
+    val homeLangRows = HashMap<String, Pair<List<Any>, List<HomeTitle>>>()
+
     val focus = FocusMemory()
 
     companion object {

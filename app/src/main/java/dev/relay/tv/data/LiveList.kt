@@ -40,7 +40,31 @@ data class LiveQuery(
     val preferred: Map<String, Int>,
 )
 
-class LiveResult(val query: LiveQuery, val baseSize: Int, val channels: List<Channel>)
+class LiveResult(
+    val query: LiveQuery,
+    val baseSize: Int,
+    val channels: List<Channel>,
+    /**
+     * For an A to Z list: each first letter ("#" for anything that isn't a letter) with the position of its
+     * first channel. Worked out here, off the screen thread, from the sort keys the library already holds.
+     */
+    val letters: List<Pair<String, Int>> = emptyList(),
+)
+
+/** Lists shorter than this don't get a letter strip. */
+const val LETTERS_FROM = 41
+
+/** First letters of an A to Z list with where each starts. [key] is the channel's sort key. */
+internal fun letterIndex(list: List<Channel>, key: (Channel) -> String): List<Pair<String, Int>> {
+    val out = ArrayList<Pair<String, Int>>()
+    val seen = HashSet<String>()
+    list.forEachIndexed { i, ch ->
+        val c = key(ch).firstOrNull()?.uppercaseChar() ?: return@forEachIndexed
+        val letter = if (c.isLetter()) c.toString() else "#"
+        if (seen.add(letter)) out += letter to i
+    }
+    return out
+}
 
 /** What [buildLiveList] reads from the library. Implemented by [Catalog]; fakes in tests. */
 interface LiveData {
@@ -117,5 +141,7 @@ fun buildLiveList(data: LiveData, q: LiveQuery, check: () -> Unit = {}): LiveRes
     check()
     val out = if (q.merge) data.collapse(list, q.preferred) else list
     check()
-    return LiveResult(q, base.size, out.distinctBy { it.id })
+    val shown = out.distinctBy { it.id }
+    val letters = if (q.sort == 2 && shown.size >= LETTERS_FROM) letterIndex(shown) { data.sortKey(it) } else emptyList()
+    return LiveResult(q, base.size, shown, letters)
 }
