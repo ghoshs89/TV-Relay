@@ -51,6 +51,8 @@ data class FavItem(
     val id: Int,
     val name: String,
     val image: String? = null,
+    /** When it was added (ms); 0 for favourites from before sync existed. Lets screens merge additions. */
+    val at: Long = 0L,
 )
 
 @Serializable

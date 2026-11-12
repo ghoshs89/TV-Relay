@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -15,6 +18,12 @@ import java.util.concurrent.TimeUnit
 class Store(ctx: Context) {
     private val prefs = ctx.getSharedPreferences("relay", Context.MODE_PRIVATE)
     private val cache = ConcurrentHashMap<String, Any>()
+
+    /**
+     * When each stored item was last written in this run, so a change can be given the time it was made
+     * when it is synced a little later. Not saved: after a restart, sync falls back to its own clock.
+     */
+    private val touched = ConcurrentHashMap<String, Long>()
     /** Changes to settings, profiles, favourites and the like. */
     val version = mutableIntStateOf(0)
 
@@ -39,6 +48,7 @@ class Store(ctx: Context) {
      * everything is on disk.
      */
     private inline fun <reified T> write(key: String, v: T, history: Boolean = false) {
+        touched[key] = System.currentTimeMillis()
         if (v == null) {
             cache.remove(key)
             behind.put(key, null)
@@ -78,7 +88,20 @@ class Store(ctx: Context) {
 
     var settings: Settings
         get() = read("settings", Settings())
-        set(v) = write("settings", v)
+        set(v) {
+            // Remember when each setting that syncs was changed, so the latest change wins between screens.
+            val old = read("settings", Settings())
+            val stamps = read<Map<String, Long>>("settings_at", emptyMap())
+            val updated = SettingsSplit.stamp(old, v, stamps, System.currentTimeMillis())
+            if (updated !== stamps) write("settings_at", updated)
+            write("settings", v)
+        }
+
+    /** A random name for this screen in the sync file; made once and kept. */
+    val deviceId: String by lazy {
+        prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString().replace("-", "").take(10)
+            .also { prefs.edit().putString("device_id", it).apply() }
+    }
 
     var activeHost: String?
         get() = prefs.getString("active_host", null)
@@ -92,6 +115,7 @@ class Store(ctx: Context) {
     var parentPin: String?
         get() = prefs.getString(PARENT_PIN, null)
         set(v) {
+            touched[PARENT_PIN] = System.currentTimeMillis()
             if (v == null) prefs.edit().remove(PARENT_PIN).apply() else prefs.edit().putString(PARENT_PIN, v).apply()
             version.intValue++
         }
@@ -109,7 +133,10 @@ class Store(ctx: Context) {
     fun toggleFav(pid: String, item: FavItem) {
         val list = favs(pid)
         val exists = list.any { it.kind == item.kind && it.id == item.id }
-        write("fav_$pid", if (exists) list.filterNot { it.kind == item.kind && it.id == item.id } else listOf(item) + list)
+        write(
+            "fav_$pid",
+            if (exists) list.filterNot { it.kind == item.kind && it.id == item.id } else listOf(item.copy(at = System.currentTimeMillis())) + list,
+        )
     }
 
     // ---------- History / resume ----------
@@ -174,21 +201,24 @@ class Store(ctx: Context) {
 
     private fun today(): String = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
 
-    /** Milliseconds watched today on a profile. */
-    fun usedToday(pid: String): Long {
-        val v = prefs.getString("use_$pid", null) ?: return 0L
-        return if (v.substringBefore('|') == today()) v.substringAfter('|').toLongOrNull() ?: 0L else 0L
-    }
+    /**
+     * Milliseconds watched today on a profile, on this screen and (once sync has told us) on the others,
+     * so a daily limit means the same time in total wherever the child watches.
+     */
+    fun usedToday(pid: String): Long =
+        DailyUsage.total(prefs.getString("use_$pid", null), read<Map<String, String>>("usx_$pid", emptyMap()), today())
 
     fun addUsage(pid: String, ms: Long) {
         if (ms <= 0) return
-        prefs.edit().putString("use_$pid", "${today()}|${usedToday(pid) + ms}").apply()
+        val day = today()
+        prefs.edit().putString("use_$pid", DailyUsage.format(day, DailyUsage.ms(prefs.getString("use_$pid", null), day) + ms)).apply()
     }
 
     fun allowUntil(pid: String): Long = prefs.getLong("allow_$pid", 0L)
 
     /** A parent's extra time: [minutes] from now, lifting the daily limit and bedtime. */
     fun allowExtra(pid: String, minutes: Int) {
+        touched["allow_$pid"] = System.currentTimeMillis()
         prefs.edit().putLong("allow_$pid", System.currentTimeMillis() + minutes * 60_000L).apply()
         version.intValue++
     }
@@ -267,6 +297,11 @@ class Store(ctx: Context) {
         // Applied in one write so a restore can't stop halfway.
         if (!edit.commit()) throw java.io.IOException("Couldn't save the restored data")
         cache.clear()
+        // A restore is a change made now, so with sync on it spreads to the other screens.
+        val t = System.currentTimeMillis()
+        listOf("profiles", "settings", "chcustom", "pincats", "livesort", "reminders").forEach { touched[it] = t }
+        ids.forEach { touched["fav_$it"] = t; touched["hist_$it"] = t }
+        b.seriesTracks.keys.forEach { touched["trk_$it"] = t }
         version.intValue++
         historyVersion.intValue++
 
@@ -286,8 +321,121 @@ class Store(ctx: Context) {
         private const val SAVE_DELAY_MS = 400L
 
         /** Keys a restore replaces as a whole; anything else (login, parent PIN) is left alone. */
-        private val REPLACED = setOf("profiles", "settings", "chcustom", "pincats", "livesort", "reminders")
+        private val REPLACED = setOf("profiles", "settings", "settings_at", "chcustom", "pincats", "livesort", "reminders")
         private val REPLACED_PREFIXES = listOf("fav_", "hist_", "trk_", "lastcat_")
+    }
+
+    // ---------- Sync ----------
+
+    /** Everything that syncs, as plain values. The screens list is filled in by the caller. */
+    fun syncSnapshot(): SyncData {
+        val ps = profiles
+        return SyncData(
+            profiles = ps,
+            favs = ps.associate { it.id to favs(it.id) }.filterValues { it.isNotEmpty() },
+            history = ps.associate { it.id to history(it.id) }.filterValues { it.isNotEmpty() },
+            settings = settings,
+            settingsAt = read<Map<String, Long>>("settings_at", emptyMap()),
+            tracks = prefs.all.keys.filter { it.startsWith("trk_") }
+                .mapNotNull { k -> k.removePrefix("trk_").toIntOrNull()?.let { id -> trackPref(id)?.let { id to it } } }
+                .toMap(),
+            reminders = reminders,
+            liveSort = read<Map<String, Int>>("livesort", emptyMap()),
+            pinnedCats = pinnedCats,
+            channels = channelCustom,
+            parentPin = parentPin?.takeIf { it.isNotEmpty() },
+            account = account,
+            useOwn = ps.mapNotNull { p -> prefs.getString("use_${p.id}", null)?.let { p.id to it } }.toMap(),
+            useOthers = ps.associate { it.id to read<Map<String, String>>("usx_${it.id}", emptyMap()) }.filterValues { it.isNotEmpty() },
+            allow = ps.mapNotNull { p -> prefs.getLong("allow_${p.id}", 0L).takeIf { it > 0 }?.let { p.id to it } }.toMap(),
+        )
+    }
+
+    /** What [syncApply] did, for the log and for the app to react to. */
+    data class SyncApplied(val changes: Int, val accountChanged: Boolean, val profilesChanged: Boolean)
+
+    /**
+     * Writes what sync decided. Each kind of data is written only if it is still what [snapshot] saw and
+     * differs from [target], so something the viewer changed while the sync was running is never
+     * overwritten; the next run picks it up as a normal change. Call on the main thread.
+     */
+    fun syncApply(snapshot: SyncData, target: SyncData): SyncApplied {
+        val cur = syncSnapshot()
+        var changes = 0
+        fun <T> go(was: T, new: T, now: T, apply: () -> Unit): Boolean {
+            if (new == was || now != was) return false
+            apply()
+            changes++
+            return true
+        }
+
+        val profilesChanged = go(snapshot.profiles, target.profiles, cur.profiles) { profiles = target.profiles }
+        val gone = snapshot.profiles.map { it.id }.toSet() - target.profiles.map { it.id }.toSet()
+        for (pid in gone) {
+            write<List<FavItem>?>("fav_$pid", null)
+            write<List<WatchEntry>?>("hist_$pid", null)
+            write<Map<String, String>?>("usx_$pid", null)
+            prefs.edit().remove("use_$pid").remove("allow_$pid").apply()
+            changes++
+        }
+        val ids = target.profiles.map { it.id }
+        for (pid in ids) {
+            go(snapshot.favs[pid].orEmpty(), target.favs[pid].orEmpty(), cur.favs[pid].orEmpty()) {
+                write("fav_$pid", target.favs[pid].orEmpty())
+            }
+            go(snapshot.history[pid].orEmpty(), target.history[pid].orEmpty(), cur.history[pid].orEmpty()) {
+                write("hist_$pid", target.history[pid].orEmpty(), history = true)
+            }
+            go(snapshot.useOthers[pid].orEmpty(), target.useOthers[pid].orEmpty(), cur.useOthers[pid].orEmpty()) {
+                write("usx_$pid", target.useOthers[pid].orEmpty())
+            }
+            go(snapshot.allow[pid], target.allow[pid], cur.allow[pid]) {
+                target.allow[pid]?.let { prefs.edit().putLong("allow_$pid", it).apply() }
+                version.intValue++
+            }
+        }
+        go(snapshot.settings, target.settings, cur.settings) {
+            // Not through the setter: a change that came from another screen is not a change made here.
+            write("settings", target.settings)
+        }
+        for (sid in snapshot.tracks.keys + target.tracks.keys) {
+            go(snapshot.tracks[sid], target.tracks[sid], cur.tracks[sid]) {
+                val t = target.tracks[sid]
+                if (t == null) write<TrackPref?>("trk_$sid", null) else write("trk_$sid", t)
+            }
+        }
+        go(snapshot.reminders, target.reminders, cur.reminders) { reminders = target.reminders }
+        go(snapshot.liveSort, target.liveSort, cur.liveSort) { write("livesort", target.liveSort) }
+        go(snapshot.pinnedCats, target.pinnedCats, cur.pinnedCats) { pinnedCats = target.pinnedCats }
+        go(snapshot.channels, target.channels, cur.channels) { channelCustom = target.channels }
+        go(snapshot.parentPin, target.parentPin, cur.parentPin) { parentPin = target.parentPin }
+        val accountChanged = go(snapshot.account, target.account, cur.account) { account = target.account }
+        return SyncApplied(changes, accountChanged, profilesChanged)
+    }
+
+    /**
+     * When the item behind a sync record was last changed here, if known: the time in the value itself for
+     * history and favourites, otherwise the time of the last write to the store key it lives in.
+     */
+    fun syncChangedAt(recKey: String, v: JsonElement?): Long? {
+        fun num(field: String): Long? = ((v as? JsonObject)?.get(field) as? JsonPrimitive)?.content?.toLongOrNull()?.takeIf { it > 0 }
+        fun owner(prefix: String) = recKey.removePrefix(prefix).substringBefore(':')
+        return when {
+            recKey.startsWith("hist:") -> num("updated") ?: touched["hist_${owner("hist:")}"]
+            recKey.startsWith("fav:") -> num("at") ?: touched["fav_${owner("fav:")}"]
+            recKey.startsWith("favorder:") -> touched["fav_${owner("favorder:")}"]
+            recKey.startsWith("set:") -> read<Map<String, Long>>("settings_at", emptyMap())[recKey.removePrefix("set:")] ?: touched["settings"]
+            recKey.startsWith("profile:") || recKey == "order:profiles" -> touched["profiles"]
+            recKey.startsWith("trk:") -> touched["trk_${recKey.removePrefix("trk:")}"]
+            recKey.startsWith("rem:") -> touched["reminders"]
+            recKey.startsWith("livesort:") -> touched["livesort"]
+            recKey == "pincats" -> touched["pincats"]
+            recKey == "chcustom" -> touched["chcustom"]
+            recKey == "parentpin" -> touched[PARENT_PIN]
+            recKey == "account" -> touched["account"]
+            recKey.startsWith("allow:") -> touched["allow_${owner("allow:")}"]
+            else -> null
+        }
     }
 
     fun deleteProfile(pid: String) {
