@@ -21,7 +21,7 @@ object PairClient {
                 val text = r.body?.string().orEmpty()
                 when (r.code) {
                     200 -> return text
-                    403 -> throw IOException("${s.name} is not ready to join. Open Settings, Sync, Join on it and try again.")
+                    403 -> throw IOException("${s.name} is not ready to join. Open Settings, Sync between screens, Join sync from another screen on it and try again.")
                     else -> throw IOException("${s.name} answered in a way Relay doesn't understand (${r.code}).")
                 }
             }

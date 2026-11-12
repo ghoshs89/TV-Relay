@@ -205,7 +205,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
             return@withContext e.message
         }
         if (existing != null) {
-            return@withContext "That repository already holds a Relay sync file. To add this screen to it, use Join in Settings, Sync, on this screen, " +
+            return@withContext "That repository already holds a Relay sync file. To add this screen to it, use Join sync from another screen in Settings, Sync between screens, on this screen, " +
                 "and Add a screen on a screen that already syncs."
         }
         val cfg = SyncSettings.Config(repo, token, SyncSeal.newKey())

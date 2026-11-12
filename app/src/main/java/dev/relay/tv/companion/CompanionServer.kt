@@ -315,7 +315,7 @@ class CompanionServer(
         AppLog.i("Companion", "Sync details received from phone: ${if (err == null) "accepted" else "not accepted"}")
         val text = err ?: if (replacing) "The new token works. Syncing now." else {
             val n = app.sync.status.screens.size.coerceAtLeast(1)
-            "Sync is on. $n screen${if (n == 1) "" else "s"}. To add another screen, open Settings, Sync, Join on that screen."
+            "Sync is on. $n screen${if (n == 1) "" else "s"}. To add another screen, open Settings, Sync between screens, Join sync from another screen on that screen."
         }
         main.post {
             Toast.makeText(app, text, Toast.LENGTH_LONG).show()
@@ -399,7 +399,7 @@ class CompanionServer(
         </form></section>
     """ else """
         <section><h2>Sync between screens</h2>
-        <p class="hint">Sync is on for <b>${escape(repo)}</b>. Status, Sync now, adding a screen and stopping are in Settings, Sync on the TV.
+        <p class="hint">Sync is on for <b>${escape(repo)}</b>. Status, Sync now, adding a screen and stopping are in Settings, Sync between screens on the TV.
         If GitHub says the token expired, paste the new one here.</p>
         <form method="post" action="/$token/sync">
           <label>New token
@@ -410,7 +410,7 @@ class CompanionServer(
 
     private fun joinSection(): String = """
         <section><h2>Join sync</h2>
-        <p class="hint">This screen is waiting to join your other screens. On a screen that already syncs, open Settings, Sync, Add a screen
+        <p class="hint">This screen is waiting to join your other screens. On a screen that already syncs, open Settings, Sync between screens, Add a screen
         and choose Copy pairing link, then paste the link here and press Join.</p>
         <form method="post" action="/$token/join">
           <label>Pairing link

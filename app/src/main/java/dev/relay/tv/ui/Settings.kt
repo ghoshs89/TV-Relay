@@ -693,7 +693,7 @@ fun SettingsTab() {
         ConfirmDialog(
             "Make a new household key?",
             "The sync file is sealed again with a new key, so a lost or sold screen that still has the old key can no longer open it. " +
-                "Every other screen, including the ones you still use, stops syncing until you add it again (Settings, Sync, Add a screen). " +
+                "Every other screen, including the ones you still use, stops syncing until you add it again (Settings, Sync between screens, Add a screen). " +
                 "To keep a lost screen out for good, also make a new GitHub token and delete the old one in GitHub, because the old token " +
                 "can still change the file even though it can't read it.",
             "Make a new key",

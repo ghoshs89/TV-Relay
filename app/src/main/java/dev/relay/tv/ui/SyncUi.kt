@@ -144,7 +144,7 @@ fun JoinSyncDialog(onDismiss: () -> Unit, onJoined: () -> Unit) {
             }
         } else {
             Text(
-                "On a screen that already syncs, open Settings, Sync, Add a screen and choose \"${app.sync.screenName()}\".",
+                "On a screen that already syncs, open Settings, Sync between screens, Add a screen and choose \"${app.sync.screenName()}\".",
                 fontSize = Type.small, color = Palette.dim, lineHeight = 20.sp,
             )
             code?.let {
@@ -155,7 +155,7 @@ fun JoinSyncDialog(onDismiss: () -> Unit, onJoined: () -> Unit) {
                 url,
                 "Or use your phone",
                 "If the other screen can't find this one, scan the code, copy the pairing link on a screen that already syncs " +
-                    "(Settings, Sync, Add a screen, Copy pairing link) and paste it on that page.",
+                    "(Settings, Sync between screens, Add a screen, Copy pairing link) and paste it on that page.",
             )
             PillButton("Close", onDismiss, focusRequester = first)
         }
@@ -245,7 +245,7 @@ fun AddScreenDialog(onDismiss: () -> Unit) {
         } else {
             Text(
                 if (waiting.isEmpty()) {
-                    "Looking for screens that are waiting to join. On the new screen open Settings, Sync, Join (or, on its sign-in page, " +
+                    "Looking for screens that are waiting to join. On the new screen open Settings, Sync between screens, Join sync from another screen (or, on its sign-in page, " +
                         "\"I already use Relay on another screen\")."
                 } else {
                     "Choose the screen to add:"
@@ -261,7 +261,7 @@ fun AddScreenDialog(onDismiss: () -> Unit) {
                     val b = app.sync.pairBundle()
                     if (b != null) {
                         clipboard.setText(AnnotatedString(Pairing.encode(b)))
-                        status = "Copied. On the new screen, open Settings, Sync, Join, scan its code with your phone and paste the link there. " +
+                        status = "Copied. On the new screen, open Settings, Sync between screens, Join sync from another screen, scan its code with your phone and paste the link there. " +
                             "Anyone who has the link can join your sync, so don't share it."
                     }
                 },
