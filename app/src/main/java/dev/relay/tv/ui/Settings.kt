@@ -42,6 +42,7 @@ import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Catalog
 import dev.relay.tv.data.Profile
 import dev.relay.tv.player.Playback
+import dev.relay.tv.sync.SyncResult
 import dev.relay.tv.sync.SyncStatusText
 import dev.relay.tv.update.Updater
 import kotlinx.coroutines.Dispatchers
@@ -453,6 +454,13 @@ fun SettingsTab() {
                         "${it.name}${if (it.id == me) " (this screen)" else ""} · ${SyncStatusText.ago(now - it.seen)}"
                     },
                 )
+            }
+            if (st.result == SyncResult.WrongKey || st.result == SyncResult.Refused || st.result == SyncResult.NotFound) {
+                item {
+                    Setting("Join again from another screen", "For a new key or a new token", kidsLocked) {
+                        gate.run("Parent PIN to join sync") { joinSync = true }
+                    }
+                }
             }
             item {
                 Setting("Add a screen", "Another TV or phone joins this household", kidsLocked) {
