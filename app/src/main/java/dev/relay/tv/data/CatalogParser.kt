@@ -199,7 +199,7 @@ object CatalogParser {
         parseList(f, CategoryDto.serializer(), strict, read) { d ->
             val id = d.category_id.str() ?: return@parseList null
             val name = d.category_name.str() ?: "Category $id"
-            Category(id, name, ADULT.containsMatchIn(name))
+            Category(id, name, LibraryDerive.isAdult(name))
         }
 
     @OptIn(ExperimentalSerializationApi::class)
@@ -251,9 +251,7 @@ object CatalogParser {
         staging.deleteRecursively()
     }
 
-    private val ADULT = Regex("(?i)(adult|xxx|18\\+|porn|for adults)")
-    private val YEAR = Regex("[(\\[](19|20)(\\d{2})[)\\]]")
-    fun yearIn(name: String): String? = YEAR.find(name)?.let { it.groupValues[1] + it.groupValues[2] }
+    fun yearIn(name: String): String? = LibraryDerive.yearIn(name)
 }
 
 /**

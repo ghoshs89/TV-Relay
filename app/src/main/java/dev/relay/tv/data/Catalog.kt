@@ -7,13 +7,16 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -158,7 +161,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                         }
                     }
                     try {
-                        if (isEmpty && cacheComplete()) {
+                        if (isEmpty && cacheComplete() && !loadFromSnapshot()) {
                             AppLog.i("Catalog", "Opening the saved library (${savedSize()})")
                             report("Reading your saved library", 0, force = true)
                             val t = System.currentTimeMillis()
@@ -203,6 +206,158 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     }
 
     private fun savedSize(): String = LoadSteps.megabytes(actions.sumOf { file(it).length() })
+
+    // ---------- Saved copy of the prepared library (see LibrarySnapshot) ----------
+
+    private val snapFile: File get() = File(dir, LibrarySnapshot.FILE_NAME)
+
+    /** The six JSON lists as they are now, in the order of [actions]; the saved copy is only valid for exactly these. */
+    private fun stamps(): List<LibrarySnapshot.FileStamp> =
+        actions.map { a -> file(a).let { LibrarySnapshot.FileStamp(it.length(), it.lastModified()) } }
+
+    /** Bumped by each load, refresh and clear; a pending save of an older library sees that and stops. */
+    private val snapGen = java.util.concurrent.atomic.AtomicInteger()
+
+    /** One line for the report in Settings: was the saved copy used, and why not. */
+    @Volatile var snapshotStatus: String = "not tried yet"
+        private set
+
+    /** The saved copy could not be read; the cause is for the log. */
+    private class SnapshotUnusable(cause: Throwable) : Exception(cause)
+
+    /** Ignores the saved copy, says why, and deletes it so the next JSON load writes a fresh one. */
+    private fun dropSnapshot(reason: String, cause: Throwable? = null) {
+        if (cause != null) AppLog.w("Catalog", "Saved copy not used: $reason", cause) else AppLog.i("Catalog", "Saved copy not used: $reason")
+        snapshotStatus = "not used ($reason)"
+        try {
+            snapFile.delete()
+        } catch (e: Exception) {
+            AppLog.w("Catalog", "Couldn't delete the saved copy", e)
+        }
+    }
+
+    /**
+     * Installs the library from the saved copy when it matches this version of Relay and the six
+     * JSON lists exactly. Returns false (after logging why) when it was not used, and the caller
+     * reads the JSON as before. Channels, movies and series are read at the same time and installed
+     * in order as each is ready, so Live TV can show while movies are still being read.
+     */
+    private suspend fun loadFromSnapshot(): Boolean {
+        val started = System.currentTimeMillis()
+        val opened = when (val o = LibrarySnapshot.open(snapFile, stamps())) {
+            is LibrarySnapshot.NotUsed -> {
+                if (o.reason == LibrarySnapshot.Reason.MISSING) {
+                    AppLog.i("Catalog", "Saved copy not used: ${o.reason.text}")
+                    snapshotStatus = "not used (${o.reason.text})"
+                } else {
+                    dropSnapshot(o.toString())
+                }
+                return false
+            }
+            is LibrarySnapshot.Opened -> o
+        }
+        report("Reading your saved library", 0, force = true)
+        val readMs = ConcurrentHashMap<String, Long>()
+        try {
+            supervisorScope {
+                val gate = Semaphore(Runtime.getRuntime().availableProcessors().let { if (it >= 4) 3 else 2 })
+                fun <T> read(name: String, block: () -> T): Deferred<T> = async(Dispatchers.Default) {
+                    gate.withPermit {
+                        val t = System.currentTimeMillis()
+                        try {
+                            block().also { readMs[name] = System.currentTimeMillis() - t }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            throw SnapshotUnusable(e)
+                        }
+                    }
+                }
+                val cats = read("categories") { opened.readCategories() }
+                val channels = read("channels") { opened.readChannels() }
+                val movies = read("movies") { opened.readMovies() }
+                val series = read("series") { opened.readSeries() }
+                installStages(
+                    Stages(
+                        channels = { laps -> ChannelStage.fromSnapshot(cats.await(), channels.await(), laps) },
+                        movies = { _, laps -> MovieStage.fromSnapshot(movies.await(), laps) },
+                        series = { _, laps -> SeriesStage.fromSnapshot(series.await(), laps) },
+                    ),
+                    from = 0,
+                )
+            }
+        } catch (e: SnapshotUnusable) {
+            dropSnapshot("damaged", e.cause)
+            return false
+        }
+        val saved = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(opened.header.writtenAt))
+        snapshotStatus = "used, ${LoadSteps.megabytes(opened.sizeBytes)}, saved $saved"
+        AppLog.i(
+            "Catalog",
+            "Library from saved copy in ${System.currentTimeMillis() - started} ms (channels ${readMs["channels"]} ms, " +
+                "movies ${readMs["movies"]} ms, series ${readMs["series"]} ms; ${LoadSteps.megabytes(opened.sizeBytes)})",
+        )
+        return true
+    }
+
+    /**
+     * After a library was prepared from JSON, saves a ready-to-use copy so the next start can skip
+     * that work. Starts 5 seconds after the last stage so it doesn't compete with the first screen,
+     * runs at background priority, and is dropped if a newer load or refresh comes first.
+     */
+    private fun writeSnapshotLater() {
+        val gen = snapGen.incrementAndGet()
+        val scope = appScope ?: return
+        // Only references to what was just installed; nothing is copied here.
+        val source = LibrarySnapshot.Source(
+            stamps = stamps(),
+            liveCats = liveCats, vodCats = vodCats, seriesCats = seriesCats,
+            channels = rawChannels, chLang = chLang, versionKeys = rawVersionKeys, quality = rawQuality,
+            sortKeys = rawSortKeys, hd = rawHd,
+            movies = movies, mvLang = mvLang,
+            moviesByAdded = moviesByAdded, moviesByRating = moviesByRating, moviesByName = moviesByName,
+            series = series, srLang = srLang,
+            seriesByAdded = seriesByAdded, seriesByRating = seriesByRating, seriesByName = seriesByName,
+        )
+        scope.launch {
+            delay(5_000)
+            if (gen != snapGen.get()) return@launch
+            withContext(Dispatchers.IO) { saveSnapshot(source, gen) }
+        }
+    }
+
+    private fun saveSnapshot(source: LibrarySnapshot.Source, gen: Int) {
+        val target = snapFile
+        val last = target.takeIf { it.exists() }?.length() ?: 0L
+        val needed = if (last > 0) last * 3 else 200L * 1_048_576
+        val free = ctx.filesDir.usableSpace
+        if (free < needed) {
+            AppLog.w("Catalog", "Not saving a copy of the library: ${LoadSteps.megabytes(free)} free, ${LoadSteps.megabytes(needed)} needed")
+            snapshotStatus = "not saved (low storage)"
+            return
+        }
+        val tid = android.os.Process.myTid()
+        val before = android.os.Process.getThreadPriority(tid)
+        val t = System.currentTimeMillis()
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            val bytes = LibrarySnapshot.write(target, source, System.currentTimeMillis()) { gen != snapGen.get() }
+            val secs = (System.currentTimeMillis() - t) / 1000.0
+            AppLog.i("Catalog", "Saved a copy of the library: ${LoadSteps.megabytes(bytes)} in ${"%.1f".format(secs)} s")
+            snapshotStatus = "not used (read from the lists); new copy saved, ${LoadSteps.megabytes(bytes)}"
+        } catch (e: LibrarySnapshot.SnapshotCancelled) {
+            AppLog.d("Catalog", "Saving a copy of the library stopped: a newer load started")
+        } catch (e: Exception) {
+            AppLog.w("Catalog", "Couldn't save a copy of the library", e)
+            snapshotStatus = "not saved (${e.message ?: e.javaClass.simpleName})"
+        } finally {
+            try {
+                android.os.Process.setThreadPriority(before)
+            } catch (e: Exception) {
+                // The thread belongs to a pool; nothing to do if its priority can't be put back.
+            }
+        }
+    }
 
     /**
      * Downloads all six lists into a staging folder, checks every one parses as a complete list
@@ -264,6 +419,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                 error = verdict.message
                 return
             }
+            snapGen.incrementAndGet() // the saved copy is about to be out of date; a pending save of it is pointless
             withContext(Dispatchers.IO) { CatalogParser.commit(staging, dir) }
             applyParsed(fresh, from = LoadSteps.CHECK_END)
             AppLog.i(
@@ -320,6 +476,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         channelById = emptyMap(); movieById = emptyMap(); seriesById = emptyMap()
         epgCache.clear()
         error = null
+        snapGen.incrementAndGet()
+        snapshotStatus = "cleared"
         dir.deleteRecursively()
     }
 
@@ -337,63 +495,136 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         fun text() = timings.entries.joinToString(", ") { "${it.key} ${it.value} ms" }
     }
 
-    /** Stage 1, off the screen thread: what Live TV needs. Category languages are cheap, so all three kinds are done here. */
-    private class ChannelStage(p: ParsedCatalog, laps: Laps) {
-        val liveCatLang = langOf(p.liveCats)
-        val vodCatLang = langOf(p.vodCats)
-        val seriesCatLang = langOf(p.seriesCats)
-        val chLang = HashMap<Int, String>()
-        val versionKeys = HashMap<Int, String>(p.channels.size * 2)
-        val quality = HashMap<Int, Int>(p.channels.size * 2)
-        val sortKeys = HashMap<Int, String>(p.channels.size * 2)
-        val hd = HashSet<Int>()
-
-        init {
-            // One pass: each name is cleaned once and yields language, version key, quality, sort key and HD flag.
-            for (c in p.channels) {
-                val f = ChannelText.derive(c.name, liveCatLang[c.categoryId])
-                f.lang?.let { chLang[c.id] = it }
-                versionKeys[c.id] = f.versionKey
-                quality[c.id] = f.quality
-                sortKeys[c.id] = f.sortKey
-                if (f.hd) hd.add(c.id)
+    /**
+     * Stage 1, off the screen thread: what Live TV needs. Category languages are cheap, so all three kinds are done here.
+     * A stage is a plain holder; it comes from a parsed library ([from]) or from the saved copy ([fromSnapshot]).
+     */
+    private class ChannelStage(
+        val liveCats: List<Category>,
+        val vodCats: List<Category>,
+        val seriesCats: List<Category>,
+        val channels: List<Channel>,
+        val liveCatLang: Map<String, String>,
+        val vodCatLang: Map<String, String>,
+        val seriesCatLang: Map<String, String>,
+        val chLang: Map<Int, String>,
+        val versionKeys: Map<Int, String>,
+        val quality: Map<Int, Int>,
+        val sortKeys: Map<Int, String>,
+        val hd: Set<Int>,
+    ) {
+        companion object {
+            fun from(p: ParsedCatalog, laps: Laps): ChannelStage {
+                val live = LibraryDerive.categoryLangs(p.liveCats)
+                val vod = LibraryDerive.categoryLangs(p.vodCats)
+                val series = LibraryDerive.categoryLangs(p.seriesCats)
+                // One pass: each name is cleaned once and yields language, version key, quality, sort key and HD flag.
+                val m = LibraryDerive.channels(p.channels, live)
+                laps.lap("channel texts", 0.7f)
+                return ChannelStage(
+                    p.liveCats, p.vodCats, p.seriesCats, p.channels, live, vod, series,
+                    m.lang, m.versionKeys, m.quality, m.sortKeys, m.hd,
+                )
             }
-            laps.lap("channel texts", 0.7f)
+
+            fun fromSnapshot(cats: LibrarySnapshot.LoadedCategories, ch: LibrarySnapshot.LoadedChannels, laps: Laps): ChannelStage {
+                val live = LibraryDerive.categoryLangs(cats.live)
+                val vod = LibraryDerive.categoryLangs(cats.vod)
+                val series = LibraryDerive.categoryLangs(cats.series)
+                laps.lap("channel texts", 0.7f)
+                return ChannelStage(
+                    cats.live, cats.vod, cats.series, ch.channels, live, vod, series,
+                    ch.lang, ch.versionKeys, ch.quality, ch.sortKeys, ch.hd,
+                )
+            }
         }
     }
 
     /** Stage 2, off the screen thread: everything the Movies tab reads. */
-    private class MovieStage(p: ParsedCatalog, vodCatLang: Map<String, String>, laps: Laps) {
-        val lang = HashMap<Int, String>().also { m ->
-            p.movies.forEach { v -> LanguageDetector.ofTitle(v.name, vodCatLang[v.categoryId])?.let { m[v.id] = it } }
-            laps.lap("movie languages", 0.4f)
+    private class MovieStage(
+        val movies: List<Movie>,
+        val lang: Map<Int, String>,
+        val added: List<Movie>,
+        val rated: List<Movie>,
+        val byName: List<Movie>,
+        val byCat: Map<String, List<Movie>>,
+        val byId: Map<Int, Movie>,
+    ) {
+        companion object {
+            fun from(p: ParsedCatalog, vodCatLang: Map<String, String>, laps: Laps): MovieStage {
+                val d = LibraryDerive.movies(p.movies, vodCatLang) { laps.lap("movie languages", 0.4f) }
+                return of(p.movies, d.lang, d.added, d.rated, d.byName, laps)
+            }
+
+            fun fromSnapshot(m: LibrarySnapshot.LoadedMovies, laps: Laps): MovieStage =
+                of(m.movies, m.lang, m.added, m.rated, m.byName, laps)
+
+            private fun of(
+                movies: List<Movie>, lang: Map<Int, String>, added: List<Movie>, rated: List<Movie>, byName: List<Movie>, laps: Laps,
+            ): MovieStage {
+                val byCat = movies.groupBy { it.categoryId }
+                val byId = movies.associateBy { it.id }.also { laps.lap("movie lists", 0.9f) }
+                return MovieStage(movies, lang, added, rated, byName, byCat, byId)
+            }
         }
-        val added = p.movies.sortedByDescending { it.added }
-        val rated = p.movies.filter { it.rating > 0 }.sortedByDescending { it.rating }
-        val byName = sortedByLowerName(p.movies) { it.name }
-        val byCat = p.movies.groupBy { it.categoryId }
-        val byId = p.movies.associateBy { it.id }.also { laps.lap("movie lists", 0.9f) }
     }
 
     /** Stage 3, off the screen thread: everything the Series tab reads. */
-    private class SeriesStage(p: ParsedCatalog, seriesCatLang: Map<String, String>, laps: Laps) {
-        val lang = HashMap<Int, String>().also { m ->
-            p.series.forEach { v -> LanguageDetector.ofTitle(v.name, seriesCatLang[v.categoryId])?.let { m[v.id] = it } }
-            laps.lap("series languages", 0.4f)
+    private class SeriesStage(
+        val series: List<Series>,
+        val lang: Map<Int, String>,
+        val added: List<Series>,
+        val rated: List<Series>,
+        val byName: List<Series>,
+        val byCat: Map<String, List<Series>>,
+        val byId: Map<Int, Series>,
+    ) {
+        companion object {
+            fun from(p: ParsedCatalog, seriesCatLang: Map<String, String>, laps: Laps): SeriesStage {
+                val d = LibraryDerive.series(p.series, seriesCatLang) { laps.lap("series languages", 0.4f) }
+                return of(p.series, d.lang, d.added, d.rated, d.byName, laps)
+            }
+
+            fun fromSnapshot(m: LibrarySnapshot.LoadedSeries, laps: Laps): SeriesStage =
+                of(m.series, m.lang, m.added, m.rated, m.byName, laps)
+
+            private fun of(
+                series: List<Series>, lang: Map<Int, String>, added: List<Series>, rated: List<Series>, byName: List<Series>, laps: Laps,
+            ): SeriesStage {
+                val byCat = series.groupBy { it.categoryId }
+                val byId = series.associateBy { it.id }.also { laps.lap("series lists", 0.9f) }
+                return SeriesStage(series, lang, added, rated, byName, byCat, byId)
+            }
         }
-        val added = p.series.sortedByDescending { it.added }
-        val rated = p.series.filter { it.rating > 0 }.sortedByDescending { it.rating }
-        val byName = sortedByLowerName(p.series) { it.name }
-        val byCat = p.series.groupBy { it.categoryId }
-        val byId = p.series.associateBy { it.id }.also { laps.lap("series lists", 0.9f) }
+    }
+
+    /** Where the three stages come from: worked out from parsed lists, or read from the saved copy. */
+    private class Stages(
+        val channels: suspend (Laps) -> ChannelStage,
+        val movies: suspend (ChannelStage, Laps) -> MovieStage,
+        val series: suspend (ChannelStage, Laps) -> SeriesStage,
+    )
+
+    /** Prepares a library read from the provider's JSON and then keeps a saved copy of the result (see [LibrarySnapshot]). */
+    private suspend fun applyParsed(p: ParsedCatalog, from: Int) {
+        installStages(
+            Stages(
+                channels = { laps -> ChannelStage.from(p, laps) },
+                movies = { cs, laps -> MovieStage.from(p, cs.vodCatLang, laps) },
+                series = { cs, laps -> SeriesStage.from(p, cs.seriesCatLang, laps) },
+            ),
+            from,
+        )
+        writeSnapshotLater()
     }
 
     /**
-     * Prepares a parsed library in three stages (channels, movies, series), installing each as soon
-     * as it is ready so Live TV works while the big lists are still being indexed. [loading] stays
-     * true until the last stage, because the caller's load() is still running.
+     * Installs a library in three stages (channels, movies, series), each as soon as it is ready, so
+     * Live TV works while the big lists are still being indexed. [loading] stays true until the last
+     * stage, because the caller's load() is still running. The JSON path and the saved copy both come
+     * through here, so they show the same progress and write the same log lines.
      */
-    private suspend fun applyParsed(p: ParsedCatalog, from: Int) {
+    private suspend fun installStages(stages: Stages, from: Int) {
         val t0 = System.currentTimeMillis()
         customGen.incrementAndGet()
         val renames = custom().renames
@@ -406,8 +637,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         // Stage 1: channels.
         val chLaps = stage("Preparing channels", 0, 35)
         val (cs, chIndex) = withContext(Dispatchers.Default) {
-            val st = ChannelStage(p, chLaps)
-            val ci = buildChannelIndex(p.channels, renames, st.versionKeys, st.quality, st.sortKeys, st.hd, st.chLang)
+            val st = stages.channels(chLaps)
+            val ci = buildChannelIndex(st.channels, renames, st.versionKeys, st.quality, st.sortKeys, st.hd, st.chLang)
             chLaps.lap("channel index", 1f)
             st to ci
         }
@@ -417,9 +648,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         rawQuality = cs.quality
         rawSortKeys = cs.sortKeys
         rawHd = cs.hd
-        adultCats = (p.liveCats + p.vodCats + p.seriesCats).filter { it.adult }.map { it.id }.toSet()
-        liveCats = p.liveCats
-        rawChannels = p.channels
+        adultCats = (cs.liveCats + cs.vodCats + cs.seriesCats).filter { it.adult }.map { it.id }.toSet()
+        liveCats = cs.liveCats
+        rawChannels = cs.channels
         install(chIndex)
         langVersion++
         val channelsMs = System.currentTimeMillis() - t0
@@ -427,11 +658,11 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
         // Stage 2: movies.
         val mvLaps = stage("Preparing movies", 35, 80)
-        val ms = withContext(Dispatchers.Default) { MovieStage(p, cs.vodCatLang, mvLaps) }
+        val ms = withContext(Dispatchers.Default) { stages.movies(cs, mvLaps) }
         mvLang = ms.lang
         movieById = ms.byId
-        vodCats = p.vodCats
-        movies = p.movies
+        vodCats = cs.vodCats
+        movies = ms.movies
         moviesByCat = ms.byCat
         moviesByAdded = ms.added; moviesByRating = ms.rated
         moviesByName = ms.byName
@@ -440,11 +671,11 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
         // Stage 3: series.
         val srLaps = stage("Preparing series", 80, 99)
-        val ss = withContext(Dispatchers.Default) { SeriesStage(p, cs.seriesCatLang, srLaps) }
+        val ss = withContext(Dispatchers.Default) { stages.series(cs, srLaps) }
         srLang = ss.lang
         seriesById = ss.byId
-        seriesCats = p.seriesCats
-        series = p.series
+        seriesCats = cs.seriesCats
+        series = ss.series
         seriesByCat = ss.byCat
         seriesByAdded = ss.added; seriesByRating = ss.rated
         seriesByName = ss.byName
@@ -860,10 +1091,6 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
         fun yearIn(name: String): String? = CatalogParser.yearIn(name)
     }
-}
-
-private fun langOf(cats: List<Category>): Map<String, String> = buildMap {
-    cats.forEach { c -> LanguageDetector.ofCategory(c.name)?.let { put(c.id, it) } }
 }
 
 private val LANG_MAP = kotlinx.serialization.builtins.MapSerializer(String.serializer(), String.serializer())

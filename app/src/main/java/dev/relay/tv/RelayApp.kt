@@ -130,6 +130,7 @@ class RelayApp : Application(), ImageLoaderFactory {
         appendLine(catalog.loadSummary())
         appendLine("Loading now: ${if (catalog.loading) catalog.progress?.text ?: "yes" else "no"}; last error: ${catalog.error ?: "none"}")
         appendLine("Library saved: ${if (catalog.updatedAt > 0) java.util.Date(catalog.updatedAt) else "never"}")
+        appendLine("Library snapshot: ${catalog.snapshotStatus}")
         appendLine("Channels with several versions: ${catalog.versionGroupCount}")
         val s = store.settings
         appendLine(

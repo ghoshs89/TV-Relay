@@ -219,9 +219,10 @@ object TextCorpus {
     /** Category languages every name is tried with: unknown, each group, and "other". */
     val categoryLangs: List<String?> = listOf(null, Langs.EN, Langs.HI, Langs.BN, Langs.SOUTH, Langs.BD, Langs.OTHER)
 
-    /** The whole corpus for the golden test; [total] is a lower bound on its size. */
+    /** The whole corpus for the golden test: exactly [total] names (fewer only when [total] is smaller than the fixed examples). */
     fun channelNames(total: Int): List<String> {
         val fixed = seedNames + ODD + BRANDS
+        if (total <= fixed.size) return fixed.take(total)
         val rest = total - fixed.size
         return fixed + channels(rest * 2 / 3, seed = 7) + fuzzed(rest - rest * 2 / 3, seed = 23)
     }
