@@ -246,5 +246,7 @@ jobs:
             bench-out/logcat.txt
             bench-out/report.txt
             bench-out/provider.log
+            bench-out/cold-saved.txt
+            bench-out/cold-json.txt
           retention-days: 14
           if-no-files-found: ignore
