@@ -1,5 +1,7 @@
 package dev.relay.tv.data
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -45,7 +47,10 @@ data class Account(
      * Server → [HostNet.code] for servers meant only for use with or without a VPN. Missing means
      * any network. Plain strings rather than the enum, so a value from a newer Relay can never make
      * the whole account unreadable; older Relays ignore the field (Jsons has ignoreUnknownKeys).
+     * Left out of the JSON when empty, so an account without marks saves and syncs exactly as before.
      */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
     val hostNets: Map<String, String> = emptyMap(),
 ) {
     fun netOf(host: String): HostNet = HostNet.of(hostNets[host])

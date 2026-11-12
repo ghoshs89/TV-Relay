@@ -32,6 +32,8 @@ data class LoginForm(
     val username: String,
     val password: String,
     val paste: String,
+    /** Servers for use with a VPN, comma separated; empty keeps the marks read from the message. */
+    val vpnHosts: String = "",
 )
 
 /**
@@ -187,6 +189,7 @@ class CompanionServer(
                 val form = LoginForm(
                     name = f["name"].orEmpty(), host = f["host"].orEmpty(), backups = f["backups"].orEmpty(),
                     username = f["user"].orEmpty(), password = f["pass"].orEmpty(), paste = f["paste"].orEmpty(),
+                    vpnHosts = f["vpn"].orEmpty(),
                 )
                 main.post { onLogin(form) }
                 AppLog.i("Companion", "Sign-in details received from phone")
@@ -431,6 +434,8 @@ class CompanionServer(
           <label>Playlist name<input name="name" placeholder="My IPTV"></label>
           <label>Server URL<input name="host" inputmode="url" autocapitalize="off" placeholder="http://example.com:8080"></label>
           <label>Backup servers<input name="backups" inputmode="url" autocapitalize="off" placeholder="comma separated"></label>
+          <label>Servers for use with a VPN<input name="vpn" inputmode="url" autocapitalize="off" placeholder="optional, comma separated"></label>
+          <p class="hint">Relay reads which servers are for a VPN from the provider's message. Fill this only to set it yourself; every other server is then for use without a VPN. You can also change it later on the TV under Settings.</p>
           <label>Username<input name="user" autocapitalize="off" autocomplete="off"></label>
           <label>Password<input name="pass" type="password" autocomplete="off"></label>
           <button type="submit">Send to TV</button>

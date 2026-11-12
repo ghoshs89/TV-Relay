@@ -46,6 +46,7 @@ import dev.relay.tv.companion.CompanionPanel
 import dev.relay.tv.companion.rememberCompanion
 import dev.relay.tv.data.Account
 import dev.relay.tv.data.AppLog
+import dev.relay.tv.data.HostNet
 import dev.relay.tv.data.Profile
 import dev.relay.tv.data.ProviderText
 import dev.relay.tv.data.XtreamApi
@@ -62,6 +63,8 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
     var backups by remember { mutableStateOf(existing?.hosts?.drop(1)?.joinToString(", ") ?: "") }
     var user by remember { mutableStateOf(existing?.username ?: "") }
     var pass by remember { mutableStateOf(existing?.password ?: "") }
+    // Which network each server is for (read from a pasted message, or kept from before).
+    var nets by remember { mutableStateOf(existing?.let { a -> a.hosts.associateWith { a.netOf(it) } } ?: emptyMap()) }
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf<String?>(null) }
@@ -80,11 +83,14 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
             if (p.hosts.isNotEmpty()) {
                 host = p.hosts.first()
                 backups = p.hosts.drop(1).joinToString(", ")
+                nets = p.nets
             }
             p.username?.let { user = it }
             p.password?.let { pass = it }
             err = null
+            val forVpn = p.nets.values.count { it == HostNet.VPN }
             note = "Filled from your provider's message: ${p.hosts.size} server(s)" +
+                (if (forVpn > 0) " ($forVpn for use with a VPN)" else "") +
                 (if (p.username != null) ", username" else "") +
                 (if (p.password != null) ", password" else "") + ". Check them, then Sign in."
         }
@@ -100,7 +106,11 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
             err = "Server, username and password are all required."
             return@submit
         }
-        val acc = Account(name.trim().ifEmpty { "My IPTV" }, hosts, user.trim(), pass.trim())
+        val marks = nets
+        val acc = Account(
+            name.trim().ifEmpty { "My IPTV" }, hosts, user.trim(), pass.trim(),
+            Account.netsFor(hosts, hosts.associateWith { marks[it] ?: HostNet.ANY }),
+        )
         scope.launch {
             busy = true
             err = null
@@ -126,6 +136,7 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
                 name = acc.name
                 host = acc.hosts.first()
                 backups = acc.hosts.drop(1).joinToString(", ")
+                nets = acc.hosts.associateWith { acc.netOf(it) }
                 user = acc.username
                 pass = acc.password
                 note = "Received from your phone."

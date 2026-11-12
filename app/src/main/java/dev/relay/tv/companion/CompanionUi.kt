@@ -35,6 +35,8 @@ import com.google.zxing.qrcode.QRCodeWriter
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.Account
 import dev.relay.tv.data.AppLog
+import dev.relay.tv.data.HostLabels
+import dev.relay.tv.data.HostNet
 import dev.relay.tv.data.KeysResult
 import dev.relay.tv.data.ProviderText
 import dev.relay.tv.data.XtreamApi
@@ -123,7 +125,10 @@ object Accounts {
         val user = (parsed.username ?: f.username).trim()
         val pass = (parsed.password ?: f.password).trim()
         if (hosts.isEmpty() || user.isEmpty() || pass.isEmpty()) return null
-        return Account(f.name.trim().ifEmpty { fallbackName }, hosts, user, pass)
+        val vpnList = f.vpnHosts.split(',', '\n', ' ', ';').map { XtreamApi.normalizeHost(it) }.filter { it.isNotEmpty() }
+        val before = RelayApp.instance.store.account
+        val nets = HostLabels.merge(hosts, parsed.nets, vpnList) { h -> before?.netOf(h) ?: HostNet.ANY }
+        return Account(f.name.trim().ifEmpty { fallbackName }, hosts, user, pass, Account.netsFor(hosts, nets))
     }
 
     /** Checks the login and saves it. Returns null on success or an error message. */
@@ -136,7 +141,8 @@ object Accounts {
         return try {
             app.api.authenticate()
             AppLog.i("Login", "Signed in via ${app.api.host} (${acc.hosts.size} server(s) saved)")
-            val changed = prevAcc?.username != acc.username || prevAcc?.hosts != acc.hosts
+            // Only a different login (or a different set of servers) needs the library again; new server marks don't.
+            val changed = !acc.sameLogin(prevAcc)
             app.store.account = acc
             app.store.activeHost = app.api.host
             if (changed) app.catalog.clear()

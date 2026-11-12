@@ -49,6 +49,6 @@ class HostHealthTest {
         assertEquals("first", HostHealth.describe(IOException("first\nsecond")))
         assertEquals("SocketTimeoutException", HostHealth.describe(java.net.SocketTimeoutException()))
         val long = HostHealth.describe(IOException("x".repeat(200)))
-        assertEquals(80, long.length)
+        assertEquals(60, long.length)
     }
 }

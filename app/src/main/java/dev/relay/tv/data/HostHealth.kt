@@ -51,7 +51,7 @@ class HostHealth(val clock: () -> Long) {
         fun describe(e: Throwable?): String {
             if (e == null) return "failed"
             val m = (e.message ?: e.javaClass.simpleName).lineSequence().first().trim()
-            return if (m.length > 80) m.take(79) + "…" else m
+            return if (m.length > 60) m.take(59) + "…" else m
         }
     }
 }

@@ -170,7 +170,12 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
 
     /** What other screens' changes mean for what is on this one. */
     private fun afterApply(a: SyncApplied) {
-        if (a.accountChanged) {
+        val incoming = app.store.account
+        if (a.accountChanged && incoming != null && incoming.sameLogin(app.api.account)) {
+            // Only the server marks (or the playlist name) changed: no need to load the library again.
+            AppLog.i("Sync", "Server marks came from another screen")
+            app.api.account = incoming
+        } else if (a.accountChanged) {
             AppLog.i("Sync", "The login came from another screen; loading the library")
             app.api.account = app.store.account
             app.api.host = null

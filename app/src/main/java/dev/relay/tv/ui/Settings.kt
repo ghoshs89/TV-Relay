@@ -172,7 +172,40 @@ fun SettingsTab() {
             val i = info
             Info("Connections", if (i?.maxConnections != null) "${i.activeConnections ?: 0} in use of ${i.maxConnections}" else "…")
         }
-        item { Info("Server in use", app.api.host ?: acc?.hosts?.firstOrNull() ?: "None") }
+        item {
+            val inUse = app.api.host
+            Info(
+                "Server in use",
+                if (inUse != null) "$inUse (${acc?.netOf(inUse)?.label ?: dev.relay.tv.data.HostNet.ANY.label})"
+                else acc?.hosts?.firstOrNull() ?: "None",
+            )
+        }
+        item { Info("VPN", dev.relay.tv.net.VpnWatch.describe(app.vpnWatch.vpnOn).replaceFirstChar { it.uppercase() }) }
+        // One row per server, in saved order (so a row doesn't move when pressed). Pressing a row changes
+        // which network it is marked for; Relay then tries the servers that suit the network first.
+        if (acc != null) {
+            val now = app.api.health.clock()
+            val inUse = app.api.host
+            for (st in app.api.health.snapshot(acc.hosts)) {
+                item(key = "srv:${st.host}") {
+                    Setting(
+                        if (st.host == inUse) "${st.host} (in use)" else st.host,
+                        "${acc.netOf(st.host).label.replaceFirstChar { it.uppercase() }} · ${dev.relay.tv.data.ServerText.status(st, now)}",
+                        kidsLocked,
+                    ) {
+                        gate.run("Parent PIN to change servers") {
+                            val cur = store.account ?: return@run
+                            val next = cur.netOf(st.host).next()
+                            val nets = cur.hosts.associateWith { cur.netOf(it) } + (st.host to next)
+                            val updated = cur.copy(hostNets = dev.relay.tv.data.Account.netsFor(cur.hosts, nets))
+                            store.account = updated
+                            app.api.account = updated
+                            AppLog.i("Api", "Server ${st.host} now marked for ${next.label}")
+                        }
+                    }
+                }
+            }
+        }
         item {
             Setting(
                 "Refresh channels and library",

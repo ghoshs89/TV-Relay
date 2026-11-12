@@ -22,4 +22,9 @@ class AccountJsonTest {
         val got = Jsons.json.decodeFromString(Account.serializer(), newer)
         assertEquals(HostNet.ANY, got.netOf("http://a.example.com"))
     }
+
+    @Test fun anAccountWithoutMarksEncodesExactlyAsBefore() {
+        val json = Jsons.json.encodeToString(Account.serializer(), a)
+        assertEquals("""{"name":"Home","hosts":["http://a.example.com","http://b.example.com"],"username":"u","password":"p"}""", json)
+    }
 }

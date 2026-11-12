@@ -44,4 +44,18 @@ class HostLabelsTest {
     @Test fun empty() {
         assertEquals(emptyList<HostNet>(), HostLabels.tags(emptyList()))
     }
+
+    private val a = "http://a.example.com"
+    private val b = "http://b.example.com"
+    private val c = "http://c.example.com"
+
+    @Test fun mergeWithAVpnListMarksTheRestWithoutVpn() {
+        assertEquals(mapOf(a to no, b to vpn, c to no), HostLabels.merge(listOf(a, b, c), mapOf(a to vpn), listOf(b)) { any })
+    }
+
+    @Test fun mergeTakesThePasteThenWhatWasThereBefore() {
+        val before = mapOf(b to vpn, c to no)
+        assertEquals(mapOf(a to no, b to vpn, c to no), HostLabels.merge(listOf(a, b, c), mapOf(a to no), emptyList()) { before[it] ?: any })
+        assertEquals(mapOf(a to any), HostLabels.merge(listOf(a), emptyMap(), emptyList()) { any })
+    }
 }

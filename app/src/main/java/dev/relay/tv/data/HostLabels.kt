@@ -23,4 +23,16 @@ object HostLabels {
         // A provider that marks some servers "for VPN" means the unmarked ones are its normal servers.
         return if (HostNet.VPN in first) first.map { if (it == HostNet.ANY) HostNet.NO_VPN else it } else first
     }
+
+    /**
+     * The marks to save for [hosts] at sign-in. When the person listed the servers for use with a VPN
+     * ([vpnList], normalised), those are VPN and the rest are for use without one. Otherwise a server
+     * keeps the mark from the pasted message ([pasted]), else the one it had before ([before]).
+     */
+    fun merge(hosts: List<String>, pasted: Map<String, HostNet>, vpnList: List<String>, before: (String) -> HostNet): Map<String, HostNet> =
+        if (vpnList.isNotEmpty()) {
+            hosts.associateWith { if (it in vpnList) HostNet.VPN else HostNet.NO_VPN }
+        } else {
+            hosts.associateWith { pasted[it] ?: before(it) }
+        }
 }
