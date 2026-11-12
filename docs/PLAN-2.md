@@ -157,8 +157,26 @@ Executed in one session, one push to `main` per phase. Everything below was comp
 | C | 1.0.39 | F6 images get their own network pool (8 requests, 4 per host) and no crossfade in the grid, F7 cards keyed by id, titles parsed once, F8 per-title ratings counters. The RGB 565 idea was dropped on purpose: on Android 8 and later the loader uses hardware bitmaps, so it would change nothing |
 | D | 1.0.41 | D5 hold OK favourites a channel in Live TV, D7 Clear all on Continue watching, D8 jump sizes for Left and Right, D9 byte-order mark fix in `looksLikePlaylist` |
 | D (part 2) | 1.0.42 | D2 sleep timer, D3 "Are you still watching?" (`SleepTimer`, `StillWatching`, with tests) |
+| Fix | 1.0.77 | Holding Up through a long poster grid had become several times slower in 1.0.38 (found by the benchmark, see below). The focus highlight is read from the interaction source again and its animation starts from an effect |
 
 Left out: **A1** (needs a log from the TV), **A4** (a generated baseline profile needs a Macrobenchmark run; the wildcard list stays), **D4** (Back already flips to the previous channel; a list of the last five is not built), **D6** (Up next card: more player UI than can be checked without a TV), and all of **Phase E**. Phase E is gated on the player checks on a TV, which have not happened, and the benchmark drives lists and one live channel, not the retry paths the split would touch. Do it after the checks in `docs/TODO.md` pass.
 
 What the benchmark can and cannot say: it ran on a 2-core emulator with a software renderer on a shared build server, so it is useful for telling whether a change made a screen better or worse and useless for saying how a TV feels. A few things only a person with the remote can judge: whether hold OK is recognised on this remote, whether focus lands where it should after Back, whether the 1 s live buffer is enough for this provider, and whether the dimmed grid reads as "loading".
 
+### Benchmark numbers
+
+The same script (`tools/bench/bench.sh`: open Home, Live TV, play a channel, zap, come back, then hold Down or Up in the channel list, the Movies grid and the Series grid) was run four times on the phase A code and four times on 1.0.77, on the CI emulator (2 cores, software rendering). Medians; the range is in brackets in the CI logs. Run to run noise is large, so only differences that show in every run are listed.
+
+| What | Phase A code (1.0.33) | 1.0.77 |
+|---|---|---|
+| First picture after tuning a live channel | 1.86 s (1.84 to 1.88) | 0.93 s (0.92 to 1.10) |
+| Holding Up in the channel list, 95th percentile frame | 194 ms | 34 ms |
+| Starting a channel (the frames while the history write used to happen), 95th percentile | 176 ms | 137 ms |
+| Holding Up through the Movies grid, frames over 100 ms in 60 presses | 4 | 2 |
+| Holding Down in the Movies and Series grids, 95th percentile | 57 and 27 ms | 60 and 29 ms (no difference) |
+| Coming back from the player to the channel list, 95th percentile | 88 ms | 258 ms (worse: the list now scrolls back to the channel you left, which costs one heavy frame) |
+| Slow, one key at a time scrolling in the channel list, 95th percentile | 26 ms | 48 ms (within the run to run spread, 17 to 91) |
+
+How the regression was found: 1.0.38 to 1.0.42 showed 28 frames over 100 ms in the Movies Up stretch (range 17 to 56) against 4 before. Builds of each step and of single changes were run three times each. The result: phase B alone already had it; the grid keys and dimming (phase C and B) made no difference; putting back the old `Focusable` fixed it; and so did either of two smaller changes (reading focus from the interaction source, or driving the scale animation by `animateFloatAsState`), while removing the focus registration did not. The cause is starting a coroutine from inside the focus callback. Reading focus from the interaction source and animating from an effect was the best of the variants and is what 1.0.77 does.
+
+The lesson for later changes: this kind of difference does not show in the unit tests or the launch check, only when keys are held, so the benchmark is worth running (via **Run workflow** on a branch) before releasing changes to `Focusable`, the grids or the lists.
