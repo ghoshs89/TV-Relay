@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /** Optional TMDB enrichment: better backdrops, ratings and cast when the provider's data is thin. */
 class Tmdb(private val http: OkHttpClient) {
@@ -39,19 +40,18 @@ class Tmdb(private val http: OkHttpClient) {
             try {
                 val id = tmdbId?.takeIf { s -> s.isNotEmpty() && s.all { it.isDigit() } } ?: run {
                     val b = "https://api.themoviedb.org/3/search/$type".toHttpUrl().newBuilder()
-                        .addQueryParameter("api_key", key)
                         .addQueryParameter("query", cleanTitle(title))
                     if (year != null && year.length == 4) {
                         b.addQueryParameter(if (tv) "first_air_date_year" else "year", year)
                     }
-                    get(b.build()).at("results").arr()?.firstOrNull().at("id").str()
+                    get(b.build(), key).at("results").arr()?.firstOrNull().at("id").str()
                 } ?: return@withContext null
 
                 val d = get(
                     "https://api.themoviedb.org/3/$type/$id".toHttpUrl().newBuilder()
-                        .addQueryParameter("api_key", key)
                         .addQueryParameter("append_to_response", "credits")
                         .build(),
+                    key,
                 )
                 val info = Info(
                     overview = d.at("overview").str(),
@@ -75,18 +75,32 @@ class Tmdb(private val http: OkHttpClient) {
             }
         }
 
-    suspend fun validate(key: String): Boolean = withContext(Dispatchers.IO) {
+    /** Asks TMDB whether it accepts [key]; tells a refused key from a service that could not be reached. */
+    suspend fun check(key: String): KeyCheck = withContext(Dispatchers.IO) {
+        if (key.isBlank()) return@withContext KeyCheck.Rejected
         try {
-            get("https://api.themoviedb.org/3/configuration".toHttpUrl().newBuilder()
-                .addQueryParameter("api_key", key).build())
-            true
+            val url = "https://api.themoviedb.org/3/configuration".toHttpUrl()
+            http.newBuilder().callTimeout(15, TimeUnit.SECONDS).build()
+                .newCall(request(url, key)).execute().use { KeyText.tmdbCheck(it.code) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            false
+            KeyCheck.Unreachable
         }
     }
 
-    private fun get(url: HttpUrl): JsonElement =
-        http.newCall(Request.Builder().url(url).build()).execute().use { r ->
+    suspend fun validate(key: String): Boolean = check(key) == KeyCheck.Ok
+
+    /** A v3 key goes in the address as `api_key`; a v4 read access token goes in the Authorization header. */
+    private fun request(url: HttpUrl, key: String): Request =
+        if (KeyText.kind(key) == KeyKind.V4) {
+            Request.Builder().url(url).header("Authorization", "Bearer $key").build()
+        } else {
+            Request.Builder().url(url.newBuilder().addQueryParameter("api_key", key).build()).build()
+        }
+
+    private fun get(url: HttpUrl, key: String): JsonElement =
+        http.newCall(request(url, key)).execute().use { r ->
             if (!r.isSuccessful) throw IOException("TMDB ${r.code}")
             Jsons.json.parseToJsonElement(r.body!!.string())
         }

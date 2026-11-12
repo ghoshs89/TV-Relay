@@ -35,6 +35,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.Account
 import dev.relay.tv.data.AppLog
+import dev.relay.tv.data.KeysResult
 import dev.relay.tv.data.ProviderText
 import dev.relay.tv.data.XtreamApi
 import dev.relay.tv.ui.InitialFocus
@@ -46,11 +47,12 @@ import dev.relay.tv.ui.Type
 
 /** Starts the phone page while this composable is on screen; returns its URL (or null). */
 @Composable
-fun rememberCompanion(onLogin: (LoginForm) -> Unit): String? {
+fun rememberCompanion(onKeys: (KeysResult) -> Unit = {}, onLogin: (LoginForm) -> Unit): String? {
     val latest by rememberUpdatedState(onLogin)
+    val latestKeys by rememberUpdatedState(onKeys)
     var url by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) {
-        val server = CompanionServer { latest(it) }
+        val server = CompanionServer(onLogin = { latest(it) }, onKeys = { latestKeys(it) })
         url = try {
             server.start()
         } catch (e: Exception) {
@@ -143,14 +145,28 @@ object Accounts {
     }
 }
 
-/** Settings → Phone companion: sign in, back up or restore from a phone browser. */
+/**
+ * Settings → Phone companion: sign in, send keys, back up or restore from a phone browser.
+ * [onKeys] is called when a key was saved or removed from the phone; the key rows in Settings use it
+ * to close the window once the key has arrived.
+ */
 @Composable
-fun CompanionDialog(onDismiss: () -> Unit, onSignedIn: () -> Unit) {
+fun CompanionDialog(
+    onDismiss: () -> Unit,
+    onSignedIn: () -> Unit,
+    title: String = "Phone companion",
+    subtitle: String = "Your phone must be on the same Wi-Fi. The page lets you sign in, send API keys, download a backup, or restore one. " +
+        "It closes when you close this window.",
+    onKeys: ((KeysResult) -> Unit)? = null,
+) {
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
     val close = remember { FocusRequester() }
     InitialFocus(close)
-    val url = rememberCompanion { form ->
+    val url = rememberCompanion(onKeys = { r ->
+        status = r.lines.joinToString(". ")
+        onKeys?.invoke(r)
+    }) { form ->
         val acc = Accounts.fromForm(form, RelayApp.instance.store.account?.name ?: "My IPTV")
         if (acc == null) {
             status = "The phone sent incomplete details: server, username and password are needed."
@@ -164,13 +180,8 @@ fun CompanionDialog(onDismiss: () -> Unit, onSignedIn: () -> Unit) {
         }
     }
     TvDialog(onDismiss, width = 640.dp) {
-        Text("Phone companion", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
-        CompanionPanel(
-            url,
-            "Scan with your phone",
-            "Your phone must be on the same Wi-Fi. The page lets you sign in, download a backup, or restore one. " +
-                "It closes when you close this window.",
-        )
+        Text(title, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+        CompanionPanel(url, "Scan with your phone", subtitle)
         status?.let { Text(it, color = Palette.accent, fontSize = Type.small) }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Close", onDismiss, focusRequester = close)

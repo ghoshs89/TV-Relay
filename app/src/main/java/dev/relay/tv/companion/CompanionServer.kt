@@ -2,9 +2,14 @@ package dev.relay.tv.companion
 
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import dev.relay.tv.BuildConfig
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AppLog
+import dev.relay.tv.data.KeysForm
+import dev.relay.tv.data.KeysIntake
+import dev.relay.tv.data.KeysResult
+import kotlinx.coroutines.runBlocking
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -34,7 +39,11 @@ data class LoginForm(
  * Runs only while a screen that shows its QR code is open. Every path starts with a random
  * one-time code shown only on the TV, so other devices on the network can't use it.
  */
-class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
+class CompanionServer(
+    private val onLogin: (LoginForm) -> Unit,
+    /** Called on the main thread after a key was saved or removed from the phone. */
+    private val onKeys: (KeysResult) -> Unit = {},
+) {
     private val token: String = randomToken()
     private var socket: ServerSocket? = null
     private val pool = Executors.newFixedThreadPool(2) { r -> Thread(r, "relay-companion").apply { isDaemon = true } }
@@ -114,7 +123,12 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
         }
         val action = path.removePrefix("/$token").trim('/')
         when {
-            method == "GET" && action.isEmpty() -> respond(sock, 200, "text/html; charset=utf-8", page().toByteArray())
+            method == "GET" && action.isEmpty() -> {
+                val (tmdbSet, ratingsSet) = onMain {
+                    RelayApp.instance.store.settings.let { it.tmdbKey.isNotBlank() to it.ratingsKey.isNotBlank() }
+                }
+                respond(sock, 200, "text/html; charset=utf-8", page(tmdbSet, ratingsSet).toByteArray())
+            }
 
             method == "POST" && action == "login" -> {
                 val f = parseForm(String(body, Charsets.UTF_8))
@@ -125,6 +139,18 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
                 main.post { onLogin(form) }
                 AppLog.i("Companion", "Sign-in details received from phone")
                 respond(sock, 200, "text/html; charset=utf-8", message("Sent to your TV", "Look at the TV: Relay is signing in now.").toByteArray())
+            }
+
+            method == "POST" && action == "keys" -> {
+                val f = parseForm(String(body, Charsets.UTF_8))
+                val form = KeysForm(
+                    tmdb = f["tmdb"].orEmpty(), ratings = f["ratings"].orEmpty(),
+                    removeTmdb = f["rm_tmdb"] != null, removeRatings = f["rm_ratings"] != null,
+                )
+                val result = receiveKeys(form)
+                AppLog.i("Companion", "Keys received from phone")
+                val text = result.lines.joinToString("<br>") { escape(it) }
+                respond(sock, 200, "text/html; charset=utf-8", message("Keys", text).toByteArray())
             }
 
             method == "GET" && action == "backup.json" -> {
@@ -187,6 +213,34 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
         }
     }
 
+    /**
+     * Checks each key with its service on this background thread, then saves on the main thread.
+     * The TV shows the same words the phone gets. Keys are never written to the log.
+     */
+    private fun receiveKeys(form: KeysForm): KeysResult {
+        val app = RelayApp.instance
+        val result = runBlocking {
+            KeysIntake.process(
+                form,
+                checkTmdb = { app.tmdb.check(it) },
+                checkRatings = { app.ratings.check(it) },
+                apply = { tmdb, ratings ->
+                    onMain {
+                        val now = app.store.settings
+                        app.store.settings = now.copy(tmdbKey = tmdb ?: now.tmdbKey, ratingsKey = ratings ?: now.ratingsKey)
+                    }
+                },
+            )
+        }
+        main.post {
+            Toast.makeText(app, result.lines.joinToString("\n"), Toast.LENGTH_LONG).show()
+            if (result.changed) onKeys(result)
+        }
+        return result
+    }
+
+    private fun escape(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     private fun <T> onMain(block: () -> T): T {
         val task = FutureTask(Callable { block() })
         main.post(task)
@@ -245,7 +299,7 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
         <p><a href="/$token/">Back</a></p></main></body></html>
     """.trimIndent()
 
-    private fun page() = """
+    private fun page(tmdbSet: Boolean, ratingsSet: Boolean) = """
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Relay on your TV</title><style>$CSS</style></head><body><main>
         <h1>Relay <span>on your TV</span></h1>
@@ -260,6 +314,20 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
           <label>Username<input name="user" autocapitalize="off" autocomplete="off"></label>
           <label>Password<input name="pass" type="password" autocomplete="off"></label>
           <button type="submit">Send to TV</button>
+        </form></section>
+
+        <section><h2>Keys for scores and artwork</h2>
+        <p class="hint">Optional. A TMDB key adds artwork, cast and trailers; an MDBList key adds Rotten Tomatoes scores. Paste one or both. A key is checked before it is saved, and a box left empty keeps what the TV has. Saved keys are never shown here.</p>
+        <form method="post" action="/$token/keys">
+          <label>TMDB key <b class="state">${if (tmdbSet) "Set" else "Not set"}</b>
+            <input name="tmdb" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the key"></label>
+          <label class="check"><input type="checkbox" name="rm_tmdb" value="1"> Remove the saved TMDB key</label>
+          <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Where do I get this?</a>
+          <label>MDBList key <b class="state">${if (ratingsSet) "Set" else "Not set"}</b>
+            <input name="ratings" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the key"></label>
+          <label class="check"><input type="checkbox" name="rm_ratings" value="1"> Remove the saved MDBList key</label>
+          <a href="https://mdblist.com/preferences/" target="_blank" rel="noopener">Where do I get this?</a><br>
+          <button type="submit">Save keys</button>
         </form></section>
 
         <section><h2>Edit your library</h2>
@@ -312,6 +380,9 @@ class CompanionServer(private val onLogin: (LoginForm) -> Unit) {
             button,.button{display:inline-block;margin-top:14px;padding:12px 20px;border:0;border-radius:999px;
               background:#3ddc97;color:#000;font-weight:600;font-size:16px;text-decoration:none}
             .hint{color:#8a98b0;font-size:13px;margin:4px 0}
+            .state{color:#3ddc97;font-weight:600;margin-left:6px}
+            label.check{display:flex;align-items:center;color:#e8eef7;margin:8px 0 4px}
+            label.check input{display:inline-block;width:auto;margin:0 8px 0 0}
             a{color:#6cb4ff}
         """
 

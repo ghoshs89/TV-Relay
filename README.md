@@ -134,7 +134,7 @@ If your provider gives separate addresses for VPN and non-VPN use, enter the one
 | **Subtitles** | Size, colour and background |
 | **Channels & guide** | Channel groups, an external XMLTV guide, guide time offset, reminders, **Show each channel once**, **Search the whole TV guide** |
 | **Backup & phone** | Phone companion, backup to a file, restore |
-| **Library** | **My languages**, **Home screen** rows, **Manage categories** (hide, show, pin, whole countries), start screen, set up my library again, TMDB key and Rotten Tomatoes scores (both optional, below) |
+| **Library** | **My languages**, **Home screen** rows, **Manage categories** (hide, show, pin, whole countries), start screen, set up my library again, TMDB key and Rotten Tomatoes scores (both optional, below). The two key rows offer **Send from my phone**, so nothing has to be typed with the remote |
 | **Diagnostics** | Recent activity, saved logs, sharing logs, **Library and language report** (what Relay recognised in your playlist) |
 
 <details>
@@ -171,7 +171,7 @@ A restore checks the whole file first, so nothing changes if it's damaged or fro
 
 Treat backup files as personal: they include your viewing history, and an external guide address can contain your provider login if the provider builds it that way.
 
-The phone companion (Settings → Backup & phone, or the sign-in screen) is a page a phone on the same Wi-Fi opens by scanning a QR code. It can sign the TV in, download a backup and restore one, and **edit your library** with the phone's keyboard: hide, show or pin categories and whole countries, reorder or remove favourite channels, and rename channels. It exists only while that screen is open, and its address includes a random code.
+The phone companion (Settings → Backup & phone, or the sign-in screen) is a page a phone on the same Wi-Fi opens by scanning a QR code. It can sign the TV in, **send API keys** (they are checked before they are saved, and a saved key is never shown on the page), download a backup and restore one, and **edit your library** with the phone's keyboard: hide, show or pin categories and whole countries, reorder or remove favourite channels, and rename channels. It exists only while that screen is open, and its address includes a random code.
 
 </details>
 
@@ -189,7 +189,7 @@ The phone companion (Settings → Backup & phone, or the sign-in screen) is a pa
 <details>
 <summary><b>Rotten Tomatoes scores</b></summary>
 
-Settings → Library → Rotten Tomatoes scores. Add a free MDBList key (mdblist.com: sign in, then Preferences → API Access). Movie and series pages then show the critics and audience scores when Rotten Tomatoes has them; titles without a score show nothing extra.
+Settings → Library → Rotten Tomatoes scores. Add a free MDBList key (mdblist.com: sign in, then Preferences → API Access). Choose **Send from my phone**, scan the code and paste the key on the page; a key is checked before it is saved and you see the result on both screens. Or choose **Type it here**. Movie and series pages then show the critics and audience scores when Rotten Tomatoes has them; titles without a score show nothing extra.
 
 - Lookups happen only when you open a title, after the page appears, and never delay Play.
 - Scores are saved and checked again after a day for this year's releases, a week for older titles, and three days for titles with no score.
@@ -202,7 +202,7 @@ Settings → Library → Rotten Tomatoes scores. Add a free MDBList key (mdblist
 <details>
 <summary><b>TMDB artwork and details</b></summary>
 
-Settings → Library → TMDB API key. A free key from themoviedb.org (Settings → API, the 32-character "API Key") adds better backdrops, ratings, genres and cast to movie and series pages. Without it, Relay uses your provider's own information.
+Settings → Library → TMDB API key, then **Send from my phone** (or **Type it here**). A free key from themoviedb.org (Settings → API) adds better backdrops, ratings, genres and cast to movie and series pages. Without it, Relay uses your provider's own information. Either the 32-character "API Key" or the longer "API Read Access Token" works, and spaces, quotes or a leading `api_key=` in what you paste are ignored.
 
 </details>
 

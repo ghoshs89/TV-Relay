@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import dev.relay.tv.BuildConfig
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.HomeLayout
+import dev.relay.tv.data.KeyText
 import dev.relay.tv.data.KidsLimits
 import dev.relay.tv.tv.WatchNext
 import dev.relay.tv.data.Langs
@@ -76,6 +77,9 @@ fun SettingsTab() {
     var logNote by remember { mutableStateOf<String?>(null) }
     var backupNote by remember { mutableStateOf<String?>(null) }
     var companion by remember { mutableStateOf(false) }
+    // The key rows first ask how the key will arrive; "Send from my phone" opens the phone page.
+    var keyChoice by remember { mutableStateOf<Edit?>(null) }
+    var keysFromPhone by remember { mutableStateOf<Edit?>(null) }
     var lipSync by remember { mutableStateOf(false) }
     var offsetDialog by remember { mutableStateOf(false) }
     var managingGroup by remember { mutableStateOf<ChannelGroup?>(null) }
@@ -440,7 +444,7 @@ fun SettingsTab() {
         }
         item {
             Setting("TMDB API key (optional)", tmdbStatus ?: if (s.tmdbKey.isBlank()) "Not set" else "Set", kidsLocked) {
-                edit = Edit.TMDB
+                keyChoice = Edit.TMDB
             }
         }
         item {
@@ -448,7 +452,7 @@ fun SettingsTab() {
                 "Rotten Tomatoes scores (MDBList key)",
                 ratingsStatus ?: if (s.ratingsKey.isBlank()) "Not set" else "Set · ${app.ratings.cache.usedToday} lookups today",
                 kidsLocked,
-            ) { edit = Edit.RATINGS }
+            ) { keyChoice = Edit.RATINGS }
         }
         if (s.ratingsKey.isNotBlank()) {
             item {
@@ -579,6 +583,24 @@ fun SettingsTab() {
             onSignedIn = { app.appScope.launch { app.catalog.load() } },
         )
     }
+    keyChoice?.let { which ->
+        KeySourceDialog(
+            title = if (which == Edit.TMDB) "TMDB API key" else "MDBList API key",
+            onPhone = { keyChoice = null; keysFromPhone = which },
+            onType = { keyChoice = null; edit = which },
+            onDismiss = { keyChoice = null },
+        )
+    }
+    keysFromPhone?.let {
+        CompanionDialog(
+            onDismiss = { keysFromPhone = null },
+            onSignedIn = { app.appScope.launch { app.catalog.load() } },
+            title = "Send API keys from your phone",
+            subtitle = "Your phone must be on the same Wi-Fi. Open the page, paste the key under \"Keys for scores and artwork\" " +
+                "and press Save keys. The key is checked before it is saved, and this window closes when it arrives.",
+            onKeys = { keysFromPhone = null },
+        )
+    }
     if (lipSync) {
         StepperDialog(
             title = "Lip-sync adjustment",
@@ -640,7 +662,8 @@ fun SettingsTab() {
         )
         Edit.TMDB -> TextEditDialog(
             "TMDB API key", s.tmdbKey, { edit = null },
-            onSave = { k ->
+            onSave = { typed ->
+                val k = KeyText.clean(typed)
                 store.settings = s.copy(tmdbKey = k)
                 edit = null
                 if (k.isNotBlank()) {
@@ -654,7 +677,8 @@ fun SettingsTab() {
         )
         Edit.RATINGS -> TextEditDialog(
             "MDBList API key", s.ratingsKey, { edit = null },
-            onSave = { k ->
+            onSave = { typed ->
+                val k = KeyText.clean(typed)
                 store.settings = s.copy(ratingsKey = k)
                 edit = null
                 if (k.isNotBlank()) {
@@ -790,6 +814,25 @@ private fun Setting(label: String, value: String, locked: Boolean, danger: Boole
         label, onClick, Modifier.width(900.dp), key = "set:$label",
         trailing = value.ifBlank { null }, textColor = if (danger) Palette.danger else Palette.text,
     )
+}
+
+/** Asks how a key will arrive: typed on the TV, or pasted on a phone (much easier). */
+@Composable
+private fun KeySourceDialog(title: String, onPhone: () -> Unit, onType: () -> Unit, onDismiss: () -> Unit) {
+    val first = remember { FocusRequester() }
+    InitialFocus(first)
+    TvDialog(onDismiss, width = 520.dp) {
+        Text(title, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text(
+            "Typing a key with the remote is slow. Scan a code with your phone and paste it there instead.",
+            fontSize = Type.small, color = Palette.dim,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Send from my phone", onPhone, primary = true, focusRequester = first)
+            PillButton("Type it here", onType)
+        }
+        PillButton("Cancel", onDismiss)
+    }
 }
 
 @Composable
