@@ -43,6 +43,8 @@ class CompanionServer(
     private val onLogin: (LoginForm) -> Unit,
     /** Called on the main thread after a key was saved or removed from the phone. */
     private val onKeys: (KeysResult) -> Unit = {},
+    /** Called on the main thread after sync was set up (or its token replaced) from the phone; the text is what the phone was told. */
+    private val onSync: (ok: Boolean, text: String) -> Unit = { _, _ -> },
 ) {
     private val token: String = randomToken()
     private var socket: ServerSocket? = null
@@ -127,7 +129,8 @@ class CompanionServer(
                 val (tmdbSet, ratingsSet) = onMain {
                     RelayApp.instance.store.settings.let { it.tmdbKey.isNotBlank() to it.ratingsKey.isNotBlank() }
                 }
-                respond(sock, 200, "text/html; charset=utf-8", page(tmdbSet, ratingsSet).toByteArray())
+                val syncRepo = RelayApp.instance.sync.settings.config?.repo?.toString()
+                respond(sock, 200, "text/html; charset=utf-8", page(tmdbSet, ratingsSet, syncRepo).toByteArray())
             }
 
             method == "POST" && action == "login" -> {
@@ -151,6 +154,12 @@ class CompanionServer(
                 AppLog.i("Companion", "Keys received from phone")
                 val text = result.lines.joinToString("<br>") { escape(it) }
                 respond(sock, 200, "text/html; charset=utf-8", message("Keys", text).toByteArray())
+            }
+
+            method == "POST" && action == "sync" -> {
+                val f = parseForm(String(body, Charsets.UTF_8))
+                val text = receiveSync(f["repo"].orEmpty(), f["token"].orEmpty())
+                respond(sock, 200, "text/html; charset=utf-8", message("Sync between screens", escape(text)).toByteArray())
             }
 
             method == "GET" && action == "backup.json" -> {
@@ -239,6 +248,26 @@ class CompanionServer(
         return result
     }
 
+    /**
+     * Turns sync on from this screen (first screen) or replaces its token. The repository is checked and
+     * the first sync done before this answers. Neither the token nor the key is ever logged.
+     */
+    private fun receiveSync(repo: String, token: String): String {
+        val app = RelayApp.instance
+        val replacing = app.sync.enabled
+        val err = runBlocking { if (replacing) app.sync.replaceToken(token) else app.sync.setUp(repo, token) }
+        AppLog.i("Companion", "Sync details received from phone: ${if (err == null) "accepted" else "not accepted"}")
+        val text = err ?: if (replacing) "The new token works. Syncing now." else {
+            val n = app.sync.status.screens.size.coerceAtLeast(1)
+            "Sync is on. $n screen${if (n == 1) "" else "s"}. To add another screen, open Settings, Sync, Join on that screen."
+        }
+        main.post {
+            Toast.makeText(app, text, Toast.LENGTH_LONG).show()
+            onSync(err == null, text)
+        }
+        return text
+    }
+
     private fun escape(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     private fun <T> onMain(block: () -> T): T {
@@ -299,7 +328,30 @@ class CompanionServer(
         <p><a href="/$token/">Back</a></p></main></body></html>
     """.trimIndent()
 
-    private fun page(tmdbSet: Boolean, ratingsSet: Boolean) = """
+    private fun syncSection(repo: String?): String = if (repo == null) """
+        <section><h2>Sync between screens</h2>
+        <p class="hint">Optional. Keeps profiles, favourites, watch history and shared settings the same on every screen you own. It needs a
+        private GitHub repository of your own and a token that can only read and write that one repository. Everything is encrypted on the
+        TV before it leaves, with a key that stays on your screens. The README on GitHub has the steps.</p>
+        <form method="post" action="/$token/sync">
+          <label>Repository
+            <input name="repo" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="your-name/relay-sync"></label>
+          <label>Token
+            <input name="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_..."></label>
+          <button type="submit">Turn on sync</button>
+        </form></section>
+    """ else """
+        <section><h2>Sync between screens</h2>
+        <p class="hint">Sync is on for <b>${escape(repo)}</b>. Status, Sync now, adding a screen and stopping are in Settings, Sync on the TV.
+        If GitHub says the token expired, paste the new one here.</p>
+        <form method="post" action="/$token/sync">
+          <label>New token
+            <input name="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_..."></label>
+          <button type="submit">Replace the token</button>
+        </form></section>
+    """
+
+    private fun page(tmdbSet: Boolean, ratingsSet: Boolean, syncRepo: String?) = """
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Relay on your TV</title><style>$CSS</style></head><body><main>
         <h1>Relay <span>on your TV</span></h1>
@@ -329,6 +381,8 @@ class CompanionServer(
           <a href="https://mdblist.com/preferences/" target="_blank" rel="noopener">Where do I get this?</a><br>
           <button type="submit">Save keys</button>
         </form></section>
+
+        ${syncSection(syncRepo)}
 
         <section><h2>Edit your library</h2>
         <p class="hint">Hide, show or pin categories and whole countries, reorder or remove favourite channels and rename channels, with your phone's keyboard.</p>

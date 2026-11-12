@@ -47,12 +47,17 @@ import dev.relay.tv.ui.Type
 
 /** Starts the phone page while this composable is on screen; returns its URL (or null). */
 @Composable
-fun rememberCompanion(onKeys: (KeysResult) -> Unit = {}, onLogin: (LoginForm) -> Unit): String? {
+fun rememberCompanion(
+    onKeys: (KeysResult) -> Unit = {},
+    onSync: (Boolean, String) -> Unit = { _, _ -> },
+    onLogin: (LoginForm) -> Unit,
+): String? {
     val latest by rememberUpdatedState(onLogin)
     val latestKeys by rememberUpdatedState(onKeys)
+    val latestSync by rememberUpdatedState(onSync)
     var url by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) {
-        val server = CompanionServer(onLogin = { latest(it) }, onKeys = { latestKeys(it) })
+        val server = CompanionServer(onLogin = { latest(it) }, onKeys = { latestKeys(it) }, onSync = { ok, text -> latestSync(ok, text) })
         url = try {
             server.start()
         } catch (e: Exception) {
@@ -155,9 +160,11 @@ fun CompanionDialog(
     onDismiss: () -> Unit,
     onSignedIn: () -> Unit,
     title: String = "Phone companion",
-    subtitle: String = "Your phone must be on the same Wi-Fi. The page lets you sign in, send API keys, download a backup, or restore one. " +
+    subtitle: String = "Your phone must be on the same Wi-Fi. The page lets you sign in, send API keys, turn on sync, download a backup, or restore one. " +
         "It closes when you close this window.",
     onKeys: ((KeysResult) -> Unit)? = null,
+    /** Called after sync was turned on (or its token replaced) from the phone. */
+    onSync: ((Boolean, String) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
@@ -166,6 +173,9 @@ fun CompanionDialog(
     val url = rememberCompanion(onKeys = { r ->
         status = r.lines.joinToString(". ")
         onKeys?.invoke(r)
+    }, onSync = { ok, text ->
+        status = text
+        onSync?.invoke(ok, text)
     }) { form ->
         val acc = Accounts.fromForm(form, RelayApp.instance.store.account?.name ?: "My IPTV")
         if (acc == null) {

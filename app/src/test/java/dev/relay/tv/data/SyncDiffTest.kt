@@ -254,4 +254,41 @@ class SyncDiffTest {
         remote = b.sync(remote, 5_100)
         assertEquals(setOf("fav:p:live:1", "fav:p:live:3"), b.items.keys)
     }
+
+    // ---------- rebaseChecked ----------
+
+    @Test
+    fun rebaseCheckedAgreesOnlyWhatArrivedAsIntended() {
+        val merged = mapOf(
+            "a" to SyncRec(10, "x", p("A")),
+            "b" to SyncRec(11, "x", p("B")),
+            "c" to SyncRec(12, "x", null),
+            "d" to SyncRec(13, "x", p("D")),
+        )
+        val intended = mapOf("a" to p("A"), "b" to p("B"), "d" to p("D"))
+        // "b" was changed by the viewer while the sync applied; "d" is not known to this screen.
+        val after = mapOf("a" to p("A"), "b" to p("viewer"))
+        val old = mapOf("b" to BaseRec(5, "me", SyncDiff.hash(p("older"))))
+        val out = SyncDiff.rebaseChecked(merged, after, intended, old)
+        assertEquals(BaseRec(10, "x", SyncDiff.hash(p("A"))), out["a"])
+        assertEquals(old["b"], out["b"])
+        assertEquals(BaseRec(12, "x", null), out["c"])
+        assertNull(out["d"])
+    }
+
+    @Test
+    fun rebaseCheckedLeavesOutAnUnmatchedItemThatWasNeverAgreed() {
+        val merged = mapOf("a" to SyncRec(10, "x", p("A")))
+        val out = SyncDiff.rebaseChecked(merged, mapOf("a" to p("other")), mapOf("a" to p("A")), emptyMap())
+        assertNull(out["a"])
+    }
+
+    @Test
+    fun rebaseCheckedAcceptsAValueTheScreenStoresDifferentlyWhenItMeantTo() {
+        // The merge decoded a record from a newer version and the store keeps only the fields it knows:
+        // what the store holds is what was intended, so the item counts as agreed.
+        val merged = mapOf("a" to SyncRec(10, "x", p("A+extra")))
+        val out = SyncDiff.rebaseChecked(merged, mapOf("a" to p("A")), mapOf("a" to p("A")), emptyMap())
+        assertEquals(BaseRec(10, "x", SyncDiff.hash(p("A"))), out["a"])
+    }
 }

@@ -1147,6 +1147,8 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // Progress and kids viewing time are sent to the other screens now, not every few seconds.
+        app.sync.afterPlayback()
         handler.removeCallbacksAndMessages(null)
         stopTimeshift()
         if (::frameRate.isInitialized) frameRate.restore()

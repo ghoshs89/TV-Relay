@@ -194,6 +194,15 @@ object SyncCodec {
     private const val DAY = 86_400_000L
 }
 
+/** What [Store.syncApply] did, for the log and for the app to react to. */
+data class SyncApplied(
+    val changes: Int,
+    val accountChanged: Boolean,
+    val profilesChanged: Boolean,
+    /** Settings, pinned categories or channel edits changed, which the channel list may need to redo. */
+    val libraryChanged: Boolean = false,
+)
+
 /** What this screen last agreed with the document: per item, its time, who set it and a short hash of the value. */
 @Serializable
 data class BaseRec(val at: Long, val dev: String, val h: String? = null)
@@ -270,6 +279,34 @@ object SyncDiff {
             } else {
                 val v = after[k] ?: continue
                 out[k] = BaseRec(r.at, r.dev, hash(v))
+            }
+        }
+        return out
+    }
+
+    /**
+     * Like [rebase], for a document that was applied to the store. An item counts as agreed only if
+     * what the store holds now is what the merge meant to put there ([intended]). If the viewer changed
+     * it while the sync was running, it keeps the agreement it had before ([old]), so the next sync
+     * sees it as a change made here instead of losing it.
+     */
+    fun rebaseChecked(
+        merged: Map<String, SyncRec>,
+        after: Map<String, JsonElement>,
+        intended: Map<String, JsonElement>,
+        old: Map<String, BaseRec>,
+    ): Map<String, BaseRec> {
+        val out = HashMap<String, BaseRec>(merged.size)
+        for ((k, r) in merged) {
+            if (r.gone) {
+                out[k] = BaseRec(r.at, r.dev, null)
+                continue
+            }
+            val now = after[k]
+            val meant = intended[k]
+            when {
+                now != null && meant != null && hash(now) == hash(meant) -> out[k] = BaseRec(r.at, r.dev, hash(now))
+                old[k] != null -> out[k] = old[k]!!
             }
         }
         return out

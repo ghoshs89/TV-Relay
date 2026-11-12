@@ -35,6 +35,7 @@ class RelayApp : Application(), ImageLoaderFactory {
     lateinit var catalog: Catalog
     lateinit var tmdb: Tmdb
     lateinit var ratings: Ratings
+    lateinit var sync: dev.relay.tv.sync.SyncRunner
 
     val session = Session()
 
@@ -66,7 +67,7 @@ class RelayApp : Application(), ImageLoaderFactory {
             listOfNotNull(
                 acc?.username, acc?.password, BuildConfig.UPDATE_TOKEN.ifBlank { null },
                 s.tmdbKey.ifBlank { null }, s.ratingsKey.ifBlank { null },
-            )
+            ) + (if (::sync.isInitialized) sync.settings.secrets() else emptyList())
         }
         AppLog.saveUntil = store.settings.logUntil
         AppLog.init(this)
@@ -95,11 +96,13 @@ class RelayApp : Application(), ImageLoaderFactory {
         catalog.guide = XmltvGuide(this, http)
         Palette.neutral = store.settings.neutralTheme
         ReminderCenter.start(appScope)
+        sync = dev.relay.tv.sync.SyncRunner(this)
         tmdb = Tmdb(http)
         ratings = Ratings(http, java.io.File(filesDir, "ratings.json"))
         AppLog.stateDump = { stateDump() }
         AppLog.i("App", deviceLine())
         StallWatch.start()
+        sync.start()
         if (BuildConfig.BENCH) {
             // The benchmark build ships dev.relay.tv.bench.BenchSetup (src/benchmark); it is looked up by
             // name so the release build, which has no such class, compiles and never reaches this.

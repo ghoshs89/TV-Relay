@@ -47,7 +47,7 @@ class Store(ctx: Context) {
      * and the version counters change at once so screens see it immediately. [flush] makes sure
      * everything is on disk.
      */
-    private inline fun <reified T> write(key: String, v: T, history: Boolean = false) {
+    private inline fun <reified T> write(key: String, v: T, history: Boolean = false, sync: Boolean = !history) {
         touched[key] = System.currentTimeMillis()
         if (v == null) {
             cache.remove(key)
@@ -60,7 +60,14 @@ class Store(ctx: Context) {
             behind.put(key) { Jsons.json.encodeToString(serializer, v) }
         }
         if (history) historyVersion.intValue++ else version.intValue++
+        if (sync && !quiet) onSyncChange?.invoke()
     }
+
+    /** Set by the app: told when something that syncs was changed here (it waits a little, then syncs). */
+    @Volatile var onSyncChange: (() -> Unit)? = null
+
+    /** True while a sync is writing its result, so that is not mistaken for a change made here. */
+    @Volatile private var quiet = false
 
     private val saver = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "relay-store").apply { isDaemon = true } }
     private val behind = WriteBehind(
@@ -93,8 +100,9 @@ class Store(ctx: Context) {
             val old = read("settings", Settings())
             val stamps = read<Map<String, Long>>("settings_at", emptyMap())
             val updated = SettingsSplit.stamp(old, v, stamps, System.currentTimeMillis())
-            if (updated !== stamps) write("settings_at", updated)
-            write("settings", v)
+            val shared = updated !== stamps
+            if (shared) write("settings_at", updated, sync = false)
+            write("settings", v, sync = shared)
         }
 
     /** A random name for this screen in the sync file; made once and kept. */
@@ -118,6 +126,7 @@ class Store(ctx: Context) {
             touched[PARENT_PIN] = System.currentTimeMillis()
             if (v == null) prefs.edit().remove(PARENT_PIN).apply() else prefs.edit().putString(PARENT_PIN, v).apply()
             version.intValue++
+            if (!quiet) onSyncChange?.invoke()
         }
 
     val hasParentPin: Boolean get() = !parentPin.isNullOrEmpty()
@@ -150,17 +159,17 @@ class Store(ctx: Context) {
     }
 
     fun removeHistory(pid: String, key: String) {
-        write("hist_$pid", HistoryEdits.without(history(pid), key), history = true)
+        write("hist_$pid", HistoryEdits.without(history(pid), key), history = true, sync = true)
     }
 
     /** Empties "Continue watching": every movie and episode in progress goes; finished titles and channels stay. */
     fun clearContinue(pid: String) {
-        write("hist_$pid", HistoryEdits.withoutContinue(history(pid)), history = true)
+        write("hist_$pid", HistoryEdits.withoutContinue(history(pid)), history = true, sync = true)
     }
 
     /** Takes a channel out of "Recently watched". */
     fun removeChannelHistory(pid: String, streamId: String) {
-        write("hist_$pid", HistoryEdits.withoutChannel(history(pid), streamId), history = true)
+        write("hist_$pid", HistoryEdits.withoutChannel(history(pid), streamId), history = true, sync = true)
     }
 
     // ---------- Live TV browsing ----------
@@ -199,7 +208,7 @@ class Store(ctx: Context) {
     // Plain prefs, not write(): the player adds to this every half minute and nothing on screen
     // needs to redraw for it.
 
-    private fun today(): String = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+    fun today(): String = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
 
     /**
      * Milliseconds watched today on a profile, on this screen and (once sync has told us) on the others,
@@ -221,6 +230,7 @@ class Store(ctx: Context) {
         touched["allow_$pid"] = System.currentTimeMillis()
         prefs.edit().putLong("allow_$pid", System.currentTimeMillis() + minutes * 60_000L).apply()
         version.intValue++
+        if (!quiet) onSyncChange?.invoke()
     }
 
     fun viewingVerdict(pid: String): KidsLimits.Verdict {
@@ -304,6 +314,7 @@ class Store(ctx: Context) {
         b.seriesTracks.keys.forEach { touched["trk_$it"] = t }
         version.intValue++
         historyVersion.intValue++
+        onSyncChange?.invoke()
 
         return RestoreResult(
             profiles = newProfiles.size,
@@ -351,15 +362,21 @@ class Store(ctx: Context) {
         )
     }
 
-    /** What [syncApply] did, for the log and for the app to react to. */
-    data class SyncApplied(val changes: Int, val accountChanged: Boolean, val profilesChanged: Boolean)
-
     /**
      * Writes what sync decided. Each kind of data is written only if it is still what [snapshot] saw and
      * differs from [target], so something the viewer changed while the sync was running is never
      * overwritten; the next run picks it up as a normal change. Call on the main thread.
      */
     fun syncApply(snapshot: SyncData, target: SyncData): SyncApplied {
+        quiet = true
+        try {
+            return applyUnquiet(snapshot, target)
+        } finally {
+            quiet = false
+        }
+    }
+
+    private fun applyUnquiet(snapshot: SyncData, target: SyncData): SyncApplied {
         val cur = syncSnapshot()
         var changes = 0
         fun <T> go(was: T, new: T, now: T, apply: () -> Unit): Boolean {
@@ -394,7 +411,7 @@ class Store(ctx: Context) {
                 version.intValue++
             }
         }
-        go(snapshot.settings, target.settings, cur.settings) {
+        val settingsChanged = go(snapshot.settings, target.settings, cur.settings) {
             // Not through the setter: a change that came from another screen is not a change made here.
             write("settings", target.settings)
         }
@@ -406,11 +423,11 @@ class Store(ctx: Context) {
         }
         go(snapshot.reminders, target.reminders, cur.reminders) { reminders = target.reminders }
         go(snapshot.liveSort, target.liveSort, cur.liveSort) { write("livesort", target.liveSort) }
-        go(snapshot.pinnedCats, target.pinnedCats, cur.pinnedCats) { pinnedCats = target.pinnedCats }
-        go(snapshot.channels, target.channels, cur.channels) { channelCustom = target.channels }
+        val pinsChanged = go(snapshot.pinnedCats, target.pinnedCats, cur.pinnedCats) { pinnedCats = target.pinnedCats }
+        val channelsChanged = go(snapshot.channels, target.channels, cur.channels) { channelCustom = target.channels }
         go(snapshot.parentPin, target.parentPin, cur.parentPin) { parentPin = target.parentPin }
         val accountChanged = go(snapshot.account, target.account, cur.account) { account = target.account }
-        return SyncApplied(changes, accountChanged, profilesChanged)
+        return SyncApplied(changes, accountChanged, profilesChanged, libraryChanged = settingsChanged || pinsChanged || channelsChanged)
     }
 
     /**

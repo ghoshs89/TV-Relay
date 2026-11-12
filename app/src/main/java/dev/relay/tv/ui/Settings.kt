@@ -42,6 +42,7 @@ import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Catalog
 import dev.relay.tv.data.Profile
 import dev.relay.tv.player.Playback
+import dev.relay.tv.sync.SyncStatusText
 import dev.relay.tv.update.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -94,6 +95,8 @@ fun SettingsTab() {
     var catsOpen by remember { mutableStateOf(false) }
     var limitsFor by remember { mutableStateOf<Profile?>(null) }
     var pinFor by remember { mutableStateOf<Profile?>(null) }
+    var syncSetup by remember { mutableStateOf(false) }
+    var confirmStopSync by remember { mutableStateOf(false) }
 
     // Phones: back up to / restore from a file through Android's file picker.
     val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -407,6 +410,42 @@ fun SettingsTab() {
         }
         backupNote?.let { n -> item { Info("", n) } }
 
+        item { Section("Sync between screens") }
+        if (!app.sync.enabled) {
+            item {
+                Setting("Turn on sync", "Off · same favourites, history and settings on every screen", kidsLocked) {
+                    gate.run("Parent PIN to set up sync") { syncSetup = true }
+                }
+            }
+        } else {
+            val st = app.sync.status
+            item {
+                Info(
+                    "Sync",
+                    SyncStatusText.line(st.result, st.message, st.lastOk, System.currentTimeMillis()) + if (st.running) " · syncing…" else "",
+                )
+            }
+            if (st.note.isNotEmpty()) item { Info("Last change", st.note) }
+            item {
+                Setting("Sync now", "", kidsLocked) { app.sync.runNow() }
+            }
+            item {
+                val me = store.deviceId
+                val now = System.currentTimeMillis()
+                Info(
+                    "Screens",
+                    if (st.screens.isEmpty()) "This screen" else st.screens.joinToString("\n") {
+                        "${it.name}${if (it.id == me) " (this screen)" else ""} · ${SyncStatusText.ago(now - it.seen)}"
+                    },
+                )
+            }
+            item {
+                Setting("Stop syncing on this screen", "Keeps everything here", kidsLocked, danger = true) {
+                    gate.run("Parent PIN to stop syncing") { confirmStopSync = true }
+                }
+            }
+        }
+
         item { Section("Library") }
         item {
             Setting("My languages", app.session.langOrder(s).joinToString(" · ") { Langs.label(it) }, false) { langsOpen = true }
@@ -581,6 +620,29 @@ fun SettingsTab() {
         CompanionDialog(
             onDismiss = { companion = false },
             onSignedIn = { app.appScope.launch { app.catalog.load() } },
+        )
+    }
+    if (syncSetup) {
+        CompanionDialog(
+            onDismiss = { syncSetup = false },
+            onSignedIn = { app.appScope.launch { app.catalog.load() } },
+            title = "Turn on sync from your phone",
+            subtitle = "Your phone must be on the same Wi-Fi. Open the page, find \"Sync between screens\", paste your private GitHub " +
+                "repository and its token, and press Turn on sync. This window closes when sync is on.",
+            onSync = { ok, _ -> if (ok) syncSetup = false },
+        )
+    }
+    if (confirmStopSync) {
+        ConfirmDialog(
+            "Stop syncing on this screen?",
+            "Everything stays on this screen. It forgets the repository, the token and the key, and leaves the list of screens. " +
+                "The other screens keep syncing with each other.",
+            "Stop syncing",
+            onDismiss = { confirmStopSync = false },
+            onConfirm = {
+                confirmStopSync = false
+                app.appScope.launch { app.sync.stop() }
+            },
         )
     }
     keyChoice?.let { which ->
@@ -769,11 +831,13 @@ fun SettingsTab() {
     if (confirmSignOut) {
         ConfirmDialog(
             "Sign out?",
-            "This removes your login, saved lists and cache from this TV. Profiles and history stay.",
+            "This removes your login, saved lists and cache from this TV. Profiles and history stay." +
+                if (app.sync.enabled) " It also stops syncing on this screen, otherwise the login would come back from the other screens." else "",
             "Sign out",
             onDismiss = { confirmSignOut = false },
             onConfirm = {
                 confirmSignOut = false
+                if (app.sync.enabled) app.appScope.launch { app.sync.stop() }
                 store.account = null
                 store.activeHost = null
                 app.api.account = null
