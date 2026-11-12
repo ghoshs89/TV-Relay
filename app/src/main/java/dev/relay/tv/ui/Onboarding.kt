@@ -65,6 +65,7 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf<String?>(null) }
+    var joining by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val first = remember { FocusRequester() }
     InitialFocus(first)
@@ -168,7 +169,14 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
                 PillButton(if (busy) "Checking…" else "Sign in", submit, primary = true)
                 if (onCancel != null) PillButton("Cancel", onCancel)
             }
+            if (existing == null && !app.sync.enabled) {
+                PillButton("I already use Relay on another screen", { joining = true }, compact = true)
+            }
         }
+    }
+
+    if (joining) {
+        JoinSyncDialog(onDismiss = { joining = false }, onJoined = { joining = false; onDone() })
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {

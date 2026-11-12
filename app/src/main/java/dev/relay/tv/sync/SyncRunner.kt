@@ -264,6 +264,72 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
         AppLog.i("Sync", "Sync stopped on this screen")
     }
 
+    // ---------- adding, removing and locking out screens ----------
+
+    /** What another screen needs to join this household, or null when sync is off here. */
+    fun pairBundle(): PairBundle? = settings.config?.let { PairBundle(it.repo.toString(), it.token, SyncSeal.keyToText(it.key)) }
+
+    /**
+     * Joins the household in [b]: checks the repository, takes its token and key, and does the first
+     * sync, which brings this screen's data together with the others'. If it does not work, what this
+     * screen had before (sync on or off) is put back. Returns a sentence for the viewer on failure.
+     */
+    suspend fun join(b: PairBundle): String? = withContext(Dispatchers.IO) {
+        val repo = Repo.parse(b.repo) ?: return@withContext "The pairing details are not valid."
+        val token = SyncInput.token(b.token) ?: return@withContext "The pairing details are not valid."
+        val key = SyncSeal.keyFromText(b.key) ?: return@withContext "The pairing details are not valid."
+        GitHubTransport(app.http, repo, token).check()?.let { return@withContext it }
+        val previous = settings.config
+        val previousState = settings.stateStore.load()
+        val cfg = SyncSettings.Config(repo, token, key)
+        settings.config = cfg
+        settings.stateStore.save(SyncState())
+        val t0 = SystemClock.elapsedRealtime()
+        val outcome = execute(cfg)
+        if (!outcome.ok) {
+            if (previous != null) {
+                settings.config = previous
+                settings.stateStore.save(previousState)
+            } else {
+                settings.clear()
+            }
+            return@withContext outcome.message.ifBlank { "Joining did not work." }
+        }
+        withContext(Dispatchers.Main) {
+            failures = 0
+            finish(outcome, SystemClock.elapsedRealtime() - t0)
+        }
+        AppLog.i("Sync", "Joined sync from another screen")
+        null
+    }
+
+    /**
+     * Seals the sync file again with a new household key, so a screen that still has the old one (a lost
+     * one) can no longer open it. The other screens must be added again.
+     */
+    suspend fun newHouseholdKey(): String? = withContext(Dispatchers.IO) {
+        val cfg = settings.config ?: return@withContext "Sync is not set up on this screen."
+        val newKey = SyncSeal.newKey()
+        val local = StoreSyncLocal(app, screenName())
+        val ok = SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).rekey(newKey)
+        if (!ok) return@withContext "The sync file could not be sealed again. Check the connection and try again."
+        settings.config = SyncSettings.Config(cfg.repo, cfg.token, newKey)
+        AppLog.i("Sync", "New household key made; other screens must be added again")
+        withContext(Dispatchers.Main) { request(manual = true) }
+        null
+    }
+
+    /** Takes another screen off the list. Cosmetic: a screen that still has the key puts itself back when it syncs. */
+    suspend fun removeScreen(id: String): Boolean {
+        val cfg = settings.config ?: return false
+        val done = withContext(Dispatchers.IO) {
+            val local = StoreSyncLocal(app, screenName())
+            SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).forget(id)
+        }
+        if (done) request(manual = true)
+        return done
+    }
+
     /** Name shown to the other screens. */
     fun screenName(): String {
         val model = Build.MODEL.orEmpty().trim().ifEmpty { "Android device" }

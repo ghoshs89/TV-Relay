@@ -482,6 +482,39 @@ class SyncEngineTest {
         assertTrue(a.engine().forget("zzz"))
     }
 
+    // ---------- a new household key ----------
+
+    @Test fun aNewKeyLocksOutScreensThatKeepTheOldOne() {
+        val a = Screen("a")
+        val lost = Screen("lost")
+        a.local.set("fav:p:movie:1", "Heat", tick())
+        a.sync(); lost.sync()
+        val newKey = SyncSeal.newKey()
+        assertTrue(a.engine().rekey(newKey))
+        // The lost screen can no longer open the file or add to it.
+        lost.local.set("fav:p:movie:2", "Stolen", tick())
+        val writes = transport.writes
+        assertEquals(SyncResult.WrongKey, lost.sync().result)
+        assertEquals(writes, transport.writes)
+        // The screen with the new key carries on, with all its data.
+        a.theKey = newKey
+        assertTrue(a.sync().ok)
+        assertEquals("Heat", (SyncDoc.parse(String(SyncSeal.open(transport.data!!, newKey))).recs["fav:p:movie:1"]!!.v as JsonPrimitive).content)
+        assertNull(a.local.value("fav:p:movie:2"))
+    }
+
+    @Test fun rekeyingWithTheWrongKeyChangesNothing() {
+        val a = Screen("a")
+        a.local.set("fav:p:movie:1", "Heat", tick()); a.sync()
+        val before = transport.data!!.copyOf()
+        a.theKey = SyncSeal.newKey()
+        assertFalse(a.engine().rekey(SyncSeal.newKey()))
+        assertEquals(before.toList(), transport.data!!.toList())
+        // Nothing there to re-seal.
+        transport.data = null
+        assertFalse(Screen("z").engine().rekey(SyncSeal.newKey()))
+    }
+
     // ---------- many screens, many changes ----------
 
     private fun randomRun(seed: Long, screens: Int, steps: Int) {

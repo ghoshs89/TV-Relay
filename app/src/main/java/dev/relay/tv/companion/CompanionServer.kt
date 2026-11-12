@@ -35,6 +35,21 @@ data class LoginForm(
 )
 
 /**
+ * What a screen that is waiting to join sync does when another screen contacts it (see
+ * `ui/SyncUi.kt`). The calls come from the server's threads and must be quick and thread-safe.
+ */
+interface PairHost {
+    /** Another screen sent its public key; the answer is this screen's own, or null when joining is not open. */
+    fun hello(theirPublic: String): String?
+
+    /** The sealed pairing bundle; true if it opened with the agreed key and was understood. */
+    fun bundle(sealed: ByteArray): Boolean
+
+    /** A pairing link pasted on the phone page; the answer is shown on the phone. */
+    fun link(text: String): String
+}
+
+/**
  * Tiny LAN web page so a phone can sign in, download a backup, or restore one.
  * Runs only while a screen that shows its QR code is open. Every path starts with a random
  * one-time code shown only on the TV, so other devices on the network can't use it.
@@ -45,6 +60,8 @@ class CompanionServer(
     private val onKeys: (KeysResult) -> Unit = {},
     /** Called on the main thread after sync was set up (or its token replaced) from the phone; the text is what the phone was told. */
     private val onSync: (ok: Boolean, text: String) -> Unit = { _, _ -> },
+    /** Set while this screen is waiting to join sync; opens the `/pair/` paths and a "Join sync" box on the page. */
+    private val pair: PairHost? = null,
 ) {
     private val token: String = randomToken()
     private var socket: ServerSocket? = null
@@ -54,6 +71,9 @@ class CompanionServer(
     /** The address to show as a QR code, or null if there's no network. */
     var url: String? = null
         private set
+
+    /** The port the page is on while it is open. */
+    val port: Int? get() = socket?.localPort
 
     fun start(): String? {
         val ip = lanAddress() ?: return null
@@ -117,7 +137,36 @@ class CompanionServer(
         }
     }
 
+    /**
+     * The pairing paths sit outside the secret path so a nearby screen can find them without the code
+     * on this TV's screen. They do nothing unless this screen is waiting to join, and what they accept
+     * must be sealed with a key only the two screens share.
+     */
+    private fun handlePair(sock: Socket, method: String, path: String, body: ByteArray) {
+        val host = pair
+        if (host == null || method != "POST") {
+            respond(sock, 404, "text/plain", "Not found".toByteArray())
+            return
+        }
+        when (path) {
+            "/pair/hello" -> {
+                val mine = host.hello(String(body, Charsets.UTF_8))
+                if (mine == null) respond(sock, 403, "text/plain", "No".toByteArray())
+                else respond(sock, 200, "text/plain", mine.toByteArray())
+            }
+            "/pair/send" -> {
+                if (host.bundle(body)) respond(sock, 200, "text/plain", "ok".toByteArray())
+                else respond(sock, 403, "text/plain", "No".toByteArray())
+            }
+            else -> respond(sock, 404, "text/plain", "Not found".toByteArray())
+        }
+    }
+
     private fun route(sock: Socket, method: String, path: String, body: ByteArray) {
+        if (path.startsWith("/pair/")) {
+            handlePair(sock, method, path, body)
+            return
+        }
         val prefix = "/$token/"
         if (!path.startsWith(prefix) && path != "/$token") {
             respond(sock, 404, "text/plain", "Not found".toByteArray())
@@ -130,7 +179,7 @@ class CompanionServer(
                     RelayApp.instance.store.settings.let { it.tmdbKey.isNotBlank() to it.ratingsKey.isNotBlank() }
                 }
                 val syncRepo = RelayApp.instance.sync.settings.config?.repo?.toString()
-                respond(sock, 200, "text/html; charset=utf-8", page(tmdbSet, ratingsSet, syncRepo).toByteArray())
+                respond(sock, 200, "text/html; charset=utf-8", page(tmdbSet, ratingsSet, syncRepo, pair != null).toByteArray())
             }
 
             method == "POST" && action == "login" -> {
@@ -160,6 +209,13 @@ class CompanionServer(
                 val f = parseForm(String(body, Charsets.UTF_8))
                 val text = receiveSync(f["repo"].orEmpty(), f["token"].orEmpty())
                 respond(sock, 200, "text/html; charset=utf-8", message("Sync between screens", escape(text)).toByteArray())
+            }
+
+            method == "POST" && action == "join" && pair != null -> {
+                val f = parseForm(String(body, Charsets.UTF_8))
+                val text = pair.link(f["link"].orEmpty())
+                AppLog.i("Companion", "Pairing link received from phone")
+                respond(sock, 200, "text/html; charset=utf-8", message("Join sync", escape(text)).toByteArray())
             }
 
             method == "GET" && action == "backup.json" -> {
@@ -279,6 +335,7 @@ class CompanionServer(
     private fun respond(sock: Socket, code: Int, type: String, bytes: ByteArray, extra: String = "") {
         val status = when (code) {
             200 -> "OK"
+            403 -> "Forbidden"
             404 -> "Not Found"
             413 -> "Payload Too Large"
             else -> "Error"
@@ -351,7 +408,18 @@ class CompanionServer(
         </form></section>
     """
 
-    private fun page(tmdbSet: Boolean, ratingsSet: Boolean, syncRepo: String?) = """
+    private fun joinSection(): String = """
+        <section><h2>Join sync</h2>
+        <p class="hint">This screen is waiting to join your other screens. On a screen that already syncs, open Settings, Sync, Add a screen
+        and choose Copy pairing link, then paste the link here and press Join.</p>
+        <form method="post" action="/$token/join">
+          <label>Pairing link
+            <textarea name="link" rows="3" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="relay-pair:..."></textarea></label>
+          <button type="submit">Join</button>
+        </form></section>
+    """
+
+    private fun page(tmdbSet: Boolean, ratingsSet: Boolean, syncRepo: String?, joining: Boolean) = """
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Relay on your TV</title><style>$CSS</style></head><body><main>
         <h1>Relay <span>on your TV</span></h1>
@@ -382,6 +450,8 @@ class CompanionServer(
           <button type="submit">Save keys</button>
         </form></section>
 
+        ${if (joining) joinSection() else ""}
+
         ${syncSection(syncRepo)}
 
         <section><h2>Edit your library</h2>
@@ -397,7 +467,7 @@ class CompanionServer(
         <a class="button" href="/$token/backup.json" download="relay-backup.json">Download backup</a></section>
 
         <section><h2>Restore</h2>
-        <p class="hint">Choose a relay-backup.json file. It replaces this TV's profiles, favourites, history, channel groups and settings. The file is checked first; if it isn't valid, nothing changes. PINs already set on this TV are kept.</p>
+        <p class="hint">Choose a relay-backup.json file. It replaces this TV's profiles, favourites, history, channel groups and settings. The file is checked first; if it isn't valid, nothing changes. PINs already set on this TV are kept. If sync is on, the restored data spreads to your other screens.</p>
         <input type="file" id="file" accept=".json,application/json">
         <button id="restore" type="button">Restore to TV</button>
         <p id="result" class="hint"></p></section>

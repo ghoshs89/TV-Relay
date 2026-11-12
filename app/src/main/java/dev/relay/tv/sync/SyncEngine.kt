@@ -252,6 +252,21 @@ class SyncEngine(
         }
     }
 
+    /**
+     * Seals the file again with [newKey], which is how a household locks out a lost screen: the screens
+     * that still hold the old key can no longer open it. Needs the current key to work. Returns false
+     * when the file could not be read, opened or written; nothing changes then.
+     */
+    fun rekey(newKey: ByteArray): Boolean {
+        return try {
+            val remote = transport.read() ?: return false
+            val plain = SyncSeal.open(remote.bytes, key)
+            transport.write(SyncSeal.seal(plain, newKey), remote.version) is WriteResult.Saved
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun screensOf(recs: Map<String, SyncRec>): List<ScreenInfo> = recs.entries
         .filter { it.key.startsWith("screen:") && !it.value.gone }
         .mapNotNull { (k, r) ->

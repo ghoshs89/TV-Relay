@@ -50,6 +50,16 @@ object Base64Lite {
         return sb.toString()
     }
 
+    /** Like [encode] with `-` and `_` instead of `+` and `/`, and no padding: safe in links and chat messages. */
+    fun encodeUrl(data: ByteArray): String = encode(data).replace('+', '-').replace('/', '_').trimEnd('=')
+
+    /** The bytes in [text] written by [encodeUrl] (or [encode]), or null if it is damaged. */
+    fun decodeUrl(text: String): ByteArray? {
+        val t = text.filter { !it.isWhitespace() }.replace('-', '+').replace('_', '/').trimEnd('=')
+        if (t.length % 4 == 1) return null
+        return decode(t + "=".repeat((4 - t.length % 4) % 4))
+    }
+
     /** The bytes in [text] (line breaks and spaces are ignored), or null if it is not valid base64. */
     fun decode(text: String): ByteArray? {
         val clean = text.filter { !it.isWhitespace() }

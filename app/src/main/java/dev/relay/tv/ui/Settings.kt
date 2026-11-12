@@ -97,6 +97,12 @@ fun SettingsTab() {
     var pinFor by remember { mutableStateOf<Profile?>(null) }
     var syncSetup by remember { mutableStateOf(false) }
     var confirmStopSync by remember { mutableStateOf(false) }
+    var joinSync by remember { mutableStateOf(false) }
+    var addScreen by remember { mutableStateOf(false) }
+    var removeScreen by remember { mutableStateOf(false) }
+    var confirmNewKey by remember { mutableStateOf(false) }
+    var confirmRestore by remember { mutableStateOf(false) }
+    var syncNote by remember { mutableStateOf<String?>(null) }
 
     // Phones: back up to / restore from a file through Android's file picker.
     val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -400,10 +406,14 @@ fun SettingsTab() {
         item {
             Setting("Restore from a file", "", kidsLocked) {
                 gate.run("Parent PIN to restore a backup") {
-                    try {
-                        openDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
-                    } catch (e: Exception) {
-                        backupNote = "No file picker on this device. Use Phone companion instead."
+                    if (app.sync.enabled) {
+                        confirmRestore = true
+                    } else {
+                        try {
+                            openDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                        } catch (e: Exception) {
+                            backupNote = "No file picker on this device. Use Phone companion instead."
+                        }
                     }
                 }
             }
@@ -415,6 +425,11 @@ fun SettingsTab() {
             item {
                 Setting("Turn on sync", "Off · same favourites, history and settings on every screen", kidsLocked) {
                     gate.run("Parent PIN to set up sync") { syncSetup = true }
+                }
+            }
+            item {
+                Setting("Join sync from another screen", "Already syncing on another screen? Add this one to it", kidsLocked) {
+                    gate.run("Parent PIN to join sync") { joinSync = true }
                 }
             }
         } else {
@@ -439,6 +454,24 @@ fun SettingsTab() {
                     },
                 )
             }
+            item {
+                Setting("Add a screen", "Another TV or phone joins this household", kidsLocked) {
+                    gate.run("Parent PIN to add a screen") { addScreen = true }
+                }
+            }
+            if (st.screens.any { it.id != store.deviceId }) {
+                item {
+                    Setting("Remove a screen", "Takes it off the list", kidsLocked) {
+                        gate.run("Parent PIN to remove a screen") { removeScreen = true }
+                    }
+                }
+            }
+            item {
+                Setting("New household key", "Locks out a lost or sold screen", kidsLocked, danger = true) {
+                    gate.run("Parent PIN to make a new household key") { confirmNewKey = true }
+                }
+            }
+            syncNote?.let { n -> item { Info("", n) } }
             item {
                 Setting("Stop syncing on this screen", "Keeps everything here", kidsLocked, danger = true) {
                     gate.run("Parent PIN to stop syncing") { confirmStopSync = true }
@@ -630,6 +663,56 @@ fun SettingsTab() {
             subtitle = "Your phone must be on the same Wi-Fi. Open the page, find \"Sync between screens\", paste your private GitHub " +
                 "repository and its token, and press Turn on sync. This window closes when sync is on.",
             onSync = { ok, _ -> if (ok) syncSetup = false },
+        )
+    }
+    if (joinSync) {
+        JoinSyncDialog(onDismiss = { joinSync = false }, onJoined = { joinSync = false; app.appScope.launch { app.catalog.load() } })
+    }
+    if (addScreen) AddScreenDialog(onDismiss = { addScreen = false })
+    if (removeScreen) {
+        RemoveScreenDialog(
+            screens = app.sync.status.screens.filter { it.id != store.deviceId },
+            onDismiss = { removeScreen = false },
+            onPick = { sc ->
+                removeScreen = false
+                app.appScope.launch {
+                    syncNote = if (app.sync.removeScreen(sc.id)) "${sc.name} was taken off the list." else "Couldn't reach the sync file. Try again in a moment."
+                }
+            },
+        )
+    }
+    if (confirmNewKey) {
+        ConfirmDialog(
+            "Make a new household key?",
+            "The sync file is sealed again with a new key, so a lost or sold screen that still has the old key can no longer open it. " +
+                "Every other screen, including the ones you still use, stops syncing until you add it again (Settings, Sync, Add a screen). " +
+                "To keep a lost screen out for good, also make a new GitHub token and delete the old one in GitHub, because the old token " +
+                "can still change the file even though it can't read it.",
+            "Make a new key",
+            onDismiss = { confirmNewKey = false },
+            onConfirm = {
+                confirmNewKey = false
+                app.appScope.launch {
+                    syncNote = app.sync.newHouseholdKey() ?: "New key made. Add your other screens again with Add a screen."
+                }
+            },
+        )
+    }
+    if (confirmRestore) {
+        ConfirmDialog(
+            "Restore while syncing?",
+            "What you restore will spread to your other screens, because sync treats it as a change made here. " +
+                "To restore on this screen only, stop syncing first, restore, and join again afterwards.",
+            "Choose a file",
+            onDismiss = { confirmRestore = false },
+            onConfirm = {
+                confirmRestore = false
+                try {
+                    openDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                } catch (e: Exception) {
+                    backupNote = "No file picker on this device. Use Phone companion instead."
+                }
+            },
         )
     }
     if (confirmStopSync) {
