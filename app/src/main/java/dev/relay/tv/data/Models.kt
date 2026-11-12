@@ -21,10 +21,13 @@ object Jsons {
 // ---------- Persisted ----------
 
 /** Which network one of the provider's servers is meant for. */
-enum class HostNet(val code: String) {
-    ANY("any"),
-    NO_VPN("no_vpn"),
-    VPN("vpn");
+enum class HostNet(val code: String, val label: String) {
+    ANY("any", "any network"),
+    NO_VPN("no_vpn", "without VPN"),
+    VPN("vpn", "with VPN");
+
+    /** The next mark when a server's row is pressed in Settings → Servers. */
+    fun next(): HostNet = entries[(ordinal + 1) % entries.size]
 
     companion object {
         /** Unknown or missing codes (a newer Relay's, say) read as [ANY]. */

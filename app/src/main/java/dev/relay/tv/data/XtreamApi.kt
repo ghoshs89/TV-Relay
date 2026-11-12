@@ -19,6 +19,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 
 /**
  * Xtream Codes client. Every call walks the account's host list starting with the last host
@@ -33,10 +34,19 @@ class XtreamApi(
     @Volatile var serverTz: TimeZone = TimeZone.getTimeZone("UTC")
     var onHostChanged: ((String) -> Unit)? = null
 
+    /** Whether a VPN is on for this app's network; null when unknown. Set by RelayApp from VpnWatch. */
+    @Volatile var vpnOn: () -> Boolean? = { null }
+
+    /** Which servers answered and which failed since this start (Settings → Servers, the log). */
+    val health = HostHealth { System.currentTimeMillis() }
+
+    /** For every server but the last one tried: a dead server should not hold up the next for 15 s. */
+    private val quickConnect: OkHttpClient by lazy { http.newBuilder().connectTimeout(5, TimeUnit.SECONDS).build() }
+
+    /** The servers in the order to try them; see [HostOrder]. */
     fun hostsOrdered(): List<String> {
         val acc = account ?: return emptyList()
-        val h = host
-        return if (h != null && h in acc.hosts) listOf(h) + acc.hosts.filter { it != h } else acc.hosts
+        return HostOrder.order(acc.hosts, acc::netOf, vpnOn(), host, health.coolingUntil(), health.clock())
     }
 
     private fun apiUrl(h: String, acc: Account, params: Map<String, String>): HttpUrl {
@@ -53,14 +63,17 @@ class XtreamApi(
             val hosts = hostsOrdered()
             if (hosts.isEmpty()) throw IOException("No server configured")
             var last: Exception? = null
-            for (h in hosts) {
+            for ((i, h) in hosts.withIndex()) {
                 try {
                     val req = Request.Builder()
                         .url(apiUrl(h, acc, params))
                         .header("User-Agent", userAgent())
                         .build()
-                    val result = http.newCall(req).execute().use { r ->
+                    val client = if (i < hosts.lastIndex) quickConnect else http
+                    val t0 = System.nanoTime()
+                    val result = client.newCall(req).execute().use { r ->
                         if (!r.isSuccessful) throw IOException("HTTP ${r.code} from ${r.request.url.host}")
+                        health.answered(h, (System.nanoTime() - t0) / 1_000_000)
                         block(r)
                     }
                     if (host != h) {
@@ -72,6 +85,7 @@ class XtreamApi(
                     throw e
                 } catch (e: Exception) {
                     AppLog.w("Api", "${params["action"] ?: "login"} failed on $h", e)
+                    health.failed(h, e)
                     last = e
                 }
             }

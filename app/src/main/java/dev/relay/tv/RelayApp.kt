@@ -32,6 +32,7 @@ class RelayApp : Application(), ImageLoaderFactory {
     lateinit var http: OkHttpClient
     lateinit var store: Store
     lateinit var api: XtreamApi
+    lateinit var vpnWatch: dev.relay.tv.net.VpnWatch
     lateinit var catalog: Catalog
     lateinit var tmdb: Tmdb
     lateinit var ratings: Ratings
@@ -77,8 +78,15 @@ class RelayApp : Application(), ImageLoaderFactory {
         api.host = store.activeHost
         api.onHostChanged = { h ->
             store.activeHost = h
-            AppLog.i("Api", "Now using server $h")
+            AppLog.i("Api", "Now using server $h (${store.account?.netOf(h)?.label ?: "any network"})")
         }
+        vpnWatch = dev.relay.tv.net.VpnWatch(this) { on ->
+            AppLog.i("Network", if (on) "VPN on: servers for use with a VPN go first" else "VPN off: servers for use without a VPN go first")
+            // Connections opened on the old network are no use on the new one.
+            http.connectionPool.evictAll()
+        }
+        api.vpnOn = { vpnWatch.vpnOn }
+        vpnWatch.start()
         catalog = Catalog(this, api)
         catalog.custom = { store.channelCustom }
         catalog.appScope = appScope
@@ -166,7 +174,18 @@ class RelayApp : Application(), ImageLoaderFactory {
                 "live format ${s.liveExt}, hidden categories ${s.hiddenCats.size}, setup done ${s.setupDone}",
         )
         appendLine("Profiles: ${store.profiles.size} (${store.profiles.count { it.kids }} kids); current ${if (session.profile?.kids == true) "kids" else "grown-up"}")
-        appendLine("Servers saved: ${store.account?.hosts?.size ?: 0}; in use ${api.host ?: "none"}")
+        val acc = store.account
+        val hosts = acc?.hosts.orEmpty()
+        val withVpn = hosts.count { acc?.netOf(it) == dev.relay.tv.data.HostNet.VPN }
+        val withoutVpn = hosts.count { acc?.netOf(it) == dev.relay.tv.data.HostNet.NO_VPN }
+        appendLine(
+            "Servers saved: ${hosts.size} ($withoutVpn without VPN, $withVpn with VPN); " +
+                "VPN: ${dev.relay.tv.net.VpnWatch.describe(vpnWatch.vpnOn)}; in use ${api.host ?: "none"}",
+        )
+        val now = api.health.clock()
+        for (st in api.health.snapshot(api.hostsOrdered())) {
+            appendLine("  ${st.host} [${acc?.netOf(st.host)?.label ?: "any network"}] ${dev.relay.tv.data.ServerText.status(st, now)}")
+        }
     }
 
     /**
