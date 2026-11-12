@@ -229,6 +229,8 @@ jobs:
 
       - name: Run the benchmark on an emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          BENCH_PROVIDER_ARGS: "--channels 56000 --movies 166000 --series 38000"
         with:
           api-level: 30
           arch: x86_64
