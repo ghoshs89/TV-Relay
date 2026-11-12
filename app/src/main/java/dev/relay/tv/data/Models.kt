@@ -220,6 +220,8 @@ data class MovieInfo(
     val rating: Double?,
     val tmdbId: String?,
     val ext: String?,
+    /** The provider's `youtube_trailer`: an id, an address or junk; see [Trailers.youtubeId]. */
+    val trailer: String? = null,
 )
 
 data class SeriesInfo(
@@ -231,6 +233,7 @@ data class SeriesInfo(
     val year: String?,
     val tmdbId: String?,
     val seasons: Map<Int, List<Episode>>,
+    val trailer: String? = null,
 )
 
 data class EpgEntry(

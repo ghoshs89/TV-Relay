@@ -27,6 +27,8 @@ class Tmdb(private val http: OkHttpClient) {
         /** Original language ("hi", "bn", "en", "ta"...) and first production country, for language groups. */
         val language: String? = null,
         val country: String? = null,
+        /** TMDB's videos for the title (trailers, teasers, clips), see [Trailers.pick]. */
+        val videos: List<Trailers.Video> = emptyList(),
     )
 
     private val cache = ConcurrentHashMap<String, Info>()
@@ -49,10 +51,17 @@ class Tmdb(private val http: OkHttpClient) {
 
                 val d = get(
                     "https://api.themoviedb.org/3/$type/$id".toHttpUrl().newBuilder()
-                        .addQueryParameter("append_to_response", "credits")
+                        .addQueryParameter("append_to_response", "credits,videos")
+                        .addQueryParameter("include_video_language", "en,null")
                         .build(),
                     key,
                 )
+                val language = d.at("original_language").str()
+                var videos = Trailers.parse(d.at("videos"))
+                if (language != null && language != "en" && videos.none { it.language.equals(language, ignoreCase = true) }) {
+                    // Trailers in the film's own language are not part of the first answer; ask once more.
+                    videos = videos + ownLanguageVideos(type, id, language, key)
+                }
                 val info = Info(
                     overview = d.at("overview").str(),
                     backdrop = d.at("backdrop_path").str()?.let { "https://image.tmdb.org/t/p/w1280$it" },
@@ -62,9 +71,10 @@ class Tmdb(private val http: OkHttpClient) {
                     genres = d.at("genres").arr()?.mapNotNull { it.at("name").str() } ?: emptyList(),
                     cast = d.at("credits").at("cast").arr()?.take(6)?.mapNotNull { it.at("name").str() } ?: emptyList(),
                     id = id,
-                    language = d.at("original_language").str(),
+                    language = language,
                     country = d.at("production_countries").arr()?.firstOrNull().at("iso_3166_1").str()
                         ?: d.at("origin_country").arr()?.firstOrNull().str(),
+                    videos = videos,
                 )
                 cache[cacheKey] = info
                 info
@@ -73,6 +83,22 @@ class Tmdb(private val http: OkHttpClient) {
             } catch (e: Exception) {
                 null
             }
+        }
+
+    private fun ownLanguageVideos(type: String, id: String, language: String, key: String): List<Trailers.Video> =
+        try {
+            Trailers.parse(
+                get(
+                    "https://api.themoviedb.org/3/$type/$id/videos".toHttpUrl().newBuilder()
+                        .addQueryParameter("include_video_language", language)
+                        .build(),
+                    key,
+                ),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
         }
 
     /** Asks TMDB whether it accepts [key]; tells a refused key from a service that could not be reached. */

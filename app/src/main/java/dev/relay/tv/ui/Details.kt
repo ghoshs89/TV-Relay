@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -51,6 +52,7 @@ import dev.relay.tv.data.Series
 import dev.relay.tv.data.SeriesInfo
 import dev.relay.tv.data.Tmdb
 import dev.relay.tv.data.TitleParts
+import dev.relay.tv.data.Trailers
 import dev.relay.tv.player.Playback
 
 @Composable
@@ -67,13 +69,18 @@ fun MovieDetailScreen(m: Movie) {
     var attempt by remember { mutableIntStateOf(0) }
     var tmdb by remember { mutableStateOf<Tmdb.Info?>(null) }
     var score by remember { mutableStateOf(app.ratings.saved("m:${m.id}")) }
+    // True once the provider's and TMDB's answers are in, so "Find a trailer" never flashes up before a real trailer.
+    var detailsDone by remember { mutableStateOf(false) }
+    var trailerFallback by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(m.id, attempt) {
         failed = false
+        detailsDone = false
         info = runCatching { app.api.vodInfo(m.id) }.getOrNull()
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, false, info?.tmdbId ?: m.tmdbId, m.name, info?.year ?: m.year)
         tmdb?.let { app.catalog.learnLanguage("m:${m.id}", it.language, it.country) }
+        detailsDone = true
         val rk = store.settings.ratingsKey
         if (rk.isNotBlank()) {
             score = app.ratings.lookup(rk, "m:${m.id}", false, info?.tmdbId ?: m.tmdbId ?: tmdb?.id, m.name, info?.year ?: m.year)
@@ -86,6 +93,8 @@ fun MovieDetailScreen(m: Movie) {
     val ext = info?.ext ?: m.ext
     val playFocus = remember { FocusRequester() }
     InitialFocus(playFocus)
+    val trailerId = remember(info, tmdb) { Trailers.pick(info?.trailer, tmdb?.videos.orEmpty(), tmdb?.language) }
+    val trailerAllowed = app.session.profile?.kids != true
 
     val rating = tmdb?.rating ?: info?.rating ?: m.rating.takeIf { it > 0 }
     val tp = remember(m.name) { TitleParts.parse(m.name) }
@@ -133,6 +142,11 @@ fun MovieDetailScreen(m: Movie) {
                         { store.toggleFav(pid, FavItem("movie", m.id, m.name, m.poster)) },
                         icon = if (fav) Icons.Filled.Check else Icons.Filled.Add, key = "md:fav",
                     )
+                    // Last in the row, so it appearing later moves nothing that is already there.
+                    TrailerButton(
+                        ctx, trailerAllowed, trailerId, detailsDone, m.name, info?.year ?: m.year,
+                        "md:trailer", { trailerFallback = it },
+                    )
                 }
                 Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
                 val plot = tmdb?.overview ?: info?.plot
@@ -151,6 +165,7 @@ fun MovieDetailScreen(m: Movie) {
             }
         }
     }
+    trailerFallback?.let { TrailerFallbackDialog(it) { trailerFallback = null } }
 }
 
 @Composable
@@ -168,13 +183,17 @@ fun SeriesDetailScreen(s: Series) {
     var tmdb by remember { mutableStateOf<Tmdb.Info?>(null) }
     var score by remember { mutableStateOf(app.ratings.saved("s:${s.id}")) }
     var season by remember { mutableStateOf<Int?>(null) }
+    var detailsDone by remember { mutableStateOf(false) }
+    var trailerFallback by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(s.id, attempt) {
         failed = false
+        detailsDone = false
         info = runCatching { app.api.seriesInfo(s.id) }.getOrNull()
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, true, info?.tmdbId ?: s.tmdbId, s.name, info?.year ?: s.year)
         tmdb?.let { app.catalog.learnLanguage("s:${s.id}", it.language, it.country) }
+        detailsDone = true
         val rk = store.settings.ratingsKey
         if (rk.isNotBlank()) {
             score = app.ratings.lookup(rk, "s:${s.id}", true, info?.tmdbId ?: s.tmdbId ?: tmdb?.id, s.name, info?.year ?: s.year)
@@ -203,6 +222,8 @@ fun SeriesDetailScreen(s: Series) {
     val fav = store.isFav(pid, "series", s.id)
     val playFocus = remember { FocusRequester() }
     InitialFocus(playFocus, info != null)
+    val trailerId = remember(info, tmdb) { Trailers.pick(info?.trailer, tmdb?.videos.orEmpty(), tmdb?.language) }
+    val trailerAllowed = app.session.profile?.kids != true
 
     val rating = tmdb?.rating ?: info?.rating ?: s.rating.takeIf { it > 0 }
     val tp = remember(s.name) { TitleParts.parse(s.name) }
@@ -249,6 +270,10 @@ fun SeriesDetailScreen(s: Series) {
                             { store.toggleFav(pid, FavItem("series", s.id, s.name, s.cover)) },
                             icon = if (fav) Icons.Filled.Check else Icons.Filled.Add, key = "sd:fav",
                             focusRequester = if (nextEp == null) playFocus else null,
+                        )
+                        TrailerButton(
+                            ctx, trailerAllowed, trailerId, detailsDone, s.name, info?.year ?: s.year,
+                            "sd:trailer", { trailerFallback = it },
                         )
                     }
                     if (failed) {
@@ -308,6 +333,33 @@ fun SeriesDetailScreen(s: Series) {
                 }
             }
         }
+    }
+    trailerFallback?.let { TrailerFallbackDialog(it) { trailerFallback = null } }
+}
+
+/**
+ * **Trailer** when one is known, otherwise a quieter **Find a trailer** once the details have
+ * loaded. Hidden on kids profiles: the YouTube app is outside Relay's kids limits and parent PIN.
+ * [onNoApp] receives the address when nothing on the device can open it.
+ */
+@Composable
+private fun TrailerButton(
+    ctx: android.content.Context,
+    allowed: Boolean,
+    trailerId: String?,
+    detailsDone: Boolean,
+    name: String,
+    year: String?,
+    key: String,
+    onNoApp: (String) -> Unit,
+) {
+    if (!allowed) return
+    if (trailerId != null) {
+        val url = Trailers.watchUrl(trailerId)
+        PillButton("Trailer", { if (!TrailerLauncher.open(ctx, url, displayTitle(name))) onNoApp(url) }, icon = Icons.Filled.PlayArrow, key = key)
+    } else if (detailsDone && Trailers.SEARCH_ENABLED) {
+        val url = remember(name, year) { Trailers.searchUrl(Tmdb.cleanTitle(name), year) }
+        PillButton("Find a trailer", { if (!TrailerLauncher.open(ctx, url, displayTitle(name))) onNoApp(url) }, icon = Icons.Filled.Search, key = key)
     }
 }
 

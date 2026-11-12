@@ -48,7 +48,7 @@ Relay signs in to an Xtream Codes account and plays what that account provides. 
   <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, daily viewing time and bedtime for kids, a parent PIN for anything that changes access</td></tr>
   <tr><td><b>Reliability</b></td><td>One entry per channel with automatic fallback to its other versions, backup servers, stalled streams reconnect on their own, failures explained in plain words, a library refresh that can't wipe your saved lists</td></tr>
   <tr><td><b>Picture and sound</b></td><td>Refresh-rate matching, Dolby and DTS audio, lip-sync adjustment, subtitle style, stream info on start</td></tr>
-  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates</td></tr>
+  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers that open in YouTube, API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates</td></tr>
 </table>
 
 ## Install
@@ -119,6 +119,8 @@ If your provider gives separate addresses for VPN and non-VPN use, enter the one
 | Left / Right | Back / forward by the sizes set in Settings → Playback (10 s and 30 s to begin with) |
 | OK | Show the player controls: audio, subtitles and speed |
 | Back | Hide the controls; otherwise press twice quickly to exit. Your position is saved. |
+
+**On a movie or series page:** the **Trailer** button opens the trailer in the YouTube app, and Back returns to the same page. It appears when your provider or TMDB knows a trailer (a TMDB key finds more, including trailers in the film's own language, for example Hindi or Bengali). When none is known, **Find a trailer** opens a YouTube search for the title instead. Neither button appears on kids profiles, because YouTube is outside Relay's kids limits and parent PIN. On a device without YouTube, Relay shows a QR code to watch it on your phone.
 
 **On Home:** hold OK on a Continue watching card or a Recently watched channel to remove it (Menu works too). The **Clear all** button at the end of the Continue watching row empties it after a confirmation.
 
@@ -202,7 +204,7 @@ Settings → Library → Rotten Tomatoes scores. Add a free MDBList key (mdblist
 <details>
 <summary><b>TMDB artwork and details</b></summary>
 
-Settings → Library → TMDB API key, then **Send from my phone** (or **Type it here**). A free key from themoviedb.org (Settings → API) adds better backdrops, ratings, genres and cast to movie and series pages. Without it, Relay uses your provider's own information. Either the 32-character "API Key" or the longer "API Read Access Token" works, and spaces, quotes or a leading `api_key=` in what you paste are ignored.
+Settings → Library → TMDB API key, then **Send from my phone** (or **Type it here**). A free key from themoviedb.org (Settings → API) adds better backdrops, ratings, genres, cast and trailers to movie and series pages. Without it, Relay uses your provider's own information. Either the 32-character "API Key" or the longer "API Read Access Token" works, and spaces, quotes or a leading `api_key=` in what you paste are ignored.
 
 </details>
 

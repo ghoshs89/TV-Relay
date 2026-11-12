@@ -141,6 +141,7 @@ class XtreamApi(
             rating = i.at("rating").dbl(),
             tmdbId = i.at("tmdb_id").str(),
             ext = md.at("container_extension").str(),
+            trailer = i.at("youtube_trailer").str(),
         )
     }
 
@@ -187,6 +188,7 @@ class XtreamApi(
             year = i.at("releaseDate").str()?.take(4) ?: i.at("release_date").str()?.take(4),
             tmdbId = i.at("tmdb").str(),
             seasons = seasons,
+            trailer = i.at("youtube_trailer").str(),
         )
     }
 
