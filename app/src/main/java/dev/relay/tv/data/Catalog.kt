@@ -342,16 +342,23 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val liveCatLang = langOf(p.liveCats)
         val vodCatLang = langOf(p.vodCats)
         val seriesCatLang = langOf(p.seriesCats)
-        val chLang = HashMap<Int, String>().also { m ->
-            p.channels.forEach { c -> LanguageDetector.ofChannel(c.name, liveCatLang[c.categoryId])?.let { m[c.id] = it } }
-            laps.lap("channel languages", 0.4f)
-        }
-        val versionKeys = HashMap<Int, String>(p.channels.size * 2).also { m ->
-            p.channels.forEach { c -> m[c.id] = ChannelVersions.key(c.name) + "|" + (chLang[c.id] ?: "") }
-        }
-        val quality = HashMap<Int, Int>(p.channels.size * 2).also { m ->
-            p.channels.forEach { c -> m[c.id] = ChannelVersions.quality(c.name) }
-            laps.lap("channel versions", 0.7f)
+        val chLang = HashMap<Int, String>()
+        val versionKeys = HashMap<Int, String>(p.channels.size * 2)
+        val quality = HashMap<Int, Int>(p.channels.size * 2)
+        val sortKeys = HashMap<Int, String>(p.channels.size * 2)
+        val hd = HashSet<Int>()
+
+        init {
+            // One pass: each name is cleaned once and yields language, version key, quality, sort key and HD flag.
+            for (c in p.channels) {
+                val f = ChannelText.derive(c.name, liveCatLang[c.categoryId])
+                f.lang?.let { chLang[c.id] = it }
+                versionKeys[c.id] = f.versionKey
+                quality[c.id] = f.quality
+                sortKeys[c.id] = f.sortKey
+                if (f.hd) hd.add(c.id)
+            }
+            laps.lap("channel texts", 0.7f)
         }
     }
 
@@ -400,7 +407,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val chLaps = stage("Preparing channels", 0, 35)
         val (cs, chIndex) = withContext(Dispatchers.Default) {
             val st = ChannelStage(p, chLaps)
-            val ci = buildChannelIndex(p.channels, renames, st.versionKeys, st.quality, st.chLang)
+            val ci = buildChannelIndex(p.channels, renames, st.versionKeys, st.quality, st.sortKeys, st.hd, st.chLang)
             chLaps.lap("channel index", 1f)
             st to ci
         }
@@ -408,6 +415,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         chLang = cs.chLang
         rawVersionKeys = cs.versionKeys
         rawQuality = cs.quality
+        rawSortKeys = cs.sortKeys
+        rawHd = cs.hd
         adultCats = (p.liveCats + p.vodCats + p.seriesCats).filter { it.adult }.map { it.id }.toSet()
         liveCats = p.liveCats
         rawChannels = p.channels
@@ -556,30 +565,36 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         renames: Map<Int, String>,
         rawKeys: Map<Int, String>,
         rawQuality: Map<Int, Int>,
+        rawSortKeys: Map<Int, String>,
+        rawHd: Set<Int>,
         lang: Map<Int, String>,
     ): ChannelIndex {
         val ch = if (renames.isEmpty()) raw else raw.map { c -> renames[c.id]?.let { c.copy(name = it) } ?: c }
         val byId = ch.associateBy { it.id }
-        // Keys and quality for provider names come from the background index; only renamed channels are redone.
+        // Everything derived from a provider name comes from the background index; only renamed channels are redone.
         val keys = HashMap(rawKeys)
         val quality = HashMap(rawQuality)
+        // Without renames the raw maps are used as they are (nothing writes to them), which saves a copy in memory.
+        val sortCopy = if (renames.isEmpty()) null else HashMap(rawSortKeys)
+        val hdCopy = if (renames.isEmpty()) null else HashSet(rawHd)
         renames.keys.forEach { id ->
             byId[id]?.let { c ->
+                // The renamed name decides key, quality, sorting and HD; the language stays the provider name's.
                 keys[id] = ChannelVersions.key(c.name) + "|" + (lang[id] ?: "")
                 quality[id] = ChannelVersions.quality(c.name)
+                sortCopy!![id] = ChannelKeys.sortKey(c.name)
+                if (ChannelKeys.isHd(c.name)) hdCopy!!.add(id) else hdCopy!!.remove(id)
             }
         }
+        val sortKeys: Map<Int, String> = sortCopy ?: rawSortKeys
+        val hd: Set<Int> = hdCopy ?: rawHd
         val groups = ChannelVersions.group(ch) { keys[it.id] ?: "#${it.id}" }
             .mapValues { (_, g) -> g.withIndex().sortedWith(compareBy({ -(quality[it.value.id] ?: 0) }, { it.index })).map { it.value } }
         val rank = HashMap<Int, Int>()
         groups.values.forEach { g -> g.forEachIndexed { i, c -> rank[c.id] = i } }
-        // Sort keys, HD flags and language counts, worked out once here so list screens don't redo them per rebuild.
-        val sortKeys = HashMap<Int, String>(ch.size * 2)
-        val hd = HashSet<Int>()
+        // Language counts, worked out once here so list screens don't redo them per rebuild.
         val langCounts = HashMap<String?, Int>()
         for (c in ch) {
-            sortKeys[c.id] = ChannelKeys.sortKey(c.name)
-            if (ChannelKeys.isHd(c.name)) hd.add(c.id)
             val l = lang[c.id]
             langCounts[l] = (langCounts[l] ?: 0) + 1
         }
@@ -615,14 +630,16 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val renames = custom().renames
         val keys = rawVersionKeys
         val quality = rawQuality
+        val sortKeys = rawSortKeys
+        val hd = rawHd
         val lang = chLang
         val scope = appScope
         if (scope == null) {
-            install(buildChannelIndex(raw, renames, keys, quality, lang))
+            install(buildChannelIndex(raw, renames, keys, quality, sortKeys, hd, lang))
             return
         }
         scope.launch {
-            val ix = withContext(Dispatchers.Default) { buildChannelIndex(raw, renames, keys, quality, lang) }
+            val ix = withContext(Dispatchers.Default) { buildChannelIndex(raw, renames, keys, quality, sortKeys, hd, lang) }
             // A newer edit, or a newly loaded library, makes this result stale.
             if (gen == customGen.get() && raw === rawChannels) install(ix)
         }
@@ -643,6 +660,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 
     private var rawVersionKeys: Map<Int, String> = emptyMap()
     private var rawQuality: Map<Int, Int> = emptyMap()
+    private var rawSortKeys: Map<Int, String> = emptyMap()
+    private var rawHd: Set<Int> = emptySet()
 
     fun versionKeyOf(id: Int): String? = versionKey[id]
 

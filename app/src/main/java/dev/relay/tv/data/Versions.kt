@@ -17,8 +17,10 @@ object ChannelVersions {
      * Same key means the same channel in another quality: the country tag stays (UK and US
      * feeds differ), quality words go, numbers stay ("Star Sports 1" is not "Star Sports 2").
      */
-    fun key(name: String): String {
-        val clean = ProviderNames.clean(name)
+    fun key(name: String): String = keyCleaned(ProviderNames.clean(name))
+
+    /** As [key], for a caller that has already run [ProviderNames.clean] on the name. */
+    internal fun keyCleaned(clean: String): String {
         val m = LEAD.find(clean)
         val tag = m?.groupValues?.get(1)?.uppercase().orEmpty()
         val rest = (if (m != null) clean.substring(m.range.last + 1) else clean)
@@ -29,12 +31,15 @@ object ChannelVersions {
     }
 
     // Raw name too: cleaning drops "1080p" style tokens and turns superscripts into letters.
-    private fun words(name: String): String =
-        " " + (name + " " + ProviderNames.clean(name)).uppercase().replace(NON_ALNUM, " ") + " "
+    private fun words(name: String, clean: String): String =
+        " " + (name + " " + clean).uppercase().replace(NON_ALNUM, " ") + " "
 
     /** Higher is better: 4K 40, FHD 30, HD 20, unmarked 15, SD 0; backups and alternates lose 5. */
-    fun quality(name: String): Int {
-        val u = words(name)
+    fun quality(name: String): Int = qualityOf(name, ProviderNames.clean(name))
+
+    /** As [quality], for a caller that has already run [ProviderNames.clean] on [name]. */
+    internal fun qualityOf(name: String, clean: String): Int {
+        val u = words(name, clean)
         fun has(vararg w: String) = w.any { u.contains(" $it ") }
         var q = when {
             has("4K", "UHD", "2160P") -> 40
@@ -49,7 +54,7 @@ object ChannelVersions {
 
     /** Short description for the versions chooser, e.g. "FHD · HEVC" or "Standard". */
     fun describe(name: String): String {
-        val u = words(name)
+        val u = words(name, ProviderNames.clean(name))
         fun has(vararg w: String) = w.any { u.contains(" $it ") }
         val parts = buildList {
             when {

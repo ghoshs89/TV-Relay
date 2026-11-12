@@ -80,7 +80,7 @@ object LanguageDetector {
     }
 
     // Order matters: the first group whose words appear wins.
-    private val CATEGORY_WORDS: List<Pair<String, List<String>>> = listOf(
+    internal val CATEGORY_WORDS: List<Pair<String, List<String>>> = listOf(
         Langs.BD to listOf("BANGLADESH", "BANGLADESHI", "BD", "DHAKA"),
         Langs.SOUTH to listOf(
             "SOUTH INDIAN", "SOUTH INDIA", "SOUTH MOVIES", "SOUTH DUBBED", "SOUTH HINDI", "TAMIL", "TELUGU",
@@ -96,7 +96,7 @@ object LanguageDetector {
         ),
     )
 
-    private val CHANNEL_WORDS: List<Pair<String, List<String>>> = listOf(
+    internal val CHANNEL_WORDS: List<Pair<String, List<String>>> = listOf(
         // Language words in a channel's own name beat brand guesses ("NTV TELUGU" is not Bangladeshi NTV).
         Langs.SOUTH to listOf("TAMIL", "TELUGU", "MALAYALAM", "KANNADA", "KERALAM"),
         Langs.BD to listOf(
@@ -126,8 +126,12 @@ object LanguageDetector {
 
     private val NON_WORD = Regex("[^A-Z0-9&]+")
 
-    /** " STAR JALSHA HD " style text for whole-word matching. */
-    private fun words(s: String): String = " " + ProviderNames.clean(s).uppercase().replace(NON_WORD, " ").trim() + " "
+    // Compiled once. These were built inside ofCategory and ofChannel, so every call compiled them again.
+    private val CATEGORY_PREFIX = Regex("^\\s*[\\[(|]?\\s*([A-Za-z][A-Za-z\\-]{1,9})\\s*[\\])|]?\\s*[:|\\-–»]")
+    private val CHANNEL_PREFIX = Regex("^\\s*[\\[(|]?\\s*([A-Za-z]{2,3})\\s*[\\])|]?\\s*[:|\\-]")
+
+    /** " STAR JALSHA HD " style text for whole-word matching, from a name that is already cleaned. */
+    private fun wordsOfClean(clean: String): String = " " + clean.uppercase().replace(NON_WORD, " ").trim() + " "
 
     // Keys normalised once, not per name: this runs for every channel and title in the playlist.
     private fun prepare(table: List<Pair<String, List<String>>>): List<Pair<String, List<String>>> =
@@ -136,8 +140,8 @@ object LanguageDetector {
     private val CATEGORY_KEYS by lazy { prepare(CATEGORY_WORDS) }
     private val CHANNEL_KEYS by lazy { prepare(CHANNEL_WORDS) }
 
-    private fun firstMatch(text: String, table: List<Pair<String, List<String>>>): String? {
-        val w = words(text)
+    private fun firstMatch(clean: String, table: List<Pair<String, List<String>>>): String? {
+        val w = wordsOfClean(clean)
         for ((lang, keys) in table) for (k in keys) if (w.contains(k)) return lang
         return null
     }
@@ -147,9 +151,8 @@ object LanguageDetector {
 
     /** A provider category: words in its name, else its country or language prefix. */
     fun ofCategory(name: String): String? {
-        firstMatch(name, CATEGORY_KEYS)?.let { return it }
-        val prefix = Regex("^\\s*[\\[(|]?\\s*([A-Za-z][A-Za-z\\-]{1,9})\\s*[\\])|]?\\s*[:|\\-–»]").find(name)?.groupValues?.get(1)
-        return ofCode(prefix)
+        firstMatch(ProviderNames.clean(name), CATEGORY_KEYS)?.let { return it }
+        return ofCode(CATEGORY_PREFIX.find(name)?.groupValues?.get(1))
     }
 
     /** A movie or series: its title tag wins, then its category. */
@@ -157,11 +160,14 @@ object LanguageDetector {
         ofCode(TitleParts.tagOf(rawTitle)) ?: categoryLang
 
     /** A live channel: known channel names, then its category, then its country tag. */
-    fun ofChannel(name: String, categoryLang: String?): String? {
-        firstMatch(name, CHANNEL_KEYS)?.let { return it }
+    fun ofChannel(name: String, categoryLang: String?): String? =
+        ofChannelCleaned(name, ProviderNames.clean(name), categoryLang)
+
+    /** As [ofChannel], for a caller that has already run [ProviderNames.clean] on [name]. */
+    internal fun ofChannelCleaned(name: String, clean: String, categoryLang: String?): String? {
+        firstMatch(clean, CHANNEL_KEYS)?.let { return it }
         if (categoryLang != null) return categoryLang
-        val tag = Regex("^\\s*[\\[(|]?\\s*([A-Za-z]{2,3})\\s*[\\])|]?\\s*[:|\\-]").find(name)?.groupValues?.get(1)
-        return ofCode(tag)
+        return ofCode(CHANNEL_PREFIX.find(name)?.groupValues?.get(1))
     }
 }
 
