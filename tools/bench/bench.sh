@@ -99,3 +99,40 @@ if adb logcat -d -b crash | grep -q "dev.relay.tv"; then
   echo "::warning::The benchmark build crashed during the run."
   adb logcat -d -b crash | head -60
 fi
+
+# ---- Cold start: the saved copy of the library against the JSON path --------------------------------
+# Same emulator, same library, two restarts: one that finds the saved copy (library.snap) and one that
+# does not. The benchmark build is not debuggable, so run-as cannot reach the app's files; the emulator
+# image is a userdebug one, so adb root can. Both restarts start from a dropped file cache, so neither
+# gets the other's leftovers. A build without a saved copy (an older commit, for comparing) takes the
+# JSON path twice and the report says so.
+SNAP=/data/data/dev.relay.tv/files/catalog/library.snap
+adb root > /dev/null 2>&1; adb wait-for-device; sleep 2
+cold_start() {
+  adb shell am force-stop dev.relay.tv
+  sleep 2
+  adb shell "sync; echo 3 > /proc/sys/vm/drop_caches" > /dev/null 2>&1 || true
+  adb logcat -c
+  adb shell am start -W -n dev.relay.tv/.MainActivity > "$OUT/cold-$1-launch.txt" 2>&1
+  for _ in $(seq 150); do
+    adb logcat -d | grep -q "channels with several versions" && break
+    sleep 1
+  done
+  sleep 3
+  adb logcat -d -v threadtime > "$OUT/cold-$1.txt"
+}
+LISTED=$(adb shell "ls -l $SNAP" 2>&1)
+if echo "$LISTED" | grep -q "No such file"; then
+  echo "::warning::No saved copy of the library was written during the run (expected on a build from before the saved copy existed)."
+else
+  echo "A saved copy of the library is on the device: $LISTED"
+fi
+cold_start saved
+adb shell "rm -f $SNAP"
+if adb shell "ls $SNAP" 2>&1 | grep -q "No such file"; then
+  echo "Deleted the saved copy for the second restart."
+else
+  echo "::warning::Could not delete the saved copy; the second restart may not take the JSON path."
+fi
+cold_start json
+python3 tools/bench/report.py --cold "$OUT/cold-saved.txt" "$OUT/cold-json.txt" | tee -a "$OUT/report.txt"
