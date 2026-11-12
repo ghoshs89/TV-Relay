@@ -47,7 +47,7 @@ Relay signs in to an Xtream Codes account and plays what that account provides. 
   <tr><td><b>Your languages</b></td><td>English, Hindi and Bengali first by default, then South Indian and Bangladesh; every other language still there, lower down. Order, Home rows and audio follow each profile</td></tr>
   <tr><td><b>Find</b></td><td>Timeline guide with now and next in every list, search that also finds programmes on TV, categories by country and by language, hide or pin categories, favourites, channel groups and renames</td></tr>
   <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, daily viewing time and bedtime for kids, a parent PIN for anything that changes access</td></tr>
-  <tr><td><b>Reliability</b></td><td>One entry per channel with automatic fallback to its other versions, backup servers, stalled streams reconnect on their own, failures explained in plain words, a library refresh that can't wipe your saved lists, and a ready-to-use copy of the library so channels appear within seconds after a restart</td></tr>
+  <tr><td><b>Reliability</b></td><td>One entry per channel with automatic fallback to its other versions, backup servers (the ones meant for use with or without a VPN tried first to match), stalled streams reconnect on their own, failures explained in plain words, a library refresh that can't wipe your saved lists, and a ready-to-use copy of the library so channels appear within seconds after a restart</td></tr>
   <tr><td><b>Picture and sound</b></td><td>Refresh-rate matching, Dolby and DTS audio, lip-sync adjustment, subtitle style, stream info on start</td></tr>
   <tr><td><b>Several screens</b></td><td>Optional sync keeps profiles, favourites, watch history, kids' viewing time and shared settings the same on every TV and phone you own, through a private GitHub repository of your own, encrypted before it leaves the screen</td></tr>
   <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers that open in YouTube, API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates</td></tr>
@@ -97,7 +97,7 @@ Open the APK from the Releases page and allow your browser to install apps when 
 3. Pick or create a profile.
 4. Set up your library (once, skippable): put your languages in order and untick Live TV countries you never watch. Both can be changed later in Settings → Library.
 
-If your provider gives separate addresses for VPN and non-VPN use, enter the ones that match how this device connects. You can change them later in Settings → Account.
+If your provider gives separate addresses for use with and without a VPN, enter all of them. Pasting the provider's whole message (on the sign-in screen or the phone page) marks which are for a VPN; the phone page also has a field to list them yourself. Relay then tries the servers that suit the device's connection first and keeps the others as a last resort, and it notices when a VPN is turned on or off. Settings → Account lists every server with its mark and state; press one to change its mark.
 
 ## Remote controls
 
@@ -158,7 +158,7 @@ Relay sorts everything into five groups: **English**, **Hindi**, **Bengali** (In
 <details>
 <summary><b>How Relay stays up when your provider doesn't</b></summary>
 
-- **Backup servers** are tried automatically, both for browsing and during playback.
+- **Backup servers** are tried automatically, both for browsing and during playback. A server that fails is tried last for the next 10 minutes, and while other servers are left to try Relay gives each 5 seconds to connect instead of 15. Servers marked for use with a VPN go first while one is on, the others while it is off.
 - **Several versions of a channel** (HD, FHD, HEVC, backup) show as one entry. Your chosen version plays first, otherwise the best quality. If it fails to start, or keeps stalling, Relay switches to the next version on its own. **Versions** in the channel panel lists them all and lets you pick the main one.
 - **Stalled streams:** live TV reconnects after 20 seconds of buffering and movies after 30, resuming at the same position. After three tries a channel shows **Retry** and **Next channel** instead of buffering forever.
 - **When something fails**, the player says why in plain words after checking your account: login rejected, subscription expired, all your connections in use, the server refusing the stream, or a format the TV can't decode.
@@ -296,6 +296,8 @@ To get the logs off a **TV**, open the phone companion (Settings → Backup & ph
 
 **Refreshing the playlist:** the top bar shows how far along it is, and Settings → Account shows the step (downloading, checking, preparing). The percentage is based on how big each list was last time, so the very first download shows megabytes instead. A refresh keeps going if you move to another screen.
 
+**Slow to start with a VPN on (or off):** Settings → Account lists your servers. Each should say whether it is for use with a VPN, and the VPN line should match how the device connects. Press a server to change its mark. The log's header lists the servers too.
+
 **Saved copy of the library:** Relay keeps a ready-to-use copy of your prepared library next to the downloaded lists, so after a restart or an update the channels appear in seconds instead of about a minute. It is written a few seconds after the library is prepared from a download or refresh, and it is ignored (and rewritten) whenever anything about it looks wrong, for example after some updates, so the first start after those takes the long way once. Settings → Refresh channels and library rewrites the saved copy. The logs from Settings → Diagnostics say at the top whether it was used and, if not, why.
 
 **Updates stopped arriving:** the update token has probably expired. See *Update token* under Maintaining Relay, then install the next build by hand once.
@@ -374,7 +376,8 @@ The launcher icon, themed icon, legacy icons and TV banner are all generated fro
 app/src/main/java/dev/relay/tv/
   RelayApp.kt       app-wide singletons: HTTP client, store, API, catalog, ratings
   MainActivity.kt   navigation root and splash
-  data/             Xtream client with server failover, catalog, local store,
+  data/             Xtream client with server failover (order by VPN, skip
+                    servers that just failed), catalog, local store,
                     backups, restrictions, languages, channel versions,
                     a saved copy of the prepared library for fast start-up,
                     kids limits, TMDB and Rotten Tomatoes, trailers,
@@ -385,6 +388,7 @@ app/src/main/java/dev/relay/tv/
   sync/             sync engine, GitHub storage, pairing and status text
   tv/               Google TV home screen (Continue watching)
   update/           in-app updater
+  net/              whether the device's connection goes through a VPN
 app/src/test/       unit tests
 tools/icon/         icon and banner generator
 tools/fake-provider/  made-up Xtream provider for the benchmark

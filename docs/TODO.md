@@ -2,7 +2,7 @@
 
 Nothing here is started until it's asked for. Newest additions at the top of each section.
 
-Plans 1 to 4 are finished; what they did, measured and learned is in [HISTORY.md](HISTORY.md). [PLAN-5.md](PLAN-5.md) is the current plan: a review of the app and its documents, and the work to make Relay good on both fast phones and slower TVs. Its section 8 says which parts are built (on a branch, not released yet) and which are not.
+Plans 1 to 4 are finished; what they did, measured and learned is in [HISTORY.md](HISTORY.md). [PLAN-6.md](PLAN-6.md) (all of the provider's servers, with or without a VPN) is released; its outcome is at the end of that file. [PLAN-5.md](PLAN-5.md) is the plan before it: a review of the app and its documents, and the work to make Relay good on both fast phones and slower TVs. Its section 8 says which parts are built (on a branch, not released yet) and which are not.
 
 ## For you to do (nobody else can)
 
@@ -30,6 +30,15 @@ Plans 1 to 4 are finished; what they did, measured and learned is in [HISTORY.md
 | 12 | Sync, later polish | Pairing link shown as a QR code on a TV; a hint under a Continue watching card that came from another screen; an extra pull when a detail page opens; WebDAV if you would rather keep the data at home. |
 
 ## Check on a device
+
+Plan 6 (1.0.111), on a TV and a phone you use with a VPN:
+
+| Step | What to look for |
+|---|---|
+| 1 | Phone page → paste the provider's whole message → Send to TV. Settings → Account lists four servers: two "Without VPN", two "With VPN". |
+| 2 | VPN off: tune a channel. Settings → Account shows a "Without VPN" server in use and the VPN line says Off. |
+| 3 | VPN on: tune another channel. It starts within about 5 seconds; a "With VPN" server is in use and the VPN line says On. |
+| 4 | If either step is slow, send the log: its header lists every server with its mark and state. |
 
 Plan 5 (first build that contains it), on the **phone**. Turn on Settings → Diagnostics → **Save detailed logs** first, and send the log afterwards (**Share logs** works on phones):
 
@@ -113,7 +122,8 @@ Older checks:
 
 | Release | What |
 |---|---|
-| not released (branch `claude/loving-hopper-jtzdvb`) | Plan 5, in part: a device tier so recent phones use shorter waits and wider limits while TVs keep theirs; the player fills the screen on phones, keeps clear of the camera cut-out and pauses when headphones disconnect; touch-size buttons; frame counting that knows the screen's refresh rate; the A to Z strip, Home language rows and learned languages off the screen thread; quicker repeat searches; guide, Search and touch stretches in the benchmark. Outcome in [PLAN-5.md](PLAN-5.md) section 8 |
+| 1.0.111 | Plan 6: every one of the provider's servers can be marked for use with or without a VPN (read from a pasted message, set on the phone page, or changed in Settings → Account); Relay tries the servers that suit the connection first and notices a VPN going on or off; a server that fails is tried last for 10 minutes and the next server is tried after 5 seconds instead of 15; marking a server never reloads the library. The benchmark job now runs only when started by hand, to save Actions minutes. See [PLAN-6.md](PLAN-6.md) |
+| 1.0.110 | Plan 5, in part: a device tier so recent phones use shorter waits and wider limits while TVs keep theirs; the player fills the screen on phones, keeps clear of the camera cut-out and pauses when headphones disconnect; touch-size buttons; frame counting that knows the screen's refresh rate; the A to Z strip, Home language rows and learned languages off the screen thread; quicker repeat searches; guide, Search and touch stretches in the benchmark. Outcome in [PLAN-5.md](PLAN-5.md) section 8 |
 | 1.0.108 | Plan 4: Relay keeps a ready-to-use copy of the prepared library, so a restart or an update shows channels in seconds instead of about a minute (the first start after an update that changed how names are read still takes the long way once); channel text work cleans each name once; refreshes reuse what they already know about unchanged items and wait 20 seconds after start-up; the screen-freeze watcher no longer reports the app being frozen by Android as a stall; the TV log read and the measurements table filled (TODO rows 2 and 3). Summary in [HISTORY.md](HISTORY.md) |
 | 1.0.91 | Plan 3: API keys sent from the phone, Trailer and Find a trailer buttons, optional sync between screens (profiles, favourites, history, kids' time, shared settings; encrypted file in your own private GitHub repository; pairing by matching six digits). Summary in [HISTORY.md](HISTORY.md) |
 | 1.0.77 | Holding Up through a poster grid back to its old speed (found by the benchmark; see [HISTORY.md](HISTORY.md) rule 4) |
@@ -133,3 +143,9 @@ Older checks:
 | 1.0.23 | Repo private again; update token replaced with a read-only one limited to this repo |
 | 1.0.22 | Faster loading on TVs, refresh percentage, logs that explain problems, Download logs on the phone companion |
 | 1.0.20 | Batches 4 to 7 |
+
+## Ideas (parked)
+
+| Idea | Notes |
+|---|---|
+| Stremio add-ons with Real-Debrid and TorBox | Parked by the owner on 12 Nov 2026. Sketch: "More sources" on movie and episode pages from the owner's own add-on URLs (direct links only), then the debrid clouds as a row, then add-on catalogs. Needs IMDb ids (through the TMDB lookup), an audio-codec answer for DTS and TrueHD files, and add-on URLs treated as secrets. |
