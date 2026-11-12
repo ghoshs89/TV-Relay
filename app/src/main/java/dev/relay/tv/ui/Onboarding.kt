@@ -64,7 +64,7 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
     var user by remember { mutableStateOf(existing?.username ?: "") }
     var pass by remember { mutableStateOf(existing?.password ?: "") }
     // Which network each server is for (read from a pasted message, or kept from before).
-    var nets by remember { mutableStateOf(existing?.let { a -> a.hosts.associateWith { a.netOf(it) } } ?: emptyMap()) }
+    var nets by remember { mutableStateOf<Map<String, HostNet>>(existing?.let { a -> a.hosts.associateWith { a.netOf(it) } } ?: emptyMap()) }
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf<String?>(null) }

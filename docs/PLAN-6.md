@@ -165,7 +165,7 @@ Then fetch `main`, rebase onto it if it moved (another session merged PR #1 on 1
 
 ## 8. Outcome
 
-**Released as 1.0.111** with one workflow run (the push to `main`). No compile checks or benchmark runs were started for this plan.
+**Released as 1.0.112.** The first push to `main` (run 111, about 4 minutes) failed to compile: in `Onboarding.kt`, `mutableStateOf(x ?: emptyMap())` gave Kotlin no type to infer, which the local checks could not catch (no Android compile here). The fix gives the type explicitly; the second push (run 112) is the release. No compile checks or benchmark runs were started for this plan.
 
 | Phase | Commit | What |
 |---|---|---|

@@ -31,7 +31,7 @@ Plans 1 to 4 are finished; what they did, measured and learned is in [HISTORY.md
 
 ## Check on a device
 
-Plan 6 (1.0.111), on a TV and a phone you use with a VPN:
+Plan 6 (1.0.112), on a TV and a phone you use with a VPN:
 
 | Step | What to look for |
 |---|---|
@@ -122,7 +122,7 @@ Older checks:
 
 | Release | What |
 |---|---|
-| 1.0.111 | Plan 6: every one of the provider's servers can be marked for use with or without a VPN (read from a pasted message, set on the phone page, or changed in Settings → Account); Relay tries the servers that suit the connection first and notices a VPN going on or off; a server that fails is tried last for 10 minutes and the next server is tried after 5 seconds instead of 15; marking a server never reloads the library. The benchmark job now runs only when started by hand, to save Actions minutes. See [PLAN-6.md](PLAN-6.md) |
+| 1.0.112 | Plan 6: every one of the provider's servers can be marked for use with or without a VPN (read from a pasted message, set on the phone page, or changed in Settings → Account); Relay tries the servers that suit the connection first and notices a VPN going on or off; a server that fails is tried last for 10 minutes and the next server is tried after 5 seconds instead of 15; marking a server never reloads the library. The benchmark job now runs only when started by hand, to save Actions minutes. See [PLAN-6.md](PLAN-6.md) |
 | 1.0.110 | Plan 5, in part: a device tier so recent phones use shorter waits and wider limits while TVs keep theirs; the player fills the screen on phones, keeps clear of the camera cut-out and pauses when headphones disconnect; touch-size buttons; frame counting that knows the screen's refresh rate; the A to Z strip, Home language rows and learned languages off the screen thread; quicker repeat searches; guide, Search and touch stretches in the benchmark. Outcome in [PLAN-5.md](PLAN-5.md) section 8 |
 | 1.0.108 | Plan 4: Relay keeps a ready-to-use copy of the prepared library, so a restart or an update shows channels in seconds instead of about a minute (the first start after an update that changed how names are read still takes the long way once); channel text work cleans each name once; refreshes reuse what they already know about unchanged items and wait 20 seconds after start-up; the screen-freeze watcher no longer reports the app being frozen by Android as a stall; the TV log read and the measurements table filled (TODO rows 2 and 3). Summary in [HISTORY.md](HISTORY.md) |
 | 1.0.91 | Plan 3: API keys sent from the phone, Trailer and Find a trailer buttons, optional sync between screens (profiles, favourites, history, kids' time, shared settings; encrypted file in your own private GitHub repository; pairing by matching six digits). Summary in [HISTORY.md](HISTORY.md) |
