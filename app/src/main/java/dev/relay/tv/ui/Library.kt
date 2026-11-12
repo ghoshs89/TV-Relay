@@ -75,9 +75,10 @@ fun MoviesTab() {
     ) { m ->
         val rt = posterScore("m", m.id)
         val tp = remember(m.name, m.year) { TitleParts.parse(m.name, m.year) }
+        val sub = remember(tp, m.rating) { listOfNotNull(tp.year, tp.region, m.rating.takeIf { it > 0 }?.let { "%.1f/10".format(it) }).joinToString(" · ") }
         PosterCard(
             m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "mv:${m.id}", titleParts = tp,
-            subtitle = listOfNotNull(tp.year, tp.region, m.rating.takeIf { it > 0 }?.let { "%.1f/10".format(it) }).joinToString(" · "),
+            subtitle = sub,
             badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
     }
@@ -123,9 +124,10 @@ fun SeriesTab() {
     ) { s ->
         val rt = posterScore("s", s.id)
         val tp = remember(s.name, s.year) { TitleParts.parse(s.name, s.year) }
+        val sub = remember(tp, s.rating) { listOfNotNull(tp.year, tp.region, s.rating.takeIf { it > 0 }?.let { "%.1f/10".format(it) }).joinToString(" · ") }
         PosterCard(
             s.name, s.cover, { nav.push(Route.SeriesDetail(s)) }, key = "sr:${s.id}", titleParts = tp,
-            subtitle = listOfNotNull(tp.year, tp.region, s.rating.takeIf { it > 0 }?.let { "%.1f/10".format(it) }).joinToString(" · "),
+            subtitle = sub,
             badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
         )
     }

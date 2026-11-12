@@ -22,7 +22,7 @@ class TimeshiftBar(
     private val text = TextView(context).apply {
         setTextColor(Color.WHITE)
         textSize = 16f
-        setPadding(28, 16, 28, 16)
+        setPadding(context.tvPx(28), context.tvPx(16), context.tvPx(28), context.tvPx(16))
     }
 
     private val bar = LinearLayout(context).apply {
@@ -38,7 +38,7 @@ class TimeshiftBar(
                         this.text = label
                         setTextColor(0xFF3DDC97.toInt())
                         textSize = 16f
-                        setPadding(28, 16, 28, 16)
+                        setPadding(context.tvPx(28), context.tvPx(16), context.tvPx(28), context.tvPx(16))
                         isFocusable = false
                         setOnClickListener { if (delta == Int.MAX_VALUE) onLive() else onSeek(delta) }
                     },
@@ -54,7 +54,7 @@ class TimeshiftBar(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
-            ).apply { setMargins(48, 0, 48, 120) },
+            ).apply { setMargins(context.tvPx(48), 0, context.tvPx(48), context.tvPx(120)) },
         )
     }
 

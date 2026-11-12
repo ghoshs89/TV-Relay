@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -179,6 +180,9 @@ fun HomeScreen() {
         val id = last.streamId.toIntOrNull() ?: return@LaunchedEffect
         withTimeoutOrNull(30_000) { snapshotFlow { catalog.channels.isNotEmpty() }.first { it } }
         val ch = catalog.channelById[id] ?: return@LaunchedEffect
+        // The same limits as browsing: a restricted profile can't reach a category this way that it can't open.
+        val access = catalog.restrictions(app.session.restrict(app.store.settings))
+        if (!access.allowsCategory(ch.categoryId)) return@LaunchedEffect
         val list = catalog.channelsByCat[ch.categoryId].orEmpty().ifEmpty { listOf(ch) }
         AppLog.i("App", "Starting on last channel ${ch.name}")
         Playback.live(ctx, list, list.indexOfFirst { it.id == id }.coerceAtLeast(0))
@@ -456,8 +460,17 @@ fun HomeTab() {
                     }
                     row.startsWith(HomeLayout.LANG) -> {
                         val lang = row.removePrefix(HomeLayout.LANG)
-                        val list = remember(lang, catalog.movies, catalog.series, restrict, catalog.langVersion, hidden) {
-                            newIn(catalog, lang, restrict, hidden)
+                        // Finding the newest titles in one language can mean walking the whole library, so it is done
+                        // off the screen thread. The last answer stays up (and is kept while the row is scrolled away)
+                        // until the new one is ready.
+                        val inputs = listOf(catalog.movies, catalog.series, restrict, catalog.langVersion, hidden)
+                        val cache = app.ui.homeLangRows
+                        var list by remember(lang) { mutableStateOf(cache[lang]?.second ?: emptyList()) }
+                        LaunchedEffect(lang, inputs) {
+                            val kept = cache[lang]?.takeIf { it.first == inputs }?.second
+                            val built = kept ?: withContext(Dispatchers.Default) { newIn(catalog, lang, restrict, hidden) }
+                            if (kept == null) cache[lang] = inputs to built
+                            list = built
                         }
                         Rail(HomeLayout.label(row), list, key = { it.railKey }) { t -> TitleCard(t, "nl:$lang") }
                     }

@@ -72,9 +72,10 @@ fun SearchTab() {
     var searching by remember { mutableStateOf(false) }
 
     LaunchedEffect(ui.query, catalog.channels, catalog.movies, catalog.series, restrict) {
-        delay(350)
+        delay(dev.relay.tv.data.DeviceTier.current.searchPauseMs)
         val match = SearchText.matcher(ui.query)
-        if (match == null) {
+        val ready = SearchText.matcherNormalized(ui.query)
+        if (match == null || ready == null) {
             results = Results()
             return@LaunchedEffect
         }
@@ -88,12 +89,12 @@ fun SearchTab() {
                 onTv = catalog.searchGuide(match).filter { (ch, _) ->
                     catalog.allowed(ch.categoryId, restrict) && "live:${ch.categoryId}" !in hidden
                 }.sortedBy { (ch, _) -> rank.rank(catalog.channelLang(ch.id)) }.take(30),
-                channels = catalog.channels.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }
-                    .take(400).toList().sortedBy { rank.rank(catalog.channelLang(it.id)) }.take(40),
-                movies = catalog.movies.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }
-                    .take(600).toList().sortedBy { rank.rank(catalog.movieLang(it.id)) }.take(60),
-                series = catalog.series.asSequence().filter { catalog.allowed(it.categoryId, restrict) && match(it.name) }
-                    .take(600).toList().sortedBy { rank.rank(catalog.seriesLang(it.id)) }.take(60),
+                channels = found(catalog.channels, catalog.searchChannels, 400, ready) { catalog.allowed(it.categoryId, restrict) }
+                    .sortedBy { rank.rank(catalog.channelLang(it.id)) }.take(40),
+                movies = found(catalog.movies, catalog.searchMovies, 600, ready) { catalog.allowed(it.categoryId, restrict) }
+                    .sortedBy { rank.rank(catalog.movieLang(it.id)) }.take(60),
+                series = found(catalog.series, catalog.searchSeries, 600, ready) { catalog.allowed(it.categoryId, restrict) }
+                    .sortedBy { rank.rank(catalog.seriesLang(it.id)) }.take(60),
             )
         }
         searching = false
@@ -227,4 +228,28 @@ private fun ProgrammeCard(ch: Channel, e: EpgEntry, onClick: () -> Unit) {
             Text(ProviderNames.clean(ch.name), color = Palette.dim, fontSize = Type.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+/**
+ * The first [limit] items of [list], in library order, that are [allowed] and whose name matches. Names
+ * are compared in their prepared form (kept by [names]), so only the first search after a library loads
+ * pays for preparing them.
+ */
+private fun <T> found(
+    list: List<T>,
+    names: dev.relay.tv.data.NormalizedNames<T>,
+    limit: Int,
+    match: (String) -> Boolean,
+    allowed: (T) -> Boolean,
+): List<T> {
+    val prepared = names.of(list)
+    val out = ArrayList<T>()
+    for (i in list.indices) {
+        val item = list[i]
+        if (allowed(item) && match(prepared[i])) {
+            out += item
+            if (out.size >= limit) break
+        }
+    }
+    return out
 }

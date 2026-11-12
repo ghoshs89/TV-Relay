@@ -125,4 +125,34 @@ class LiveListTest {
         assertEquals(listOf("a1", "a2", "b1", "b2", "c1"), sorted)
         assertEquals(listOf("x"), rankSorted(listOf("x"), 2) { 99 })
     }
+
+    @Test
+    fun lettersComeWithAnAToZListAndPointAtTheFirstChannelOfEach() {
+        val many = (1..50).map { i -> ch(100 + i, 0, (if (i <= 20) "Alpha" else if (i <= 45) "Bravo" else "9 News") + " $i", "big") }
+        val big = object : LiveData by data {
+            override val channels = many
+            override fun inCategory(cat: String) = many
+            override fun byId(id: Int) = many.firstOrNull { it.id == id }
+        }
+        val r = buildLiveList(big, query(LiveSelection.Category("big"), sort = 2))
+        assertEquals(listOf("#", "A", "B"), r.letters.map { it.first })
+        for ((letter, index) in r.letters) {
+            val first = ChannelKeys.sortKey(r.channels[index].name).first().uppercaseChar()
+            assertEquals(letter, if (first.isLetter()) first.toString() else "#")
+            if (index > 0) {
+                val before = ChannelKeys.sortKey(r.channels[index - 1].name).first().uppercaseChar()
+                assertTrue(before != first)
+            }
+        }
+    }
+
+    @Test
+    fun noLettersForShortListsOrOtherSorts() {
+        assertTrue(buildLiveList(data, query(sort = 2)).letters.isEmpty())
+        val many = (1..50).map { i -> ch(100 + i, 0, "Name $i", "big") }
+        val big = object : LiveData by data {
+            override fun inCategory(cat: String) = many
+        }
+        assertTrue(buildLiveList(big, query(LiveSelection.Category("big"), sort = 0)).letters.isEmpty())
+    }
 }

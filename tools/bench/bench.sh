@@ -88,6 +88,32 @@ mark movies-hold-right; burst $RIGHT 30; sleep 3
 mark movies-hold-up;  burst $UP 60; sleep 3
 mark open-series;     tap "Series"; sleep 6; keys 0.5 $DOWN $RIGHT $DOWN
 mark series-hold-down; burst $DOWN 60; sleep 3
+
+# ---- Added after the stretches above so their numbers stay comparable with earlier builds. ----
+# The guide grid and Search with the remote, then the same screens with a finger: flings take a different
+# path through the lists from held keys (no focus changes, many more rows a second), and it is how a
+# phone is used. Touch comes last because the first touch takes the app out of remote mode.
+SIZE=$(adb shell wm size 2>/dev/null | grep -oE '[0-9]+x[0-9]+' | tail -1)
+A=${SIZE%x*}; B=${SIZE#*x}
+if [ -n "$A" ] && [ -n "$B" ]; then
+  if [ "$A" -ge "$B" ]; then W=$A; H=$B; else W=$B; H=$A; fi   # the app is always landscape
+else
+  W=1920; H=1080
+fi
+# $1 flings up the list under the point at 60% of the width (fingers move up, the list moves on).
+fling() { for _ in $(seq "$1"); do adb shell input swipe $((W*6/10)) $((H*8/10)) $((W*6/10)) $((H*3/10)) 120; sleep 0.8; done; }
+fling_back() { for _ in $(seq "$1"); do adb shell input swipe $((W*6/10)) $((H*3/10)) $((W*6/10)) $((H*8/10)) 120; sleep 0.8; done; }
+
+mark open-live-again; tap "Live TV"; sleep 6
+mark guide-open;      tap "Guide grid"; sleep 10; keys 0.5 $DOWN $RIGHT $DOWN
+mark guide-hold-down; burst $DOWN 40; sleep 3
+mark guide-hold-right; burst $RIGHT 20; sleep 3
+mark guide-fling;     fling 6; fling_back 3; sleep 2
+mark guide-close;     tap "List view"; sleep 5
+mark live-fling;      fling 8; fling_back 4; sleep 2
+mark movies-fling;    tap "Movies"; sleep 6; fling 8; fling_back 4; sleep 2
+mark home-fling;      tap "Home"; sleep 5; fling 4; fling_back 4; sleep 2
+mark search-type;     tap "Search"; sleep 4; adb shell input text "news"; sleep 6
 mark done;            sleep 5
 
 adb logcat -d -v threadtime > "$OUT/logcat.txt"

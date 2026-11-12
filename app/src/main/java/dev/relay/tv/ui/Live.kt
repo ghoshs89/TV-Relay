@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -65,6 +67,7 @@ import dev.relay.tv.data.FavItem
 import dev.relay.tv.data.ProviderNames
 import dev.relay.tv.data.ChannelVersions
 import dev.relay.tv.data.AppLog
+import dev.relay.tv.data.DeviceTier
 import androidx.compose.foundation.layout.heightIn
 import dev.relay.tv.data.LanguageDetector
 import dev.relay.tv.data.Langs
@@ -206,7 +209,7 @@ fun LiveTab() {
     // Several versions of one channel (HD, FHD, backup) show once, unless you list them yourself.
     val merge = st.mergeVariants && cat != UiState.FAV && cat != UiState.HISTORY && !cat.startsWith(ChannelEdits.GROUP)
     // Typing in Find rebuilds the list once you pause, not after every letter.
-    val find = rememberDebounced(ui.liveFind, 250) { it.isEmpty() }
+    val find = rememberDebounced(ui.liveFind, DeviceTier.current.findPauseMs) { it.isEmpty() }
     val query = LiveQuery(
         cat = cat, selection = selection, sort = sort, filters = ui.liveFilters, find = find,
         blockedCats = if (restrict) catalog.adultCats else emptySet(), hiddenCats = hiddenIds,
@@ -262,7 +265,7 @@ fun LiveTab() {
                                 scope.launch { ui.liveChList.scrollToItem(0) }
                             },
                             selected = ui.liveCat == row.id,
-                            key = "lc:${row.id}",
+                            key = row.lazyKey,
                             trailing = row.count?.toString(),
                             icon = row.icon,
                         )
@@ -307,13 +310,9 @@ fun LiveTab() {
                         }
                     }
                 }
-                if (sort == 2 && channels.size > 40 && !ui.liveGrid) {
-                    val letters = remember(channels) {
-                        channels.mapIndexedNotNull { i, ch ->
-                            val c = LiveBrowse.sortKey(ch).firstOrNull()?.uppercaseChar() ?: return@mapIndexedNotNull null
-                            (if (c.isLetter()) c.toString() else "#") to i
-                        }.distinctBy { it.first }
-                    }
+                // The letters come with the list (built off the screen thread), so a long list costs nothing here.
+                val letters = shown?.letters.orEmpty()
+                if (sort == 2 && letters.isNotEmpty() && !ui.liveGrid) {
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -420,7 +419,10 @@ private fun Chip(label: String, on: Boolean, key: String, compact: Boolean = fal
             if (on && !compact) "✓ $label" else label,
             Modifier
                 .background(if (f) Palette.accent else if (on) Palette.surface2 else Palette.surface)
-                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = 7.dp),
+                // On a touch screen a chip is at least as tall and wide as a thumb needs; the label stays centred.
+                .defaultMinSize(minWidth = minTouch, minHeight = minTouch)
+                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = 7.dp)
+                .wrapContentSize(Alignment.Center),
             color = if (f) Color.Black else if (on) Palette.accent else Palette.text,
             fontSize = Type.caption, maxLines = 1, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
         )
@@ -452,7 +454,7 @@ private fun ChannelRow(ch: Channel, fav: Boolean, showNumber: Boolean, onFocused
     val guideRound = catalog.epgVersion
     var loaded by remember(ch.id) { mutableIntStateOf(0) }
     LaunchedEffect(ch.id, guideRound) {
-        delay(350) // rows passed while scrolling quickly don't ask the provider
+        delay(DeviceTier.current.rowGuideDelayMs) // rows passed while scrolling quickly don't ask the provider
         catalog.prefetchNowNext(ch.id)
         loaded++
     }
