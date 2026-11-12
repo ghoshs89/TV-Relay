@@ -20,13 +20,43 @@ object Jsons {
 
 // ---------- Persisted ----------
 
+/** Which network one of the provider's servers is meant for. */
+enum class HostNet(val code: String) {
+    ANY("any"),
+    NO_VPN("no_vpn"),
+    VPN("vpn");
+
+    companion object {
+        /** Unknown or missing codes (a newer Relay's, say) read as [ANY]. */
+        fun of(code: String?): HostNet = entries.firstOrNull { it.code == code } ?: ANY
+    }
+}
+
 @Serializable
 data class Account(
     val name: String,
     val hosts: List<String>,
     val username: String,
     val password: String,
-)
+    /**
+     * Server → [HostNet.code] for servers meant only for use with or without a VPN. Missing means
+     * any network. Plain strings rather than the enum, so a value from a newer Relay can never make
+     * the whole account unreadable; older Relays ignore the field (Jsons has ignoreUnknownKeys).
+     */
+    val hostNets: Map<String, String> = emptyMap(),
+) {
+    fun netOf(host: String): HostNet = HostNet.of(hostNets[host])
+
+    /** Same login and the same servers; only the server marks (or the name) may differ. */
+    fun sameLogin(o: Account?): Boolean =
+        o != null && username == o.username && password == o.password && hosts.toSet() == o.hosts.toSet()
+
+    companion object {
+        /** The marks worth keeping for [hosts]: only those servers, and only marks other than "any". */
+        fun netsFor(hosts: List<String>, nets: Map<String, HostNet>): Map<String, String> =
+            hosts.mapNotNull { h -> nets[h]?.takeIf { it != HostNet.ANY }?.let { h to it.code } }.toMap()
+    }
+}
 
 @Serializable
 data class Profile(
