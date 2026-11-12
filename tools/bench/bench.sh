@@ -9,7 +9,8 @@ set -u
 APK="$1"; TS="$2"; OUT="${3:-bench-out}"
 mkdir -p "$OUT"
 
-python3 tools/fake-provider/fake_provider.py --port 8099 --ts "$TS" > "$OUT/provider.log" 2>&1 &
+# BENCH_PROVIDER_ARGS sizes the made-up library, e.g. "--channels 56000 --movies 166000 --series 38000" for one the size of a real TV's.
+python3 tools/fake-provider/fake_provider.py --port 8099 --ts "$TS" ${BENCH_PROVIDER_ARGS:-} > "$OUT/provider.log" 2>&1 &
 PROVIDER=$!
 trap 'kill $PROVIDER 2>/dev/null' EXIT
 for _ in $(seq 30); do
