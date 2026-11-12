@@ -3,11 +3,13 @@ name: Build APK
 on:
   push:
     branches: [ main ]
-    # Changes to docs or tools alone don't build or publish a release.
+    # Changes to docs or tools alone don't build or publish a release, and neither do the
+    # sync file's own commits when sync is pointed at this repository.
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - 'tools/**'
+      - 'relay-sync.bin'
   workflow_dispatch:
 
 env:
