@@ -11,6 +11,11 @@ on:
       - 'tools/**'
       - 'relay-sync.bin'
   workflow_dispatch:
+    inputs:
+      bench:
+        description: 'Also run the benchmark (about 12 more minutes)'
+        type: boolean
+        default: false
 
 env:
   # SHA-256 of the release signing certificate (public, safe to commit).
@@ -186,8 +191,10 @@ jobs:
   # Drives a benchmark build of the app on an emulator against a made-up provider and prints frame
   # times, list build times and time to first picture in the log. For comparing builds with each
   # other; it never blocks or delays a release (it runs alongside the build job, and a failure here
-  # leaves the run green).
+  # leaves the run green). It costs about as many Actions minutes as the build, so it runs only when
+  # started by hand: Actions → Build APK → Run workflow, with "Also run the benchmark" ticked.
   bench:
+    if: github.event_name == 'workflow_dispatch' && inputs.bench
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
