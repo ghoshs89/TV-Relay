@@ -281,14 +281,6 @@ object RefreshGuard {
     }
 }
 
-/** When saved data is old enough to fetch again. */
-object Freshness {
-    const val LIBRARY_MS = 6 * 3600_000L
-    const val CHECK_EVERY_MS = 30 * 60_000L
-
-    fun libraryDue(savedAt: Long, now: Long): Boolean = savedAt <= 0L || now - savedAt >= LIBRARY_MS
-}
-
 /** Reports how many bytes have been read, every 256 KB or so. */
 private class CountingStream(input: java.io.InputStream, private val onRead: (Long) -> Unit) : java.io.FilterInputStream(input) {
     private var count = 0L

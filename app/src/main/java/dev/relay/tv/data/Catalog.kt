@@ -142,7 +142,25 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
      * leaving a screen doesn't cancel it halfway.
      */
     suspend fun load(force: Boolean = false) {
+        val wait = loadLocked(force)
+        if (wait > 0) {
+            // An overdue library waits a little after start-up (outside the lock and with nothing shown as loading),
+            // then asks again: by then someone else may have refreshed it.
+            delay(wait)
+            load(force = false)
+            return
+        }
+        // Outside the lock: a slow guide download must never hold up the next library refresh.
+        refreshGuideIfNeeded(force = false)
+    }
+
+    /** Uptime (SystemClock.elapsedRealtime) when this process installed its first library from saved data; negative until then. */
+    @Volatile private var installedAt = -1L
+
+    /** The locked part of [load]. Returns how long to wait before the refresh, when it was put off; 0 when nothing more is due. */
+    private suspend fun loadLocked(force: Boolean): Long {
         if (mutex.isLocked) AppLog.d("Catalog", "Load requested (force=$force) while another is running; waiting")
+        var wait = 0L
         mutex.withLock {
             loading = true
             error = null
@@ -171,7 +189,13 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                             AppLog.i("Catalog", "Read saved library in ${System.currentTimeMillis() - t} ms: ${parsed.counts}; ${parsed.timingText()}")
                             applyParsed(parsed, from = 60)
                         }
-                        if (force || libraryDue()) {
+                        if (installedAt < 0 && !isEmpty) installedAt = android.os.SystemClock.elapsedRealtime()
+                        val due = force || libraryDue()
+                        wait = Freshness.startDelay(installedAt, android.os.SystemClock.elapsedRealtime(), due, force)
+                        if (wait > 0) {
+                            val hours = (System.currentTimeMillis() - file("get_live_streams").lastModified()) / 3_600_000
+                            AppLog.i("Catalog", "Library is $hours h old; refreshing in ${(wait + 500) / 1000} s")
+                        } else if (due) {
                             try {
                                 refresh(started)
                             } catch (e: CancellationException) {
@@ -201,8 +225,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                 progress = null
             }
         }
-        // Outside the lock: a slow guide download must never hold up the next library refresh.
-        refreshGuideIfNeeded(force = false)
+        return wait
     }
 
     private fun savedSize(): String = LoadSteps.megabytes(actions.sumOf { file(it).length() })
@@ -421,7 +444,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             }
             snapGen.incrementAndGet() // the saved copy is about to be out of date; a pending save of it is pointless
             withContext(Dispatchers.IO) { CatalogParser.commit(staging, dir) }
-            applyParsed(fresh, from = LoadSteps.CHECK_END)
+            applyParsed(fresh, from = LoadSteps.CHECK_END, reuse = true)
             AppLog.i(
                 "Catalog",
                 "Refreshed in ${(System.currentTimeMillis() - started) / 1000}s: ${channels.size} channels, " +
@@ -514,12 +537,16 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val hd: Set<Int>,
     ) {
         companion object {
-            fun from(p: ParsedCatalog, laps: Laps): ChannelStage {
+            fun from(p: ParsedCatalog, laps: Laps, previous: LibraryDerive.PreviousChannels? = null): ChannelStage {
                 val live = LibraryDerive.categoryLangs(p.liveCats)
                 val vod = LibraryDerive.categoryLangs(p.vodCats)
                 val series = LibraryDerive.categoryLangs(p.seriesCats)
                 // One pass: each name is cleaned once and yields language, version key, quality, sort key and HD flag.
-                val m = LibraryDerive.channels(p.channels, live)
+                // On a refresh, channels that did not change take their facts from the library already installed.
+                val m = LibraryDerive.channels(p.channels, live, previous)
+                if (previous != null) {
+                    AppLog.i("Catalog", "Reused ${"%,d".format(m.reused)} of ${"%,d".format(p.channels.size)} channel facts; worked out ${"%,d".format(p.channels.size - m.reused)}")
+                }
                 laps.lap("channel texts", 0.7f)
                 return ChannelStage(
                     p.liveCats, p.vodCats, p.seriesCats, p.channels, live, vod, series,
@@ -551,8 +578,11 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val byId: Map<Int, Movie>,
     ) {
         companion object {
-            fun from(p: ParsedCatalog, vodCatLang: Map<String, String>, laps: Laps): MovieStage {
-                val d = LibraryDerive.movies(p.movies, vodCatLang) { laps.lap("movie languages", 0.4f) }
+            fun from(p: ParsedCatalog, vodCatLang: Map<String, String>, laps: Laps, previous: LibraryDerive.PreviousTitles<Movie>? = null): MovieStage {
+                val d = LibraryDerive.movies(p.movies, vodCatLang, previous) { laps.lap("movie languages", 0.4f) }
+                if (previous != null) {
+                    AppLog.i("Catalog", "Reused ${"%,d".format(d.reused)} of ${"%,d".format(p.movies.size)} movie languages; worked out ${"%,d".format(p.movies.size - d.reused)}")
+                }
                 return of(p.movies, d.lang, d.added, d.rated, d.byName, laps)
             }
 
@@ -580,8 +610,11 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val byId: Map<Int, Series>,
     ) {
         companion object {
-            fun from(p: ParsedCatalog, seriesCatLang: Map<String, String>, laps: Laps): SeriesStage {
-                val d = LibraryDerive.series(p.series, seriesCatLang) { laps.lap("series languages", 0.4f) }
+            fun from(p: ParsedCatalog, seriesCatLang: Map<String, String>, laps: Laps, previous: LibraryDerive.PreviousTitles<Series>? = null): SeriesStage {
+                val d = LibraryDerive.series(p.series, seriesCatLang, previous) { laps.lap("series languages", 0.4f) }
+                if (previous != null) {
+                    AppLog.i("Catalog", "Reused ${"%,d".format(d.reused)} of ${"%,d".format(p.series.size)} series languages; worked out ${"%,d".format(p.series.size - d.reused)}")
+                }
                 return of(p.series, d.lang, d.added, d.rated, d.byName, laps)
             }
 
@@ -606,12 +639,21 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     )
 
     /** Prepares a library read from the provider's JSON and then keeps a saved copy of the result (see [LibrarySnapshot]). */
-    private suspend fun applyParsed(p: ParsedCatalog, from: Int) {
+    private suspend fun applyParsed(p: ParsedCatalog, from: Int, reuse: Boolean = false) {
+        // A refresh reuses what was worked out for unchanged items (references to the installed library, no copies).
+        val prevCh = if (reuse && rawChannels.isNotEmpty()) {
+            LibraryDerive.PreviousChannels(
+                rawChannels, liveCatLang,
+                LibraryDerive.ChannelMaps(chLang, rawVersionKeys, rawQuality, rawSortKeys, rawHd),
+            )
+        } else null
+        val prevMv = if (reuse && movies.isNotEmpty()) LibraryDerive.PreviousTitles(movies, vodCatLang, mvLang) else null
+        val prevSr = if (reuse && series.isNotEmpty()) LibraryDerive.PreviousTitles(series, seriesCatLang, srLang) else null
         installStages(
             Stages(
-                channels = { laps -> ChannelStage.from(p, laps) },
-                movies = { cs, laps -> MovieStage.from(p, cs.vodCatLang, laps) },
-                series = { cs, laps -> SeriesStage.from(p, cs.seriesCatLang, laps) },
+                channels = { laps -> ChannelStage.from(p, laps, prevCh) },
+                movies = { cs, laps -> MovieStage.from(p, cs.vodCatLang, laps, prevMv) },
+                series = { cs, laps -> SeriesStage.from(p, cs.seriesCatLang, laps, prevSr) },
             ),
             from,
         )
