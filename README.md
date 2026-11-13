@@ -401,6 +401,129 @@ docs/               banner and screenshots, TODO.md (what is open and what to ch
 
 </details>
 
+## Architecture
+
+Relay is one Android app (a single process) that talks to your provider, a few optional services and your other screens. It has no server of its own. The drawings below show the parts, how a stream is found and played, how screens stay in sync, and how the library gets on screen at start-up. Folder names are under `app/src/main/java/dev/relay/tv/`.
+
+### The parts
+
+```mermaid
+flowchart TB
+    PHONE(["Phone browser<br/>QR code, home Wi-Fi"])
+    GTV(["Google TV home screen<br/>Continue watching"])
+
+    subgraph APP["Relay app, one process"]
+        UI["ui/<br/>Compose screens: Home, Live TV, Guide,<br/>Movies, Series, Search, Settings"]
+        COMP["companion/<br/>web page server for the phone"]
+        WN["tv/<br/>WatchNext"]
+        PLAYER["player/<br/>Media3 player, stream recovery,<br/>pause buffer"]
+        CATALOG["data/Catalog<br/>the library in memory"]
+        RATINGS["data/Ratings, Tmdb,<br/>MdbList, Trailers"]
+        STORE["data/Store<br/>profiles, favourites, history,<br/>settings, login"]
+        API["data/XtreamApi<br/>provider calls, server order"]
+        SYNC["sync/<br/>merge engine, pairing"]
+        UPD["update/<br/>in-app updater"]
+    end
+
+    DISK[("App storage<br/>library lists and saved copy,<br/>settings, guide, logs, pause buffer")]
+    PROV(["IPTV provider<br/>several servers"])
+    META(["TMDB, MDBList"])
+    SYNCFILE(["Encrypted sync file<br/>in a GitHub repo"])
+    REL(["GitHub Releases<br/>signed APKs"])
+    SCREENS(["Other Relay screens"])
+
+    PHONE -->|"sign-in, API keys,<br/>library edits, logs"| COMP
+    UI -->|"play"| PLAYER
+    UI -->|"lists"| CATALOG
+    UI --> RATINGS
+    UI --> STORE
+    COMP --> STORE
+    COMP --> CATALOG
+    WN --> STORE
+    PLAYER -->|"stream URLs"| API
+    PLAYER -->|"watch position"| STORE
+    PLAYER ==>|"video and audio"| PROV
+    CATALOG -->|"download, refresh"| API
+    CATALOG --> DISK
+    STORE --> DISK
+    API ==>|"lists, guide, login"| PROV
+    RATINGS --> META
+    SYNC <--> STORE
+    SYNC <-->|"read, merge, write"| SYNCFILE
+    SCREENS <--> SYNCFILE
+    UPD -->|"check, download"| REL
+    WN -->|"in-progress titles"| GTV
+```
+
+| Part | What it does |
+|---|---|
+| `RelayApp` | Creates the shared pieces once per process: the HTTP client, `Store`, `XtreamApi`, `Catalog`, ratings, the VPN watch and the sync runner. |
+| `data/Catalog` | Holds the whole library in memory and prepares it in stages (channels first, then movies and series), so Live TV is usable before everything is ready. |
+| `data/XtreamApi` | All calls to the provider, and the list of stream URLs for the player. |
+| `data/Store` | Everything personal: profiles, favourites, history, settings and the login. Sync, backups and the phone page all read and write it. |
+| `player/` | A separate activity around Media3, with bundled FFmpeg audio decoders. |
+| `sync/` | Keeps screens the same through one encrypted file; also pairing a new screen. |
+| `companion/` | A small web server on the TV for the phone: sign-in, API keys, library editing and log download. |
+| `update/` | Compares the installed build number with the latest GitHub Release and installs the signed APK. |
+| `tv/` | Puts movies and episodes in progress on the Google TV home screen; choosing one opens Relay at `relay://resume`. |
+
+### Finding a server and playing a stream
+
+```mermaid
+flowchart TB
+    PICK["A channel, movie or episode is chosen"] --> URLS["XtreamApi builds one stream URL per server"]
+    VPN["net/VpnWatch<br/>is a VPN on?"] --> ORDER
+    HEALTH["HostHealth<br/>which servers answered or failed"] --> ORDER
+    MARKS["Server marks in the login<br/>with VPN, without VPN, any"] --> ORDER
+    ORDER["HostOrder<br/>suitable servers first, last good one leading,<br/>recently failed ones last"] --> URLS
+    URLS --> PLAY["PlayerActivity<br/>Media3 ExoPlayer"]
+    PLAY --> OK{"Picture?"}
+    OK -->|"yes"| WATCH["Playing<br/>position saved to Store"]
+    OK -->|"no, or it stalls"| RECOVER["Recovery<br/>reconnect, then the next server"]
+    RECOVER --> PLAY
+    WATCH -->|"live TV"| SHIFT["Timeshift<br/>records to the cache so live TV can be paused"]
+    WATCH -->|"movies and episodes on a TV"| NEXT["WatchNext<br/>Continue watching on Google TV"]
+```
+
+### Sync between screens
+
+```mermaid
+sequenceDiagram
+    participant A as Screen A
+    participant F as Sync file (GitHub repo)
+    participant B as Screen B
+    Note over A,B: Joining: screen B gets the repo, token and key from screen A,<br/>by network discovery on the home network or a pairing link
+    A->>A: A favourite or watched title changes in Store
+    A->>F: Read the file (encrypted, AES-256-GCM)
+    A->>A: Merge item by item: the newest change wins, removals are remembered
+    A->>F: Write the merged file, only if nobody else wrote meanwhile
+    B->>F: Read the file on its next sync
+    B->>B: Merge, then apply what it lacked to its own Store
+    B->>F: Write back only if it had something the file lacked
+```
+
+### How the library gets on screen
+
+```mermaid
+flowchart TB
+    START(["App start"]) --> SNAP{"Saved copy of the library<br/>present and valid?"}
+    SNAP -->|"yes"| READ["Read the saved copy:<br/>library and prepared facts"]
+    SNAP -->|"no: missing, damaged,<br/>lists or rules changed"| JSON{"Provider lists<br/>saved as JSON?"}
+    JSON -->|"no"| DL["Download six lists<br/>from the provider"]
+    JSON -->|"yes"| PARSE["Read and check the lists"]
+    DL --> PARSE
+    PARSE --> DERIVE["Work out per item: language,<br/>channel versions, quality, sort keys"]
+    DERIVE --> SHOW["Channels on screen,<br/>then movies and series"]
+    READ --> SHOW
+    DERIVE -.->|"a few seconds later"| WRITE["Write a new saved copy"]
+    SHOW --> OLD{"Library older<br/>than 6 hours?"}
+    OLD -->|"no"| DONE(["Done"])
+    OLD -->|"yes, 20 s after start"| REFRESH["Download again in the background"]
+    REFRESH --> REUSE["Check the new lists and reuse<br/>the facts for unchanged items"]
+    REUSE --> SWAP["Swap the new lists in"]
+    SWAP -.-> WRITE
+```
+
 ## Credits
 
 Built with Jetpack Compose, Media3 ExoPlayer, the Jellyfin FFmpeg audio decoder for Dolby and DTS (GPL-3.0), OkHttp, Coil and kotlinx.serialization. The wordmark uses Space Grotesk (SIL Open Font License).
