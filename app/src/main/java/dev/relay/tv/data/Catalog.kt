@@ -473,18 +473,24 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             }
             else -> return
         }
-        try {
-            if (force || g.needsRefresh(key)) {
-                AppLog.i("Epg", if (key == PROVIDER_GUIDE) "Downloading the provider's full guide for ${list.size} channels" else "Downloading external guide")
-                g.refresh(url, list, key)
-                clearGuideCache()
+        // One at a time: two callers at start-up used to download the same guide twice. The second
+        // waits here and then finds the guide fresh.
+        guideLock.withLock {
+            try {
+                if (force || g.needsRefresh(key)) {
+                    AppLog.i("Epg", if (key == PROVIDER_GUIDE) "Downloading the provider's full guide for ${list.size} channels" else "Downloading external guide")
+                    g.refresh(url, list, key)
+                    clearGuideCache()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.e("Epg", "External guide refresh failed", e)
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.e("Epg", "External guide refresh failed", e)
         }
     }
+
+    private val guideLock = Mutex()
 
     fun clear() {
         liveCats = emptyList(); vodCats = emptyList(); seriesCats = emptyList()

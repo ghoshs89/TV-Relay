@@ -70,6 +70,17 @@ object SyncCodec {
         return DailyUsage.format(day, ms)
     }
 
+    /** The profiles a sync file holds (removed ones left out; ones that cannot be read are skipped). */
+    fun profilesIn(recs: Map<String, SyncRec>): List<Profile> {
+        val out = ArrayList<Profile>()
+        for ((k, r) in recs) {
+            if (!k.startsWith("profile:") || r.gone) continue
+            val p: Profile? = dec<Profile>(r.v)
+            if (p != null) out.add(p)
+        }
+        return out
+    }
+
     /** The current state as items. [dev] is this screen; [today] is "yyyy-MM-dd". */
     fun toRecords(d: SyncData, dev: String, today: String, now: Long): Map<String, JsonElement> {
         val out = LinkedHashMap<String, JsonElement>()

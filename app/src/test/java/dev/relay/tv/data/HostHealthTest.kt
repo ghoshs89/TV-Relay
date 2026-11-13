@@ -51,4 +51,26 @@ class HostHealthTest {
         val long = HostHealth.describe(IOException("x".repeat(200)))
         assertEquals(60, long.length)
     }
+
+    @Test fun notReachingTheServerAlwaysCounts() {
+        for (a in listOf(null, "get_live_streams", "get_short_epg")) {
+            assertEquals(true, HostHealth.isServerFailure(a, HostHealth.CONNECTING, 0))
+        }
+    }
+
+    @Test fun anErrorStatusCountsForLoginAndListsButNotForOneChannelOrTitle() {
+        assertEquals(true, HostHealth.isServerFailure(null, HostHealth.STATUS, 403))
+        assertEquals(true, HostHealth.isServerFailure("get_vod_streams", HostHealth.STATUS, 404))
+        for (a in listOf("get_short_epg", "get_simple_data_table", "get_vod_info", "get_series_info")) {
+            assertEquals(false, HostHealth.isServerFailure(a, HostHealth.STATUS, 404))
+            assertEquals(false, HostHealth.isServerFailure(a, HostHealth.STATUS, 403))
+            assertEquals(true, HostHealth.isServerFailure(a, HostHealth.STATUS, 502))
+        }
+    }
+
+    @Test fun aReplyThatCannotBeReadNeverCounts() {
+        assertEquals(false, HostHealth.isServerFailure("get_short_epg", HostHealth.BODY, 200))
+        assertEquals(false, HostHealth.isServerFailure("get_live_streams", HostHealth.BODY, 200))
+        assertEquals(false, HostHealth.isServerFailure(null, HostHealth.BODY, 200))
+    }
 }

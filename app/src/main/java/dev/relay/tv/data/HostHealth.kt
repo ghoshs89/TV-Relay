@@ -47,6 +47,26 @@ class HostHealth(val clock: () -> Long) {
     companion object {
         const val COOL_MS = 10 * 60_000L
 
+        /** How far a request got before it failed. */
+        const val CONNECTING = 0
+        const val STATUS = 1
+        const val BODY = 2
+
+        /** Requests about one channel or title; a provider often answers these with an error or nothing at all. */
+        private val ITEM_ACTIONS = setOf("get_short_epg", "get_simple_data_table", "get_vod_info", "get_series_info")
+
+        /**
+         * Whether a failed request says something about the whole server (so it is tried last for a
+         * while), or only about what was asked for. Not reaching the server always counts. An error
+         * status counts for the login and the big lists, and a 5xx for anything; a 4xx for one channel's
+         * guide or one title's details does not. A reply that arrived but could not be read never counts.
+         */
+        fun isServerFailure(action: String?, stage: Int, httpCode: Int): Boolean = when (stage) {
+            CONNECTING -> true
+            STATUS -> httpCode >= 500 || action !in ITEM_ACTIONS
+            else -> false
+        }
+
         /** A short reason for the log and Settings: the exception's message, cut to one line. */
         fun describe(e: Throwable?): String {
             if (e == null) return "failed"

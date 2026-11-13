@@ -63,6 +63,8 @@ class XtreamApi(
             val hosts = hostsOrdered()
             if (hosts.isEmpty()) throw IOException("No server configured")
             var last: Exception? = null
+            var stage: Int = HostHealth.CONNECTING
+            var httpCode: Int = 0
             for ((i, h) in hosts.withIndex()) {
                 try {
                     val req = Request.Builder()
@@ -71,9 +73,14 @@ class XtreamApi(
                         .build()
                     val client = if (i < hosts.lastIndex) quickConnect else http
                     val t0 = System.nanoTime()
+                    stage = HostHealth.CONNECTING
+                    httpCode = 0
                     val result = client.newCall(req).execute().use { r ->
+                        stage = HostHealth.STATUS
+                        httpCode = r.code
                         if (!r.isSuccessful) throw IOException("HTTP ${r.code} from ${r.request.url.host}")
                         health.answered(h, (System.nanoTime() - t0) / 1_000_000)
+                        stage = HostHealth.BODY
                         block(r)
                     }
                     if (host != h) {
@@ -85,7 +92,8 @@ class XtreamApi(
                     throw e
                 } catch (e: Exception) {
                     AppLog.w("Api", "${params["action"] ?: "login"} failed on $h", e)
-                    health.failed(h, e)
+                    // Only what says something about the whole server puts it at the back of the queue.
+                    if (HostHealth.isServerFailure(params["action"], stage, httpCode)) health.failed(h, e)
                     last = e
                 }
             }

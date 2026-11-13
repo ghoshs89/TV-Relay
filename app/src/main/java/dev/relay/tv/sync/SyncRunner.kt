@@ -11,6 +11,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AppLog
+import dev.relay.tv.data.Profile
+import dev.relay.tv.data.ProfileFold
+import dev.relay.tv.data.SyncCodec
+import dev.relay.tv.data.SyncDoc
 import dev.relay.tv.data.SyncApplied
 import dev.relay.tv.data.SyncSeal
 import kotlinx.coroutines.Dispatchers
@@ -284,6 +288,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
         val token = SyncInput.token(b.token) ?: return@withContext "The pairing details are not valid."
         val key = SyncSeal.keyFromText(b.key) ?: return@withContext "The pairing details are not valid."
         GitHubTransport(app.http, repo, token).check()?.let { return@withContext it }
+        foldMatchingProfiles(GitHubTransport(app.http, repo, token), key)
         val previous = settings.config
         val previousState = settings.stateStore.load()
         val cfg = SyncSettings.Config(repo, token, key)
@@ -306,6 +311,30 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
         }
         AppLog.i("Sync", "Joined sync from another screen")
         null
+    }
+
+    /**
+     * Before a joining screen's first sync: a profile here that is plainly one the household already
+     * has (a fresh install's own "Me", say) takes that profile's id, so the household does not end up
+     * with two of the same name. Anything that goes wrong here only means the profiles stay separate.
+     */
+    private fun foldMatchingProfiles(transport: GitHubTransport, key: ByteArray) {
+        try {
+            val remote = transport.read() ?: return
+            val doc = SyncDoc.parse(String(SyncSeal.open(remote.bytes, key), Charsets.UTF_8))
+            val theirs: List<Profile> = SyncCodec.profilesIn(doc.recs)
+            val plan: Map<String, Profile> = ProfileFold.plan(app.store.profiles, theirs)
+            if (plan.isEmpty()) return
+            onMain {
+                for ((from, into) in plan) {
+                    app.store.foldProfile(from, into)
+                    if (app.session.profile?.id == from) app.session.profile = into
+                }
+            }
+            AppLog.i("Sync", "Joined ${plan.size} profile(s) here with the same profile on the other screens")
+        } catch (e: Exception) {
+            AppLog.w("Sync", "Could not compare profiles before joining; they stay separate", e)
+        }
     }
 
     /**

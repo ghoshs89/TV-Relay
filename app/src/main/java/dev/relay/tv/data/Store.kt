@@ -455,6 +455,28 @@ class Store(ctx: Context) {
         }
     }
 
+    /**
+     * This screen's profile [from] becomes the household's profile [into] (see [ProfileFold]): its
+     * favourites, history and kids' time move to that id. Call on the main thread, before the first sync.
+     */
+    fun foldProfile(from: String, into: Profile) {
+        if (from == into.id) return
+        val mergedFavs: List<FavItem> = ProfileFold.favs(favs(into.id), favs(from))
+        val mergedHistory: List<WatchEntry> = ProfileFold.history(history(into.id), history(from))
+        val next: List<Profile> = profiles.map { if (it.id == from) into else it }.distinctBy { it.id }
+        profiles = next
+        if (mergedFavs.isNotEmpty()) write<List<FavItem>>("fav_${into.id}", mergedFavs)
+        if (mergedHistory.isNotEmpty()) write<List<WatchEntry>>("hist_${into.id}", mergedHistory, history = true, sync = true)
+        write<List<FavItem>?>("fav_$from", null)
+        write<List<WatchEntry>?>("hist_$from", null)
+        val e = prefs.edit()
+        prefs.getString("use_$from", null)?.let { e.putString("use_${into.id}", it) }
+        prefs.getString("lastcat_$from", null)?.let { e.putString("lastcat_${into.id}", it) }
+        e.remove("use_$from").remove("allow_$from").remove("lastcat_$from")
+        if (prefs.getString("last_profile", null) == from) e.putString("last_profile", into.id)
+        e.apply()
+    }
+
     fun deleteProfile(pid: String) {
         profiles = profiles.filterNot { it.id == pid }
         write<List<FavItem>?>("fav_$pid", null)
