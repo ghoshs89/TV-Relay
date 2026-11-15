@@ -56,7 +56,8 @@ object Updater {
     var announcedCode = 0
 
     private const val API = "https://api.github.com"
-    val enabled: Boolean get() = BuildConfig.UPDATE_TOKEN.isNotBlank()
+    /** Always on: the repository is public, so reading its releases needs no token. */
+    val enabled: Boolean get() = true
 
     val busy: Boolean
         get() = state is UpdateState.Downloading || state is UpdateState.Installing
@@ -73,7 +74,7 @@ object Updater {
 
     private fun request(url: String, accept: String): Request = Request.Builder()
         .url(url)
-        .header("Authorization", "Bearer ${BuildConfig.UPDATE_TOKEN}")
+        .apply { UpdateRequest.authHeader(BuildConfig.UPDATE_TOKEN)?.let { header("Authorization", it) } }
         .header("Accept", accept)
         .header("X-GitHub-Api-Version", "2022-11-28")
         .header("User-Agent", "RelayTV-Updater")
@@ -81,10 +82,6 @@ object Updater {
 
     /** Checks GitHub. Quiet mode keeps an earlier "available" result if the network blips. */
     suspend fun check(http: OkHttpClient, quiet: Boolean = false) {
-        if (!enabled) {
-            state = UpdateState.Disabled("This build has no update token. Add the RELAY_UPDATE_TOKEN secret on GitHub and install the next build manually once.")
-            return
-        }
         if (busy) return
         val previous = state
         if (!quiet) state = UpdateState.Checking
@@ -104,8 +101,10 @@ object Updater {
         val url = "$API/repos/${BuildConfig.UPDATE_REPO}/releases/latest"
         http.newCall(request(url, "application/vnd.github+json")).execute().use { r ->
             when (r.code) {
-                401, 403 -> throw IOException("GitHub rejected the update token (HTTP ${r.code}). It may have expired.")
-                404 -> throw IOException("No release found, or the update token can't see ${BuildConfig.UPDATE_REPO}.")
+                401, 403 ->
+                    if (BuildConfig.UPDATE_TOKEN.isBlank()) throw IOException("GitHub didn't answer the update check (HTTP ${r.code}). It limits how often it can be asked; try again in a while.")
+                    else throw IOException("GitHub rejected the update token (HTTP ${r.code}). It may have expired.")
+                404 -> throw IOException("No release found for ${BuildConfig.UPDATE_REPO}.")
             }
             if (!r.isSuccessful) throw IOException("GitHub returned HTTP ${r.code}")
             val j = Jsons.json.parseToJsonElement(r.body!!.string())
@@ -118,7 +117,8 @@ object Updater {
                 versionCode = code,
                 versionName = tag.removePrefix("v"),
                 notes = j.at("body").str().orEmpty().trim(),
-                assetUrl = asset.at("url").str() ?: return@withContext null,
+                assetUrl = UpdateRequest.assetUrl(BuildConfig.UPDATE_TOKEN, asset.at("url").str(), asset.at("browser_download_url").str())
+                    ?: return@withContext null,
                 size = asset.at("size").long() ?: 0L,
             )
         }
@@ -171,7 +171,7 @@ object Updater {
                 mkdirs()
             }
             val file = File(dir, "Relay-${info.versionName}.apk")
-            // GitHub answers with a redirect to its file host; OkHttp drops the token on the way.
+            // GitHub answers with a redirect to its file host; OkHttp drops the token (if there is one) on the way.
             http.newCall(request(info.assetUrl, "application/octet-stream")).execute().use { r ->
                 if (!r.isSuccessful) throw IOException("Download failed (HTTP ${r.code})")
                 val body = r.body ?: throw IOException("Empty download")

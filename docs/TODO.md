@@ -8,9 +8,15 @@ Plans 1 to 4 are finished; what they did, measured and learned is in [HISTORY.md
 
 | # | What | Notes |
 |---|---|---|
-| A | **Move sync out of this repository** | Sync is pointed at this repository (`relay-sync.bin` is here). That gives every screen a token that can write to the repository whose `main` branch builds and installs on every device. The new private repository `ghoshs89/Relay-TV_Sync` exists. Still to do: on every screen **Stop syncing on this screen**; on one screen turn sync on with `ghoshs89/Relay-TV_Sync` and its token; join the others; delete the old token on GitHub. Then `relay-sync.bin` and its line in `.github/workflows/build.yml` can go (to-do 1 below). The token for the new repository was pasted into a chat: once sync runs there, replace it (*Replace the token* on the phone page, then **Join again** on the other screens) and delete it. |
+| A | **Move sync out of this repository, now that it is public** | Sync is pointed at this repository (`relay-sync.bin` is here, and about 100 "Relay sync" commits of it). The repository is **public** since 15 Nov, so the encrypted file and its history are downloadable by anyone (unreadable without your household key, but its size and the times you use Relay show). It also gives every screen a token that can write to the repository whose `main` branch builds and installs on every device. Turning sync on again in the new repository makes a new household key, so the old public file versions stay undecryptable. The new private repository `ghoshs89/Relay-TV_Sync` exists. Still to do: on every screen **Stop syncing on this screen**; on one screen turn sync on with `ghoshs89/Relay-TV_Sync` and its token; join the others; delete the old token on GitHub. Then `relay-sync.bin` and its line in `.github/workflows/build.yml` can go (to-do 1 below). The token for the new repository was pasted into a chat: once sync runs there, replace it (*Replace the token* on the phone page, then **Join again** on the other screens) and delete it. |
 | B | **Device checks, on the TV and on the phone** | The lists under "Check on a device". Nothing since 1.0.24 has been looked at on a TV, and no phone has ever been measured. |
 | C | Delete the scratch branches on GitHub | `p2`, `p2base`, `p2r`, `p2s`, `p3base`, `p4base`, `p4base-big`, `pB`, `pC`, `pE1`, `pE2`, `pFA`, `pFB`, `pFC`, `plan3`, `plan4`, `plan4-big`, `plan4-exec`. |
+
+## After installing the release that follows 1.0.110, in this order
+
+1. Install it on **every** screen. Screens on 1.0.110 or older update with a token baked into them; they would stop updating if it were deleted first.
+2. Only then delete the update token on GitHub and the `RELAY_UPDATE_TOKEN` secret.
+3. Then do A above.
 
 ## To do
 
@@ -39,6 +45,15 @@ Plan 6 (1.0.112), on a TV and a phone you use with a VPN:
 | 2 | VPN off: tune a channel. Settings → Account shows a "Without VPN" server in use and the VPN line says Off. |
 | 3 | VPN on: tune another channel. It starts within about 5 seconds; a "With VPN" server is in use and the VPN line says On. |
 | 4 | If either step is slow, send the log: its header lists every server with its mark and state. |
+
+Plan 7 (first build that contains it), on a phone and a TV:
+
+| Item | What to look for |
+|---|---|
+| Closing Relay | On Home press Back: **Close Relay?** appears with **Stay in Relay** selected. Press Back again: the question goes away and Relay stays. Press Back twice quickly several times: Relay never closes. Choose **Close Relay** with OK (or a tap): it closes. Try it on each tab, on the profile picker and on the sign-in screen. |
+| Detail pages | On a film or series page, Back still returns to the list, with no question. |
+| Leaving the player | Press Back once in a film and in a live channel: a large centred prompt reads *Press Back again to leave the player*. A second press within about two seconds leaves; waiting lets it disappear. |
+| Updates without a token | Settings → Account shows the update state with no "token" message; with a newer release published it offers the update and installs it. |
 
 Plan 5 (first build that contains it), on the **phone**. Turn on Settings → Diagnostics → **Save detailed logs** first, and send the log afterwards (**Share logs** works on phones):
 
@@ -123,6 +138,7 @@ Older checks:
 | Release | What |
 |---|---|
 | 1.0.113 | Three fixes from the 12 Nov review and TV log: a screen that joins sync no longer adds a second profile of the same name (its own "Me" becomes the household's, with its favourites and history); a failed request about one channel or title no longer makes Relay treat the whole server as down for 10 minutes; the provider's guide is downloaded once at start-up, not twice. Profiles already doubled are not merged: delete the spare one in Settings → Profiles. |
+| next release after 1.0.112 | Plan 7: Back asks **Close Relay?** before the app closes (Stay is selected; Back again keeps Relay open); the player says in large type that a second Back leaves the player; updates no longer need a token now the repository is public, and new builds carry none; README section on sharing the APK with someone else. Details in [PLAN-7.md](PLAN-7.md) |
 | 1.0.112 | Plan 6: every one of the provider's servers can be marked for use with or without a VPN (read from a pasted message, set on the phone page, or changed in Settings → Account); Relay tries the servers that suit the connection first and notices a VPN going on or off; a server that fails is tried last for 10 minutes and the next server is tried after 5 seconds instead of 15; marking a server never reloads the library. The benchmark job now runs only when started by hand, to save Actions minutes. See [PLAN-6.md](PLAN-6.md) |
 | 1.0.110 | Plan 5, in part: a device tier so recent phones use shorter waits and wider limits while TVs keep theirs; the player fills the screen on phones, keeps clear of the camera cut-out and pauses when headphones disconnect; touch-size buttons; frame counting that knows the screen's refresh rate; the A to Z strip, Home language rows and learned languages off the screen thread; quicker repeat searches; guide, Search and touch stretches in the benchmark. Outcome in [PLAN-5.md](PLAN-5.md) section 8 |
 | 1.0.108 | Plan 4: Relay keeps a ready-to-use copy of the prepared library, so a restart or an update shows channels in seconds instead of about a minute (the first start after an update that changed how names are read still takes the long way once); channel text work cleans each name once; refreshes reuse what they already know about unchanged items and wait 20 seconds after start-up; the screen-freeze watcher no longer reports the app being frozen by Android as a stall; the TV log read and the measurements table filled (TODO rows 2 and 3). Summary in [HISTORY.md](HISTORY.md) |

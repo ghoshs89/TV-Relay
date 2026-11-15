@@ -20,10 +20,10 @@
   <a href="https://github.com/ghoshs89/TV-Relay/actions/workflows/build.yml"><img src="https://github.com/ghoshs89/TV-Relay/actions/workflows/build.yml/badge.svg" alt="Build status"></a>
 </p>
 
-> [!IMPORTANT]
-> Keep this repository **private**. It contains no logins or keys, but its Releases hold installable builds, and Relay's updater is set up for a private repo.
+> [!NOTE]
+> This repository is **public**. It holds no logins, keys or tokens: your provider login is typed in on each screen and stays in that screen's private storage, and the builds on the Releases page are the same APK for everyone. Relay updates itself from those releases and needs no token to do so.
 >
-> The updater uses a fine-grained token with **Contents: Read-only**, limited to this repository, so it can read releases and nothing else. Updates stop arriving when that token expires; see *Update token* under Maintaining Relay.
+> **Never use this repository for sync.** The sync file would be public, and the token every screen holds could change the app that all your screens install. Sync belongs in a private repository of your own; see *Sync between screens*.
 
 Relay signs in to an Xtream Codes account and plays what that account provides. No content comes with the app.
 
@@ -111,7 +111,7 @@ If your provider gives separate addresses for use with and without a VPN, enter 
 | 0 to 9 | Go to a channel number |
 | Play/Pause | Pause live TV; Relay keeps recording behind the scenes |
 | Left / Right while paused or behind live | Back 10 s / forward 30 s; going forward past the end returns to live |
-| Back | Previous channel; press twice quickly to exit |
+| Back | Previous channel; then a large prompt says *Press Back again to leave the player*, and a second Back within about two seconds leaves it |
 | Hold OK (in the channel list) | Add or remove the channel from favourites |
 
 **Movies and episodes**
@@ -120,9 +120,11 @@ If your provider gives separate addresses for use with and without a VPN, enter 
 |---|---|
 | Left / Right | Back / forward by the sizes set in Settings → Playback (10 s and 30 s to begin with) |
 | OK | Show the player controls: audio, subtitles and speed |
-| Back | Hide the controls; otherwise press twice quickly to exit. Your position is saved. |
+| Back | Hide the controls; otherwise a large prompt says *Press Back again to leave the player* and a second Back within about two seconds leaves it. Your position is saved. |
 
 **On a movie or series page:** the **Trailer** button opens the trailer in the YouTube app, and Back returns to the same page. It appears when your provider or TMDB knows a trailer (a TMDB key finds more, including trailers in the film's own language, for example Hindi or Bengali). When none is known, **Find a trailer** opens a YouTube search for the title instead. Neither button appears on kids profiles, because YouTube is outside Relay's kids limits and parent PIN. On a device without YouTube, Relay shows a QR code to watch it on your phone.
+
+**Closing Relay:** on Home (any tab), the profile picker and the sign-in screen, Back asks **Close Relay?** with **Stay in Relay** selected. Back again, or choosing Stay, keeps Relay open; the app closes only when you choose **Close Relay**. On a film or series page Back still goes to the list underneath.
 
 **On Home:** hold OK on a Continue watching card or a Recently watched channel to remove it (Menu works too). The **Clear all** button at the end of the Continue watching row empties it after a confirmation.
 
@@ -203,7 +205,7 @@ Relay does not run a server for this. The data lives in **one encrypted file in 
 1. On GitHub, make a **private** repository, for example `relay-sync`. Tick **Add a README file** so it isn't empty. **Do not use this app's own repository:** every screen keeps the sync token, and a token that can write here could change the app that all your screens install.
 2. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
 3. Name it `Relay sync`, pick the longest expiry offered, and under Repository access choose **Only select repositories** and pick the sync repository.
-4. Repository permissions → **Contents: Read and write**. Nothing else. This is a different token from the update token: that one only reads this app's releases.
+4. Repository permissions → **Contents: Read and write**. Nothing else. Relay's own updates need no token.
 5. Copy the token (it starts with `github_pat_`). GitHub shows it once.
 
 </details>
@@ -266,6 +268,16 @@ Two households never mix: the file is tied to the provider account, and a screen
 
 </details>
 
+## Sharing Relay with someone else
+
+You can give the APK to a friend or relative. Nothing of yours is in it: no login, no key, no token, and no sync details. What they get is the same app you downloaded from Releases.
+
+- **Their own provider account.** They sign in with their own server, user name and password. Relay does not copy your login to anyone.
+- **Their own sync, if they want it.** Sync lives in a private GitHub repository chosen by whoever turns it on, with a token and a household key made on their screens. Your sync and theirs share nothing: different repository, different token, different key. They follow *Sync between screens* with a repository of their own.
+- **Never join their screens to yours.** Adding a screen from one of your screens (matching six digits, or a pairing link) gives it your repository, token and key, and it then reads and writes your history. Pair only your own screens.
+- **Updates.** The app updates itself from this repository's Releases, so a shared copy follows the builds you publish. If you would rather it didn't, they can switch to a build from their own copy of the repository.
+- **A shared provider login.** Sync refuses to merge two screens that are signed in to different provider user names, but it cannot tell two people apart who use the *same* login. Don't share one login between households that sync.
+
 ## Optional extras
 
 <details>
@@ -300,7 +312,7 @@ To get the logs off a **TV**, open the phone companion (Settings → Backup & ph
 
 **Saved copy of the library:** Relay keeps a ready-to-use copy of your prepared library next to the downloaded lists, so after a restart or an update the channels appear in seconds instead of about a minute. It is written a few seconds after the library is prepared from a download or refresh, and it is ignored (and rewritten) whenever anything about it looks wrong, for example after some updates, so the first start after those takes the long way once. Settings → Refresh channels and library rewrites the saved copy. The logs from Settings → Diagnostics say at the top whether it was used and, if not, why.
 
-**Updates stopped arriving:** the update token has probably expired. See *Update token* under Maintaining Relay, then install the next build by hand once.
+**Updates stopped arriving:** Settings → Account (or the **Update** button in the top bar) shows why. GitHub limits how often an unnamed visitor may ask (60 an hour per network), so several screens on one network checking at once can be told to wait; it clears by itself. If the message says GitHub rejected an update token, this is an older build that still carries one: install the newest release by hand once.
 
 **Sync status** (Settings → Sync between screens): *In sync, N minutes ago* is normal. *Waiting for the network* means the last try couldn't reach GitHub; it retries by itself. *The sync token was refused* or *can't be found with this token*: the token expired, was removed, or doesn't cover the repository; make a new one (Contents: read and write) and paste it under *Replace the token* on the phone page. *This screen's sync key doesn't open the file*: the household key was changed; choose **Join again from another screen**. *This screen is signed in to a different provider account*: sync is for one account; sign in with the same one or stop syncing here. *Update Relay on this screen to keep syncing*: another screen has a newer Relay that writes a newer file format; install the update. A message about the repository being public or the token being unable to write appears when sync is turned on; fix the repository or token and try again.
 
@@ -328,16 +340,16 @@ Every build checks that the APK is signed with this exact key and fails otherwis
 </details>
 
 <details>
-<summary><b>Update token</b></summary>
+<summary><b>Update token (only if you make the repository private again)</b></summary>
 
-Because the repo is private, Relay needs a read-only token to see new releases.
+While the repository is public, updates need no token and builds are made without one. If you ever make your copy of the repository private, Relay needs a read-only token to see new releases, and CI must pass it to the build as `RELAY_UPDATE_TOKEN` again (an `env:` line on the *Build release APK* step).
 
 1. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
 2. Name `Relay updater`, the longest expiry offered, and Repository access: **Only select repositories → TV-Relay**.
 3. Repository permissions → **Contents: Read-only**. Nothing else.
 4. Save it as the Actions secret **`RELAY_UPDATE_TOKEN`**.
 
-Each build checks that the token can read this repo's releases before building it into the app. When the token nears expiry, replace the secret and let one build install. If it has already expired, install the next build by hand once.
+When the token nears expiry, replace the secret and let one build install. If it has already expired, install the next build by hand once.
 
 </details>
 
@@ -396,7 +408,7 @@ tools/bench/        benchmark driver and report
 app/src/benchmark/  sign-in to the made-up provider, benchmark build only
 .github/            build, release and benchmark workflow, lint gate, launch check
 docs/               banner and screenshots, TODO.md (what is open and what to check
-                    on a device), PLAN-5.md (current plan), HISTORY.md (earlier plans)
+                    on a device), PLAN-5.md to PLAN-7.md (recent plans), HISTORY.md (plans 1 to 4)
 ```
 
 </details>
