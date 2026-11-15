@@ -77,6 +77,9 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var view: PlayerView
     private lateinit var overlay: TextView
     private lateinit var infoView: TextView
+
+    /** Centred prompt shown after the first Back: says what a second one will do. */
+    private lateinit var leaveHint: TextView
     private lateinit var channelsView: ComposeView
     private lateinit var channelsButton: TextView
     private lateinit var bandwidth: DefaultBandwidthMeter
@@ -228,6 +231,7 @@ class PlayerActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val hideOverlay = Runnable { overlay.visibility = View.GONE }
     private val hideInfo = Runnable { infoView.visibility = View.GONE }
+    private val hideLeaveHint = Runnable { if (::leaveHint.isInitialized) leaveHint.visibility = View.GONE }
     private val applyDigits = Runnable { jumpToNumber() }
 
     private val isTv: Boolean by lazy {
@@ -367,6 +371,20 @@ class PlayerActivity : ComponentActivity() {
             setBackgroundColor(0xC0000000.toInt())
             visibility = View.GONE
         }
+        leaveHint = TextView(this).apply {
+            text = "Press Back again to leave the player"
+            setTextColor(Color.WHITE)
+            textSize = 26f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(tvPx(44), tvPx(26), tvPx(44), tvPx(26))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xF00B1220.toInt())
+                setStroke(tvPx(3), 0xFF3DDC97.toInt())
+                cornerRadius = tvPx(16).toFloat()
+            }
+            visibility = View.GONE
+        }
         channelsView = ComposeView(this).apply {
             visibility = View.GONE
             setContent {
@@ -429,6 +447,10 @@ class PlayerActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.END,
             ).apply { setMargins(tvPx(48), tvPx(40), tvPx(48), 0) },
+        )
+        root.addView(
+            leaveHint,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER),
         )
         tsBar = TimeshiftBar(this, touchControls = !isTv, onSeek = ::tsSeek, onLive = ::tsGoLive)
         tsBar.addTo(root)
@@ -942,10 +964,16 @@ class PlayerActivity : ComponentActivity() {
         if (req.live && prev != null) {
             // Live: Back flips to the previous channel; a quick second Back exits.
             switchLive(prev)
-            showOverlay("${label(req.items[liveIndex])}\nPress Back again to exit", BACK_WINDOW_MS)
-        } else {
-            showOverlay("Press Back again to exit", BACK_WINDOW_MS)
+            showOverlay(label(req.items[liveIndex]), BACK_WINDOW_MS)
         }
+        showLeaveHint()
+    }
+
+    /** Says, big and in the middle, what the next Back will do, for as long as the second press counts. */
+    private fun showLeaveHint() {
+        leaveHint.visibility = View.VISIBLE
+        handler.removeCallbacks(hideLeaveHint)
+        handler.postDelayed(hideLeaveHint, BACK_WINDOW_MS)
     }
 
     // ---------- Channel list overlay ----------
@@ -1110,6 +1138,7 @@ class PlayerActivity : ComponentActivity() {
         if (isInPictureInPictureMode) {
             overlay.visibility = View.GONE
             infoView.visibility = View.GONE
+            leaveHint.visibility = View.GONE
             if (channelOverlayOpen) closeChannelOverlay()
         }
     }

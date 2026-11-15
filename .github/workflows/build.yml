@@ -100,27 +100,10 @@ jobs:
           echo "RELAY_KEYSTORE_PATH=$KS" >> "$GITHUB_ENV"
           echo "Signing secrets OK: keystore decodes, password opens it, fingerprint matches ${FP:0:16}…"
 
-      - name: Check update token
-        env:
-          UPDATE_TOKEN: ${{ secrets.RELAY_UPDATE_TOKEN }}
-        run: |
-          if [ -z "$UPDATE_TOKEN" ]; then
-            echo "::warning::RELAY_UPDATE_TOKEN secret not set. This build can't update itself; in-app updates stay off."
-            exit 0
-          fi
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $UPDATE_TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=1")
-          if [ "$CODE" != "200" ]; then
-            echo "::error::RELAY_UPDATE_TOKEN can't read releases of ${{ github.repository }} (HTTP $CODE). It needs Contents: Read-only on this repo and must not be expired."
-            exit 1
-          fi
-          echo "Update token OK: it can read this repo's releases."
-
       - name: Build release APK
+        # No update token goes into the app: the repository is public, so the updater reads its releases without one.
         env:
           RELAY_KEYSTORE_PASSWORD: ${{ secrets.RELAY_KEYSTORE_PASSWORD }}
-          RELAY_UPDATE_TOKEN: ${{ secrets.RELAY_UPDATE_TOKEN }}
         run: ./gradlew :app:assembleRelease --stacktrace --no-daemon
 
       - name: Verify APK signature

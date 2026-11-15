@@ -34,8 +34,8 @@ android {
         versionCode = runNumber
         versionName = "1.0.$runNumber"
 
-        // In-app updates read releases from the private repo with a read-only token
-        // supplied by CI (secret RELAY_UPDATE_TOKEN). Empty token = updater disabled.
+        // In-app updates read the public repository's releases, which needs no token. A build made for a
+        // private copy of the repository can set RELAY_UPDATE_TOKEN (read-only, Contents) to read it.
         val updateToken = (System.getenv("RELAY_UPDATE_TOKEN") ?: "").trim()
         buildConfigField("String", "UPDATE_TOKEN", "\"$updateToken\"")
         buildConfigField("String", "UPDATE_REPO", "\"ghoshs89/TV-Relay\"")

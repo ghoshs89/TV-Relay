@@ -27,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import dev.relay.tv.ui.ExitDialog
 import dev.relay.tv.ui.FocusRestorer
 import dev.relay.tv.ui.HomeScreen
 import dev.relay.tv.ui.LocalFocusEnabled
@@ -118,6 +119,11 @@ fun AppRoot() {
 
     BackHandler(enabled = nav.stack.size > 1) { nav.pop(ui.focus) }
 
+    // Nothing underneath (Home, the profile picker, sign-in): Back would close the app, so ask first.
+    // Back or a tap outside the question means stay; closing takes a deliberate choice.
+    var confirmExit by remember { mutableStateOf(false) }
+    BackHandler(enabled = nav.stack.size == 1) { confirmExit = true }
+
     CompositionLocalProvider(LocalNav provides nav) {
         // Phones draw edge to edge on Android 15: keep content clear of the status and gesture bars.
         // TVs report no insets, so nothing moves there.
@@ -157,6 +163,7 @@ fun AppRoot() {
                 }
             }
             ReminderCenter.due?.let { ReminderDialog(it) }
+            if (confirmExit) ExitDialog(onStay = { confirmExit = false }, onClose = { confirmExit = false; activity?.finish() })
         }
     }
 }
