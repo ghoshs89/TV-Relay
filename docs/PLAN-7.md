@@ -99,7 +99,7 @@ Risk to say out loud: nothing here can be seen on a screen from this session. Th
 
 ## 6. Outcome
 
-Executed on branch `claude/loving-hopper-jtzdvb`; one build, the release run itself.
+Executed on branch `claude/loving-hopper-jtzdvb` and released as **1.0.114** (run 114): one build, the release run itself. It passed unit tests, lint, the signature check, the "no benchmark code" check and the emulator launch, and published `Relay-1.0.114.apk`. Plan 6, written by another session, was released as 1.0.112 in between.
 
 | Item | Done |
 |---|---|
