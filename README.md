@@ -270,9 +270,9 @@ Two households never mix: the file is tied to the provider account, and a screen
 
 ## Play on TV
 
-On a phone, **Play on TV** starts what you're watching on one of your TVs instead: a live channel, a film at the same minute, or an episode with the next ones queued after it. The phone then stops, so your provider sees one connection, not two.
+On a phone, **Play on TV** starts what you're watching on one of your TVs instead: a live channel, a film or an episode at the same minute (with the next episodes queued after it), or a catch-up show or a programme you started with **Start over**, also at the same minute. The phone then stops, so your provider sees one connection, not two.
 
-- **Where:** the **Play on TV** button at the top of the player (tap the video to show it), on a film's page, and in a Live TV channel's panel.
+- **Where:** the **Play on TV** button at the top of the player (tap the video to show it), on a film's page, on a series page (it sends the episode in the Continue button), and in a Live TV channel's panel. **Hold** an episode card on a series page, or a programme in a channel's Catch-up list, to send that one instead.
 - **What it needs:** the phone and the TV both use sync (they're in the same household), they're on the same Wi-Fi, and **Relay is open on the TV**, on any screen. Relay can't start itself on a TV that is off or showing another app.
 - **What travels:** only which channel, film or episode to play and where to start, sealed with a key worked out from your household's sync key. No stream address, login or password leaves the phone. The TV plays the item from its own library with its own player, so pause and rewind, backup servers and channel versions all work as usual.
 - **Profiles:** the TV plays on the profile open on the TV. A kids profile on the TV refuses anything it couldn't open itself, and so does a profile that has reached its viewing time or bedtime. If the TV is on the profile picker, pick a profile there first.

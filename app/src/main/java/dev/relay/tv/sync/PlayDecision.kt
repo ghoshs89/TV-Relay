@@ -11,6 +11,8 @@ sealed interface PlayDecision {
     data class Film(val movie: Movie, val positionMs: Long) : PlayDecision
     /** Start an episode at [positionMs] the way Continue watching does (the next episodes are queued after it). */
     data class Episode(val entry: WatchEntry, val positionMs: Long) : PlayDecision
+    /** Play a recorded programme of [channel] from [positionMs]. [programme] carries the provider's times. */
+    data class Catchup(val channel: Channel, val programme: dev.relay.tv.data.EpgEntry, val positionMs: Long) : PlayDecision
     data class Refuse(val reason: String) : PlayDecision
 }
 
@@ -36,7 +38,8 @@ interface PlayLookups {
 }
 
 object PlayDecider {
-    fun decide(c: PlayCommand, tv: PlayLookups, tvName: String): PlayDecision {
+    /** [nowSec] is the TV's clock, in seconds, for the catch-up window. */
+    fun decide(c: PlayCommand, tv: PlayLookups, tvName: String, nowSec: Long = System.currentTimeMillis() / 1000): PlayDecision {
         if (!tv.profileOpen) return PlayDecision.Refuse("Pick a profile on $tvName first.")
         if (!tv.libraryReady) return PlayDecision.Refuse("$tvName is still loading its channels. Try again in a moment.")
         tv.viewingBlocked?.let { return PlayDecision.Refuse(it) }
@@ -64,6 +67,18 @@ object PlayDecider {
                         key = "ep:${c.id}", kind = "episode", title = c.title, streamId = c.id,
                         ext = c.ext.ifBlank { "mp4" }, seriesId = seriesId, position = c.positionMs,
                     ),
+                    c.positionMs,
+                )
+            }
+            PlayCommand.CATCHUP -> {
+                val ch = c.id.toIntOrNull()?.let { tv.channel(it) } ?: return notHere
+                if (!tv.allows(ch.categoryId)) return notAllowed
+                if (!ch.hasArchive) return PlayDecision.Refuse("${ch.name} has no catch-up on $tvName.")
+                // A little slack: the phone listed it as available a moment ago.
+                if (c.start < nowSec - ch.archiveDays * 86_400L - 3_600) return PlayDecision.Refuse("That programme is no longer available on catch-up.")
+                PlayDecision.Catchup(
+                    ch,
+                    dev.relay.tv.data.EpgEntry(c.title, "", c.start, c.end, true, rawStart = c.start, rawEnd = c.end),
                     c.positionMs,
                 )
             }

@@ -33,13 +33,27 @@ data class PlayCommand(
     val ext: String = "",
     /** For the TV's log and messages only. */
     val title: String = "",
+    /** Catch-up: the programme's start and end in the provider's own time (seconds). */
+    val start: Long = 0,
+    val end: Long = 0,
 ) {
     companion object {
+        /** Live, film and episode. TVs on 1.0.115 understand only this. */
         const val VERSION = 1
+
+        /** Catch-up. A TV that doesn't know it answers "Update Relay on both screens". */
+        const val VERSION_CATCHUP = 2
+
+        /** The newest this Relay understands. */
+        const val MAX_VERSION = VERSION_CATCHUP
         const val LIVE = "live"
         const val MOVIE = "movie"
         const val EPISODE = "episode"
-        val KINDS = setOf(LIVE, MOVIE, EPISODE)
+        const val CATCHUP = "catchup"
+        val KINDS = setOf(LIVE, MOVIE, EPISODE, CATCHUP)
+
+        /** Longest programme a catch-up command may name. */
+        const val MAX_PROGRAMME_SEC = 12 * 3600L
 
         /** Biggest sealed command a TV accepts. */
         const val MAX_BYTES = 16 * 1024
@@ -97,7 +111,7 @@ object PlayCodec {
         } catch (e: Exception) {
             throw PlayRejected("The request was damaged.")
         }
-        if (c.v != PlayCommand.VERSION) throw PlayRejected("Update Relay on both screens to use Play on TV.")
+        if (c.v !in PlayCommand.VERSION..PlayCommand.MAX_VERSION) throw PlayRejected("Update Relay on both screens to use Play on TV.")
         if (c.kind !in PlayCommand.KINDS || c.id.isBlank() || c.id.length > 40 || c.nonce.length !in 16..64) {
             throw PlayRejected("The request was damaged.")
         }
@@ -105,6 +119,11 @@ object PlayCodec {
             throw PlayRejected("The request was damaged.")
         }
         if (c.kind == PlayCommand.EPISODE && c.seriesId == null) throw PlayRejected("The request was damaged.")
+        if (c.kind == PlayCommand.CATCHUP) {
+            val ok = c.start > 0 && c.end > c.start && c.end - c.start <= PlayCommand.MAX_PROGRAMME_SEC &&
+                c.start * 1000 <= now + PlayCodec.MAX_AGE_MS
+            if (!ok) throw PlayRejected("The request was damaged.")
+        }
         if (kotlin.math.abs(now - c.sentAt) > MAX_AGE_MS) {
             throw PlayRejected("The phone's and the TV's clocks are too far apart, or the request is old. Check the time on both.")
         }

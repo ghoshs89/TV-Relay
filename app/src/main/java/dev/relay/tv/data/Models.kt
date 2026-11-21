@@ -312,6 +312,9 @@ data class PlayItem(
      * the player then asks [PlayRequest.fallbacks] the first time the channel fails.
      */
     val alternatesKnown: Boolean = true,
+    /** Catch-up: the programme's start and end in the provider's own time (seconds), for "Play on TV". */
+    val catchupStart: Long = 0,
+    val catchupEnd: Long = 0,
 )
 
 data class PlayRequest(

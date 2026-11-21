@@ -8,7 +8,7 @@ import org.junit.Test
 
 class PlayDecisionTest {
     private fun ch(id: Int, cat: String) = Channel(id, id, "Ch $id", null, cat, null, 0)
-    private val channels = listOf(ch(1, "news"), ch(2, "news"), ch(3, "news"), ch(9, "xxx"))
+    private val channels = listOf(ch(1, "news"), ch(2, "news"), ch(3, "news"), ch(9, "xxx"), Channel(20, 20, "Sports", null, "sport", null, 3), Channel(21, 21, "Adult rec", null, "xxx", null, 3))
     private val film = Movie(42, "A film", null, "films", 7.0, "mkv", 0L, null, "2020")
     private val adultFilm = film.copy(id = 43, categoryId = "xxx")
 
@@ -73,5 +73,30 @@ class PlayDecisionTest {
         assertTrue((PlayDecider.decide(c, Tv(channels, listOf(film), profileOpen = false), "TV") as PlayDecision.Refuse).reason.startsWith("Pick a profile"))
         assertTrue((PlayDecider.decide(c, Tv(channels, listOf(film), libraryReady = false), "TV") as PlayDecision.Refuse).reason.contains("loading"))
         assertEquals("Bedtime", (PlayDecider.decide(c, Tv(channels, listOf(film), viewingBlocked = "Bedtime"), "TV") as PlayDecision.Refuse).reason)
+    }
+
+    private val nowSec = 1_800_000_000L
+    private fun catchup(id: String, start: Long, pos: Long = 0) =
+        PlayCommand(v = PlayCommand.VERSION_CATCHUP, from = "d", nonce = PlayCommand.newNonce(), sentAt = 0, kind = PlayCommand.CATCHUP, id = id, positionMs = pos, title = "Match", start = start, end = start + 3_600)
+
+    @Test
+    fun aRecordedProgrammePlaysFromThePhonesMinute() {
+        val d = PlayDecider.decide(catchup("20", nowSec - 86_400, pos = 1_234_000), tv, "TV", nowSec) as PlayDecision.Catchup
+        assertEquals(20, d.channel.id)
+        assertEquals(nowSec - 86_400, d.programme.rawStart)
+        assertEquals(nowSec - 86_400 + 3_600, d.programme.rawEnd)
+        assertEquals(1_234_000, d.positionMs)
+    }
+
+    @Test
+    fun catchUpIsRefusedWhereItCantPlay() {
+        val noArchive = PlayDecider.decide(catchup("1", nowSec - 3_600), tv, "TV", nowSec)
+        assertTrue(noArchive is PlayDecision.Refuse && noArchive.reason.contains("no catch-up"))
+        val tooOld = PlayDecider.decide(catchup("20", nowSec - 5 * 86_400), tv, "TV", nowSec)
+        assertTrue(tooOld is PlayDecision.Refuse && tooOld.reason.contains("no longer available"))
+        val blocked = PlayDecider.decide(catchup("21", nowSec - 3_600), tv, "Kids TV", nowSec)
+        assertTrue(blocked is PlayDecision.Refuse && blocked.reason.contains("profile open on Kids TV"))
+        val missing = PlayDecider.decide(catchup("999", nowSec - 3_600), tv, "TV", nowSec)
+        assertTrue(missing is PlayDecision.Refuse && missing.reason.contains("isn't in the library"))
     }
 }

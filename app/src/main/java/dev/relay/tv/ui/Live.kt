@@ -555,7 +555,17 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
         // Phones that sync can tune this channel on a TV of the household instead.
         val playOnTv = playOnTvAvailable()
         var playOnTvOpen by remember(ch.id) { mutableStateOf(false) }
+        var sendCatchup by remember(ch.id) { mutableStateOf<EpgEntry?>(null) }
         val sentToTv = rememberPlayOnTvToast()
+        sendCatchup?.let { e ->
+            PlayOnTvDialog(
+                command = {
+                    dev.relay.tv.sync.PlayOnTvClient.catchupCommand(ch.id.toString(), e.rawStart, e.rawEnd, e.title, 0, store.deviceId)
+                },
+                onSent = { sendCatchup = null; sentToTv(it) },
+                onDismiss = { sendCatchup = null },
+            )
+        }
         if (playOnTvOpen) {
             PlayOnTvDialog(
                 command = {
@@ -670,6 +680,8 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
                         Focusable(
                             { Playback.catchup(ctx, ch, e) }, Modifier.fillMaxWidth(),
                             key = "cu:${ch.id}:${e.start}", shape = RoundedCornerShape(8.dp), scaleOnFocus = 1.02f,
+                            // Phones that sync: hold a programme to play it on a TV of the household instead.
+                            onLongClick = if (playOnTv) ({ sendCatchup = e }) else null,
                         ) { f ->
                             Column(Modifier.fillMaxWidth().background(if (f) Palette.surface2 else Palette.bg).padding(10.dp)) {
                                 Text(
