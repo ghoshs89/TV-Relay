@@ -38,6 +38,9 @@ class RelayApp : Application(), ImageLoaderFactory {
     lateinit var ratings: Ratings
     lateinit var sync: dev.relay.tv.sync.SyncRunner
 
+    /** "Play on TV": on a TV that syncs, receives what a phone of the household asks it to play. */
+    lateinit var playReceiver: dev.relay.tv.sync.PlayReceiver
+
     val session = Session()
 
     /** Outlives any screen; used for work that must not be cancelled by navigation. */
@@ -113,6 +116,8 @@ class RelayApp : Application(), ImageLoaderFactory {
         AppLog.i("App", dev.relay.tv.data.DeviceTier.current.describe())
         StallWatch.start()
         sync.start()
+        playReceiver = dev.relay.tv.sync.PlayReceiver(this)
+        registerActivityLifecycleCallbacks(playReceiver)
         if (BuildConfig.BENCH) {
             // The benchmark build ships dev.relay.tv.bench.BenchSetup (src/benchmark); it is looked up by
             // name so the release build, which has no such class, compiles and never reaches this.
@@ -129,7 +134,8 @@ class RelayApp : Application(), ImageLoaderFactory {
         60f
     }
 
-    private fun isTv(): Boolean =
+    /** True on Android TV and Google TV. */
+    fun isTv(): Boolean =
         (getSystemService(UI_MODE_SERVICE) as android.app.UiModeManager).currentModeType ==
             android.content.res.Configuration.UI_MODE_TYPE_TELEVISION ||
             packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)

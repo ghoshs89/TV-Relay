@@ -552,6 +552,22 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
         var showArchive by remember(ch.id) { mutableStateOf(false) }
         var options by remember(ch.id) { mutableStateOf(false) }
         var versionsOpen by remember(ch.id) { mutableStateOf(false) }
+        // Phones that sync can tune this channel on a TV of the household instead.
+        val playOnTv = playOnTvAvailable()
+        var playOnTvOpen by remember(ch.id) { mutableStateOf(false) }
+        val sentToTv = rememberPlayOnTvToast()
+        if (playOnTvOpen) {
+            PlayOnTvDialog(
+                command = {
+                    dev.relay.tv.sync.PlayCommand(
+                        from = store.deviceId, nonce = dev.relay.tv.sync.PlayCommand.newNonce(), sentAt = System.currentTimeMillis(),
+                        kind = dev.relay.tv.sync.PlayCommand.LIVE, id = ch.id.toString(), title = ch.name.take(300),
+                    )
+                },
+                onSent = { playOnTvOpen = false; sentToTv(it) },
+                onDismiss = { playOnTvOpen = false },
+            )
+        }
         LaunchedEffect(ch.id, epgRetry) {
             delay(250)
             epgFailed = false
@@ -600,6 +616,7 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
             if (versions.size > 1) {
                 add(PanelAction("Versions", Icons.Filled.List, "pv:${ch.id}") { versionsOpen = true })
             }
+            if (playOnTv) add(PanelAction("Play on TV", RelayIcons.Tv, "ptv:${ch.id}") { playOnTvOpen = true })
             add(PanelAction("Options", Icons.Filled.Settings, "po:${ch.id}") { options = true })
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

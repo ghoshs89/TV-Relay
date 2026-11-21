@@ -89,6 +89,23 @@ fun MovieDetailScreen(m: Movie) {
 
     val entry = store.entry(pid, "movie:${m.id}")
     val resumable = entry?.inProgress == true
+    // Phones that sync can start the film on a TV of the household instead, at the same place.
+    val playOnTv = playOnTvAvailable()
+    var playOnTvOpen by remember { mutableStateOf(false) }
+    val sentToTv = rememberPlayOnTvToast()
+    if (playOnTvOpen) {
+        PlayOnTvDialog(
+            command = {
+                dev.relay.tv.sync.PlayCommand(
+                    from = store.deviceId, nonce = dev.relay.tv.sync.PlayCommand.newNonce(), sentAt = System.currentTimeMillis(),
+                    kind = dev.relay.tv.sync.PlayCommand.MOVIE, id = m.id.toString(),
+                    positionMs = if (resumable && entry != null) entry.position else 0, title = m.name.take(300),
+                )
+            },
+            onSent = { playOnTvOpen = false; sentToTv(it) },
+            onDismiss = { playOnTvOpen = false },
+        )
+    }
     val fav = store.isFav(pid, "movie", m.id)
     val ext = info?.ext ?: m.ext
     val playFocus = remember { FocusRequester() }
@@ -136,6 +153,9 @@ fun MovieDetailScreen(m: Movie) {
                     )
                     if (resumable) {
                         PillButton("Start over", { Playback.movie(ctx, m, ext, 0) }, icon = Icons.Filled.Refresh, key = "md:restart")
+                    }
+                    if (playOnTv) {
+                        PillButton("Play on TV", { playOnTvOpen = true }, icon = RelayIcons.Tv, key = "md:tv")
                     }
                     PillButton(
                         if (fav) "In my list" else "My list",

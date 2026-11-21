@@ -82,6 +82,10 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var leaveHint: TextView
     private lateinit var channelsView: ComposeView
     private lateinit var channelsButton: TextView
+
+    /** Phones only: hands what is playing to a TV of the household ("Play on TV"). */
+    private lateinit var playOnTvButton: TextView
+    private var playOnTvOpen by mutableStateOf(false)
     private lateinit var bandwidth: DefaultBandwidthMeter
     private lateinit var frameRate: FrameRateMatcher
 
@@ -240,6 +244,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        current = java.lang.ref.WeakReference(this)
         val r = app.pendingPlay
         if (r == null || r.items.isEmpty() || app.api.account == null) {
             finish()
@@ -416,11 +421,48 @@ class PlayerActivity : ComponentActivity() {
                 openChannelOverlay()
             }
         }
+        playOnTvButton = TextView(this).apply {
+            text = "Play on TV"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(tvPx(32), tvPx(18), tvPx(32), tvPx(18))
+            setBackgroundColor(0xCC1E2B45.toInt())
+            visibility = View.GONE
+            isFocusable = false
+            setOnClickListener {
+                view.hideController()
+                playOnTvOpen = true
+            }
+        }
         view.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
                 channelsButton.visibility = if (req.live && visibility == View.VISIBLE) View.VISIBLE else View.GONE
+                playOnTvButton.visibility = if (visibility == View.VISIBLE && canPlayOnTv()) View.VISIBLE else View.GONE
             },
         )
+        val playOnTvView = ComposeView(this).apply {
+            setContent {
+                if (playOnTvOpen) {
+                    RelayTheme {
+                        dev.relay.tv.ui.PlayOnTvDialog(
+                            command = {
+                                currentItem()?.let {
+                                    dev.relay.tv.sync.PlayOnTvClient.commandFor(it, player.currentPosition, app.store.deviceId)
+                                }
+                            },
+                            onSent = { message ->
+                                playOnTvOpen = false
+                                Toast.makeText(this@PlayerActivity, message, Toast.LENGTH_LONG).show()
+                                // The TV has it now: stop here so the provider sees one connection, not two.
+                                saveProgress(finished = false)
+                                finish()
+                            },
+                            onDismiss = { playOnTvOpen = false },
+                        )
+                    }
+                }
+            }
+        }
 
         val root = FrameLayout(this)
         root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -440,14 +482,24 @@ class PlayerActivity : ComponentActivity() {
                 Gravity.BOTTOM or Gravity.START,
             ).apply { setMargins(tvPx(48), 0, tvPx(48), tvPx(48)) },
         )
+        val topButtons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(playOnTvButton)
+            addView(
+                channelsButton,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { leftMargin = tvPx(16) },
+            )
+        }
         root.addView(
-            channelsButton,
+            topButtons,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.END,
             ).apply { setMargins(tvPx(48), tvPx(40), tvPx(48), 0) },
         )
+        root.addView(playOnTvView, FrameLayout.LayoutParams(0, 0))
         root.addView(
             leaveHint,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER),
@@ -510,6 +562,13 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private val failing: Boolean get() = ::failure.isInitialized && failure.showing
+
+    /** A phone in a sync household, playing something a TV can take over (not catch-up). */
+    private fun canPlayOnTv(): Boolean {
+        if (isTv || !app.sync.enabled) return false
+        val item = currentItem() ?: return false
+        return dev.relay.tv.sync.PlayOnTvClient.commandFor(item, 0, app.store.deviceId) != null
+    }
 
     /** Stops trying and offers Retry (and Next channel on live TV). */
     private fun showFailure(message: String) {
@@ -1213,7 +1272,16 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    /** Another screen's "Play on TV" is about to start something here: keep this one's place, then close. */
+    fun finishForHandover() {
+        if (isFinishing) return
+        AppLog.i("Player", "Closing for Play on TV")
+        saveProgress(finished = false)
+        finish()
+    }
+
     override fun onDestroy() {
+        if (current?.get() === this) current = null
         // Progress and kids viewing time are sent to the other screens now, not every few seconds.
         app.sync.afterPlayback()
         handler.removeCallbacksAndMessages(null)
@@ -1227,6 +1295,10 @@ class PlayerActivity : ComponentActivity() {
     }
 
     companion object {
+        /** The player on screen, if any (for "Play on TV" handing over to this screen). Main thread. */
+        var current: java.lang.ref.WeakReference<PlayerActivity>? = null
+            private set
+
         private const val BACK_WINDOW_MS = 2_500L
 
         /** A live channel counts as watched after this long. */

@@ -16,6 +16,7 @@ import dev.relay.tv.data.PlayItem
 import dev.relay.tv.data.PlayRequest
 import dev.relay.tv.data.Series
 import dev.relay.tv.data.WatchEntry
+import kotlinx.coroutines.launch
 
 /** Builds play requests and hands them to [PlayerActivity]. */
 object Playback {
@@ -112,12 +113,34 @@ object Playback {
     }
 
     /** Resume a single history entry (used when the series episode list isn't loaded). */
-    fun resume(ctx: Context, e: WatchEntry) {
+    fun resume(ctx: Context, e: WatchEntry, resumeMs: Long = if (e.inProgress) e.position else 0) {
         val item = PlayItem(
             key = e.key, kind = e.kind, title = e.title, subtitle = e.subtitle, image = e.image,
             streamId = e.streamId, ext = e.ext, seriesId = e.seriesId,
-            resumeMs = if (e.inProgress) e.position else 0,
+            resumeMs = resumeMs,
         )
         launch(ctx, PlayRequest(pid, listOf(item), 0, live = e.kind == "live"))
+    }
+
+    /**
+     * Plays an episode at [positionMs] with the rest of its series queued after it, as Continue watching
+     * does. The series has to be fetched for that: a message says so if it takes a moment, and only this
+     * episode plays if it can't be fetched within 8 seconds.
+     */
+    suspend fun resumeEpisode(ctx: Context, e: WatchEntry, positionMs: Long) = kotlinx.coroutines.coroutineScope {
+        val sid = e.seriesId ?: return@coroutineScope resume(ctx, e, positionMs)
+        val series = app.catalog.seriesById[sid]
+        val hint = launch {
+            kotlinx.coroutines.delay(500)
+            Toast.makeText(ctx, "Opening ${e.title}…", Toast.LENGTH_SHORT).show()
+        }
+        val info = kotlinx.coroutines.withTimeoutOrNull(8_000) { runCatching { app.api.seriesInfo(sid) }.getOrNull() }
+        hint.cancel()
+        if (info == null) {
+            Toast.makeText(ctx, "Couldn't load the whole series; playing just this episode", Toast.LENGTH_LONG).show()
+        }
+        val all: List<Episode> = info?.let { inf -> inf.seasons.keys.sorted().flatMap { inf.seasons[it].orEmpty() } }.orEmpty()
+        val idx = all.indexOfFirst { "ep:${it.id}" == e.key }
+        if (series != null && idx >= 0) episodes(ctx, series, all, idx, positionMs) else resume(ctx, e, positionMs)
     }
 }

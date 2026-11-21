@@ -19,4 +19,20 @@ object RelayIcons {
             close()
         }.build()
     }
+
+    /** A television on a stand, for "Play on TV". */
+    val Tv: ImageVector by lazy {
+        ImageVector.Builder("Tv", 24.dp, 24.dp, 24f, 24f).path(fill = SolidColor(Color.Black)) {
+            moveTo(3f, 5f)
+            horizontalLineTo(21f)
+            verticalLineTo(17f)
+            horizontalLineTo(3f)
+            close()
+            moveTo(8f, 19f)
+            horizontalLineTo(16f)
+            verticalLineTo(20.5f)
+            horizontalLineTo(8f)
+            close()
+        }.build()
+    }
 }
