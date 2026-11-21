@@ -1,6 +1,6 @@
 # Relay: what plans 1 to 4 did, and what they found out
 
-Plans 1 to 4 are finished and their full text is in the repository's history (`git log -- docs/PLAN.md docs/PLAN-2.md docs/PLAN-3.md docs/PLAN-4.md`). This file keeps the parts that still matter: the measurements, the benchmark results, the rules that came out of the work, and where each plan differed from what it set out to do. The current plan is [PLAN-5.md](PLAN-5.md); what is open is in [TODO.md](TODO.md).
+Plans 1 to 4 are finished and their full text is in the repository's history (`git log -- docs/PLAN.md docs/PLAN-2.md docs/PLAN-3.md docs/PLAN-4.md`). This file keeps the parts that still matter: the measurements, the benchmark results, the rules that came out of the work, and where each plan differed from what it set out to do. Later plans (5 to 7) are likewise only in the repository's history; what is open is in [TODO.md](TODO.md).
 
 ## 1. The four plans in one table
 
