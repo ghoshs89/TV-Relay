@@ -11,7 +11,6 @@ import dev.relay.tv.data.KeysIntake
 import dev.relay.tv.data.KeysResult
 import kotlinx.coroutines.runBlocking
 import java.io.BufferedInputStream
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -335,44 +334,12 @@ class CompanionServer(
         return task.get(10, TimeUnit.SECONDS)
     }
 
-    private fun respond(sock: Socket, code: Int, type: String, bytes: ByteArray, extra: String = "") {
-        val status = when (code) {
-            200 -> "OK"
-            403 -> "Forbidden"
-            404 -> "Not Found"
-            413 -> "Payload Too Large"
-            else -> "Error"
-        }
-        val head = "HTTP/1.1 $code $status\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n" +
-            "Cache-Control: no-store\r\n${extra}Connection: close\r\n\r\n"
-        val out = sock.getOutputStream()
-        out.write(head.toByteArray())
-        out.write(bytes)
-        out.flush()
-    }
+    private fun respond(sock: Socket, code: Int, type: String, bytes: ByteArray, extra: String = "") =
+        LanHttp.respond(sock, code, type, bytes, extra)
 
-    private fun readLine(input: InputStream): String? {
-        val buf = ByteArrayOutputStream()
-        while (true) {
-            val c = input.read()
-            if (c < 0) return if (buf.size() == 0) null else buf.toString(Charsets.UTF_8.name())
-            if (c == '\n'.code) break
-            if (c != '\r'.code) buf.write(c)
-            if (buf.size() > 8192) return null
-        }
-        return buf.toString(Charsets.UTF_8.name())
-    }
+    private fun readLine(input: InputStream): String? = LanHttp.readLine(input)
 
-    private fun readBytes(input: InputStream, n: Int): ByteArray {
-        val out = ByteArray(n)
-        var off = 0
-        while (off < n) {
-            val r = input.read(out, off, n - off)
-            if (r < 0) break
-            off += r
-        }
-        return if (off == n) out else out.copyOf(off)
-    }
+    private fun readBytes(input: InputStream, n: Int): ByteArray = LanHttp.readBytes(input, n)
 
     private fun parseForm(body: String): Map<String, String> =
         body.split('&').mapNotNull { pair ->

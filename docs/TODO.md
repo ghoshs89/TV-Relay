@@ -37,6 +37,21 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 ## Check on a device
 
+Play on TV (first build that contains it). Phone and TV in the same sync household, on the same Wi-Fi, Relay open on the TV:
+
+| Item | What to look for |
+|---|---|
+| Live channel | Play a live channel on the phone, tap the video, **Play on TV**, choose the TV. Within a few seconds the TV tunes it, Up and Down move through that channel's category, and the phone's player closes with *Playing on …*. |
+| Film | Watch a film on the phone to about 42 minutes and send it: the TV continues at about the same minute. The same from the film's page with **Play on TV**. |
+| Episode | Send an episode from the phone's player: the TV continues it, and the next episode follows on the TV. |
+| Channel panel | In Live TV on the phone, open a channel's panel and use **Play on TV**. |
+| Kids profile on the TV | With a kids profile open on the TV, sending a channel from an adult category is refused, and the phone says why. |
+| TV on the profile picker | The phone says to pick a profile on the TV first. |
+| Relay closed on the TV | The phone finds no TV and says what to check. |
+| Something already playing on the TV | A film playing on the TV keeps its position in Continue watching when the phone sends something else. |
+| Not shown where it shouldn't be | No Play on TV button on a TV, or on a phone without sync. A phone of another household (your friend's) lists none of your TVs. |
+
+
 Plan 6 (1.0.112), on a TV and a phone you use with a VPN:
 
 | Step | What to look for |
@@ -137,6 +152,7 @@ Older checks:
 
 | Release | What |
 |---|---|
+| next release after 1.0.114 | **Play on TV**: a phone hands what it is playing (a live channel, a film at the same minute, an episode with the next ones queued) to a TV of the same sync household that has Relay open; the TV plays it from its own library under its own profile, and the phone stops. Nothing but the item and position travels, sealed with a key from the household sync key |
 | 1.0.113 | Three fixes from the 12 Nov review and TV log: a screen that joins sync no longer adds a second profile of the same name (its own "Me" becomes the household's, with its favourites and history); a failed request about one channel or title no longer makes Relay treat the whole server as down for 10 minutes; the provider's guide is downloaded once at start-up, not twice. Profiles already doubled are not merged: delete the spare one in Settings → Profiles. |
 | 1.0.114 | Plan 7: Back asks **Close Relay?** before the app closes (Stay is selected; Back again keeps Relay open); the player says in large type that a second Back leaves the player; updates no longer need a token now the repository is public, and new builds carry none; README section on sharing the APK with someone else. |
 | 1.0.112 | Plan 6: every one of the provider's servers can be marked for use with or without a VPN (read from a pasted message, set on the phone page, or changed in Settings → Account); Relay tries the servers that suit the connection first and notices a VPN going on or off; a server that fails is tried last for 10 minutes and the next server is tried after 5 seconds instead of 15; marking a server never reloads the library. The benchmark job now runs only when started by hand, to save Actions minutes. |

@@ -364,27 +364,7 @@ fun HomeTab() {
     val resume: (WatchEntry) -> Unit = { e ->
         val sid = e.seriesId
         if (e.kind == "episode" && sid != null) {
-            scope.launch {
-                val series = catalog.seriesById[sid]
-                // The series has to be fetched to queue the next episodes: say so if it takes a moment,
-                // and play just this episode if it takes too long.
-                val hint = launch {
-                    delay(500)
-                    Toast.makeText(ctx, "Opening ${e.title}…", Toast.LENGTH_SHORT).show()
-                }
-                val info = withTimeoutOrNull(8_000) { runCatching { app.api.seriesInfo(sid) }.getOrNull() }
-                hint.cancel()
-                if (info == null) {
-                    Toast.makeText(ctx, "Couldn't load the whole series; playing just this episode", Toast.LENGTH_LONG).show()
-                }
-                val all: List<Episode> = info?.let { inf -> inf.seasons.keys.sorted().flatMap { inf.seasons[it].orEmpty() } }.orEmpty()
-                val idx = all.indexOfFirst { "ep:${it.id}" == e.key }
-                if (series != null && idx >= 0) {
-                    Playback.episodes(ctx, series, all, idx, e.position)
-                } else {
-                    Playback.resume(ctx, e)
-                }
-            }
+            scope.launch { Playback.resumeEpisode(ctx, e, if (e.inProgress) e.position else 0) }
         } else {
             Playback.resume(ctx, e)
         }
