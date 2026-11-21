@@ -79,7 +79,8 @@ class PlayCommandTest {
         rejected { PlayCodec.open(PlayCodec.seal(cmd(kind = PlayCommand.EPISODE, seriesId = null), household), household, now) }
         rejected { PlayCodec.open(PlayCodec.seal(cmd(ext = "m/p4"), household), household, now) }
         rejected { PlayCodec.open(PlayCodec.seal(cmd(nonce = "short"), household), household, now) }
-        rejected { PlayCodec.open(PlayCodec.seal(cmd().copy(v = 2), household), household, now) }
+        rejected { PlayCodec.open(PlayCodec.seal(cmd().copy(v = PlayCommand.MAX_VERSION + 1), household), household, now) }
+        rejected { PlayCodec.open(PlayCodec.seal(cmd().copy(v = 0), household), household, now) }
         rejected { PlayCodec.open(ByteArray(PlayCommand.MAX_BYTES + 1), household, now) }
     }
 
@@ -131,6 +132,58 @@ class PlayCommandTest {
             assertEquals(PlayCommand.EPISODE, it.kind); assertEquals(3, it.seriesId); assertEquals("mkv", it.ext)
         }
         assertNull(PlayOnTvClient.commandFor(ep.copy(seriesId = null), 0, "d", now))
-        assertNull(PlayOnTvClient.commandFor(PlayItem(key = "catchup:1:2", kind = "catchup", title = "x", streamId = "1", ext = "ts"), 0, "d", now))
+        assertNull(PlayOnTvClient.commandFor(PlayItem(key = "x", kind = "trailer", title = "x", streamId = "1", ext = "ts"), 0, "d", now))
+    }
+
+    private fun catchup(start: Long = now / 1000 - 3_600, end: Long = now / 1000 - 1_800) =
+        PlayOnTvClient.catchupCommand("7", start, end, "Match of the day", 600_000, "dev1", now)
+
+    @Test
+    fun aCatchUpCommandIsVersion2AndOpensWithItsTimes() {
+        val c = catchup()
+        assertEquals(PlayCommand.VERSION_CATCHUP, c.v)
+        val opened = PlayCodec.open(PlayCodec.seal(c, household), household, now)
+        assertEquals(c, opened)
+        assertEquals(600_000, opened.positionMs)
+    }
+
+    @Test
+    fun liveFilmAndEpisodeStayVersion1SoOlderTvsKeepWorking() {
+        val live = PlayOnTvClient.commandFor(PlayItem(key = "live:7", kind = "live", title = "News", streamId = "7", ext = "ts"), 0, "d", now)!!
+        assertEquals(PlayCommand.VERSION, live.v)
+        assertEquals(PlayCommand.VERSION, PlayOnTvClient.episodeCommand("9", 3, "mkv", "Show S1 E2", 5_000, "d", now).v)
+    }
+
+    @Test
+    fun badCatchUpTimesAreRefused() {
+        rejected { PlayCodec.open(PlayCodec.seal(catchup(start = 0), household), household, now) }
+        rejected { PlayCodec.open(PlayCodec.seal(catchup(start = 2_000, end = 1_000), household), household, now) }
+        rejected { PlayCodec.open(PlayCodec.seal(catchup(start = 1_000, end = 1_000 + PlayCommand.MAX_PROGRAMME_SEC + 1), household), household, now) }
+        val future = now / 1000 + 3_600
+        rejected { PlayCodec.open(PlayCodec.seal(catchup(start = future, end = future + 1_800), household), household, now) }
+    }
+
+    @Test
+    fun aCatchUpThatIsPlayingCarriesItsTimesAndPositionButNoAddress() {
+        val item = PlayItem(
+            key = "catchup:7:1000", kind = "catchup", title = "Sky Sports", subtitle = "Match of the day", streamId = "7", ext = "ts",
+            urls = listOf("http://provider.example/timeshift/user/secretpass/60/2026-11-21:19-00/7.ts"),
+            catchupStart = 1_000, catchupEnd = 4_600,
+        )
+        val c = PlayOnTvClient.commandFor(item, 1_234_000, "d", now)!!
+        assertEquals(PlayCommand.CATCHUP, c.kind)
+        assertEquals(1_000, c.start); assertEquals(4_600, c.end); assertEquals(1_234_000, c.positionMs)
+        assertEquals("Match of the day", c.title)
+        val json = dev.relay.tv.data.Jsons.json.encodeToString(PlayCommand.serializer(), c)
+        assertFalse(json.contains("secretpass")); assertFalse(json.contains("http"))
+        // Without its times (a build from before this change) there is nothing to send.
+        assertNull(PlayOnTvClient.commandFor(item.copy(catchupStart = 0, catchupEnd = 0), 0, "d", now))
+    }
+
+    @Test
+    fun anEpisodeFromTheSeriesPage() {
+        val c = PlayOnTvClient.episodeCommand("9", 3, "m.k/v", "Show S1 E2", -5, "d", now)
+        assertEquals(PlayCommand.EPISODE, c.kind); assertEquals(3, c.seriesId); assertEquals("mkv", c.ext); assertEquals(0, c.positionMs)
+        PlayCodec.open(PlayCodec.seal(c, household), household, now)
     }
 }

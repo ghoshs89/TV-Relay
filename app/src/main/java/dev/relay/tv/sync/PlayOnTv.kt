@@ -141,6 +141,7 @@ class PlayReceiver(private val app: RelayApp) : Application.ActivityLifecycleCal
             is PlayDecision.Live -> Playback.live(ctx, decision.channels, decision.index)
             is PlayDecision.Film -> Playback.movie(ctx, decision.movie, decision.movie.ext, decision.positionMs)
             is PlayDecision.Episode -> app.appScope.launch { Playback.resumeEpisode(ctx, decision.entry, decision.positionMs) }
+            is PlayDecision.Catchup -> Playback.catchup(ctx, decision.channel, decision.programme, decision.positionMs)
             is PlayDecision.Refuse -> Unit
         }
         return 200 to "Playing on $name"
@@ -227,15 +228,21 @@ object PlayOnTvClient {
         }
     }
 
-    /** What the phone sends for a [dev.relay.tv.data.PlayItem] that is playing, or null for kinds a TV can't take yet (catch-up). */
+    /** What the phone sends for a [dev.relay.tv.data.PlayItem] that is playing, or null for something a TV can't take. */
     fun commandFor(item: dev.relay.tv.data.PlayItem, positionMs: Long, deviceId: String, now: Long = System.currentTimeMillis()): PlayCommand? {
         val kind = when (item.kind) {
             "live" -> PlayCommand.LIVE
             "movie" -> PlayCommand.MOVIE
             "episode" -> PlayCommand.EPISODE
+            "catchup" -> PlayCommand.CATCHUP
             else -> return null
         }
         if (kind == PlayCommand.EPISODE && item.seriesId == null) return null
+        if (kind == PlayCommand.CATCHUP) {
+            if (item.catchupStart <= 0 || item.catchupEnd <= item.catchupStart) return null
+            // The programme's name is in the subtitle; the title is the channel.
+            return catchupCommand(item.streamId, item.catchupStart, item.catchupEnd, item.subtitle ?: item.title, positionMs, deviceId, now)
+        }
         return PlayCommand(
             from = deviceId, nonce = PlayCommand.newNonce(), sentAt = now, kind = kind, id = item.streamId,
             seriesId = item.seriesId, positionMs = if (kind == PlayCommand.LIVE) 0 else positionMs.coerceAtLeast(0),
@@ -243,4 +250,24 @@ object PlayOnTvClient {
             title = item.title.take(300),
         )
     }
+
+    /** An episode from a series page, at [positionMs]. */
+    fun episodeCommand(
+        episodeId: String, seriesId: Int, ext: String, title: String, positionMs: Long, deviceId: String,
+        now: Long = System.currentTimeMillis(),
+    ) = PlayCommand(
+        from = deviceId, nonce = PlayCommand.newNonce(), sentAt = now, kind = PlayCommand.EPISODE, id = episodeId,
+        seriesId = seriesId, positionMs = positionMs.coerceAtLeast(0), ext = ext.filter { it.isLetterOrDigit() }.take(10),
+        title = title.take(300),
+    )
+
+    /** A recorded programme of channel [channelId], by the provider's own times, from [positionMs]. */
+    fun catchupCommand(
+        channelId: String, start: Long, end: Long, title: String, positionMs: Long, deviceId: String,
+        now: Long = System.currentTimeMillis(),
+    ) = PlayCommand(
+        v = PlayCommand.VERSION_CATCHUP, from = deviceId, nonce = PlayCommand.newNonce(), sentAt = now,
+        kind = PlayCommand.CATCHUP, id = channelId, positionMs = positionMs.coerceAtLeast(0), title = title.take(300),
+        start = start, end = end,
+    )
 }

@@ -239,6 +239,22 @@ fun SeriesDetailScreen(s: Series) {
         if (season == null && seasonKeys.isNotEmpty()) season = nextEp?.season ?: seasonKeys.first()
     }
 
+    // Phones that sync can send an episode to a TV of the household: the button for the next one, or hold a card.
+    val playOnTv = playOnTvAvailable()
+    var sendEpisode by remember { mutableStateOf<Pair<Episode, Long>?>(null) }
+    val sentToTv = rememberPlayOnTvToast()
+    sendEpisode?.let { (ep, at) ->
+        PlayOnTvDialog(
+            command = {
+                dev.relay.tv.sync.PlayOnTvClient.episodeCommand(
+                    ep.id, s.id, ep.ext, "${s.name} S${ep.season} E${ep.number}", at, store.deviceId,
+                )
+            },
+            onSent = { sendEpisode = null; sentToTv(it) },
+            onDismiss = { sendEpisode = null },
+        )
+    }
+
     val fav = store.isFav(pid, "series", s.id)
     val playFocus = remember { FocusRequester() }
     InitialFocus(playFocus, info != null)
@@ -282,6 +298,9 @@ fun SeriesDetailScreen(s: Series) {
                                 label, { Playback.episodes(ctx, s, all, nextIdx, nextResume) },
                                 icon = Icons.Filled.PlayArrow, focusRequester = playFocus, primary = true, key = "sd:play",
                             )
+                            if (playOnTv) {
+                                PillButton("Play on TV", { sendEpisode = nextEp to nextResume }, icon = RelayIcons.Tv, key = "sd:tv")
+                            }
                         } else if (info == null && !failed) {
                             CircularProgressIndicator(Modifier.size(28.dp), color = Palette.accent, strokeWidth = 2.dp)
                         }
@@ -338,6 +357,7 @@ fun SeriesDetailScreen(s: Series) {
                         title = "E${e.number}  ${e.title}",
                         image = e.image ?: s.cover,
                         onClick = { Playback.episodes(ctx, s, all, idx, if (h?.inProgress == true) (h?.position ?: 0L) else 0L) },
+                        onLongClick = if (playOnTv) ({ sendEpisode = e to (if (h?.inProgress == true) (h?.position ?: 0L) else 0L) }) else null,
                         key = "ep:${e.id}",
                         parseTitle = false,
                         width = if (compact) 210.dp else 250.dp,

@@ -50,6 +50,10 @@ Play on TV (first build that contains it). Phone and TV in the same sync househo
 | Relay closed on the TV | The phone finds no TV and says what to check. |
 | Something already playing on the TV | A film playing on the TV keeps its position in Continue watching when the phone sends something else. |
 | Not shown where it shouldn't be | No Play on TV button on a TV, or on a phone without sync. A phone of another household (your friend's) lists none of your TVs. |
+| Catch-up and Start over | Play a catch-up show on the phone (or a programme with **Start over**), tap the video, **Play on TV**: the TV continues it at the same minute. |
+| Series page | **Play on TV** beside **Continue S… E…** sends that episode at the same place; holding an episode card sends that episode. |
+| Catch-up list | In a channel's panel, **Catch-up**, hold a past programme: Play on TV sends it. A short press still plays it on the phone. |
+| A TV not yet updated | A TV still on 1.0.115 asks to update Relay when it is sent a catch-up show, and still accepts channels, films and episodes. |
 
 
 Plan 6 (1.0.112), on a TV and a phone you use with a VPN:
@@ -152,6 +156,7 @@ Older checks:
 
 | Release | What |
 |---|---|
+| next release after 1.0.115 | **Play on TV** also takes catch-up shows and programmes watched with Start over (at the same minute), and series pages get a Play on TV button for the next episode; hold an episode card or a programme in a channel's Catch-up list to send that one |
 | 1.0.115 | **Play on TV**: a phone hands what it is playing (a live channel, a film at the same minute, an episode with the next ones queued) to a TV of the same sync household that has Relay open; the TV plays it from its own library under its own profile, and the phone stops. Nothing but the item and position travels, sealed with a key from the household sync key |
 | 1.0.113 | Three fixes from the 12 Nov review and TV log: a screen that joins sync no longer adds a second profile of the same name (its own "Me" becomes the household's, with its favourites and history); a failed request about one channel or title no longer makes Relay treat the whole server as down for 10 minutes; the provider's guide is downloaded once at start-up, not twice. Profiles already doubled are not merged: delete the spare one in Settings → Profiles. |
 | 1.0.114 | Plan 7: Back asks **Close Relay?** before the app closes (Stay is selected; Back again keeps Relay open); the player says in large type that a second Back leaves the player; updates no longer need a token now the repository is public, and new builds carry none; README section on sharing the APK with someone else. |
