@@ -408,7 +408,7 @@ tools/bench/        benchmark driver and report
 app/src/benchmark/  sign-in to the made-up provider, benchmark build only
 .github/            build, release and benchmark workflow, lint gate, launch check
 docs/               banner and screenshots, TODO.md (what is open and what to check
-                    on a device), PLAN-5.md to PLAN-7.md (recent plans), HISTORY.md (plans 1 to 4)
+                    on a device), HISTORY.md (what the earlier plans did and found)
 ```
 
 </details>
