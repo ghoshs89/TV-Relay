@@ -14,7 +14,7 @@ Plans 1 to 4 are finished and their full text is in the repository's history (`g
 | 6 | All of the provider's servers, marked for use with or without a VPN and tried in the right order (written and released by another session) | 1.0.112 | |
 | 7 | **Close Relay?** on Back; a clear "leave the player" prompt; updates without a token now the repository is public; README section on sharing the APK | 1.0.114 | Moving sync out of the public repository (needs the owner's screens) |
 | Play on TV | A phone of the household hands a channel, film or episode to a TV that has Relay open (1.0.115); then catch-up, Start over and series pages (1.0.116). Sealed with a key from the household sync key; the TV plays from its own library under its own profile | 1.0.115, 1.0.116 | Google Cast, parked (see TODO.md) |
-| Trailers and summaries | Trailers as a QR code on TVs; long summaries reachable with the remote and readable in full; "Read all" leftovers removed | release after 1.0.116 | |
+| Trailers and summaries | Trailers as a QR code on TVs; long summaries reachable with the remote and readable in full; "Read all" leftovers removed | 1.0.117 | |
 
 ## 2. Measurements from the TV
 
