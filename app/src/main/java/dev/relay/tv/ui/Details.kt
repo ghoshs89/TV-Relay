@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import dev.relay.tv.RelayApp
+import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Episode
 import dev.relay.tv.data.FavItem
 import dev.relay.tv.data.Movie
@@ -169,14 +170,17 @@ fun MovieDetailScreen(m: Movie) {
                     )
                 }
                 Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
-                val plot = tmdb?.overview ?: info?.plot
+                val plot = dev.relay.tv.data.PlotText.clean(tmdb?.overview ?: info?.plot)
                 if (failed) {
                     // Play still works from the list's information; only the extra details are missing.
                     LoadFailed("Couldn't load details.", key = "md:retry") { attempt++ }
                 } else if (info == null) {
                     CircularProgressIndicator(Modifier.size(22.dp), color = Palette.accent, strokeWidth = 2.dp)
-                } else if (!plot.isNullOrBlank()) {
-                    Text(plot, color = Palette.text, fontSize = if (compact) 15.sp else 17.sp, lineHeight = if (compact) 22.sp else 25.sp)
+                } else if (plot != null) {
+                    PlotBlock(
+                        plot, m.name, maxLines = if (compact) 3 else 5,
+                        fontSize = if (compact) 15.sp else 17.sp, lineHeight = if (compact) 22.sp else 25.sp, key = "md:plot",
+                    )
                 }
                 info?.director?.let { Text("Director: $it", color = Palette.dim, fontSize = Type.small, modifier = Modifier.padding(top = 12.dp)) }
                 val cast = tmdb?.cast?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: info?.cast
@@ -185,7 +189,7 @@ fun MovieDetailScreen(m: Movie) {
             }
         }
     }
-    trailerFallback?.let { TrailerFallbackDialog(it) { trailerFallback = null } }
+    trailerFallback?.let { TrailerQrDialog(it) { trailerFallback = null } }
 }
 
 @Composable
@@ -320,12 +324,11 @@ fun SeriesDetailScreen(s: Series) {
                         LoadFailed("Couldn't load episodes.", key = "sd:retry") { attempt++ }
                     }
                     Spacer(Modifier.height(if (compact) 12.dp else 16.dp))
-                    val plot = tmdb?.overview ?: info?.plot
-                    if (!plot.isNullOrBlank()) {
-                        Text(
-                            plot, color = Palette.text, fontSize = if (compact) 14.sp else 16.sp,
-                            lineHeight = if (compact) 20.sp else 23.sp, maxLines = if (compact) 3 else 4,
-                            overflow = TextOverflow.Ellipsis,
+                    val plot = dev.relay.tv.data.PlotText.clean(tmdb?.overview ?: info?.plot)
+                    if (plot != null) {
+                        PlotBlock(
+                            plot, s.name, maxLines = if (compact) 3 else 4,
+                            fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 20.sp else 23.sp, key = "sd:plot",
                         )
                     }
                 }
@@ -374,13 +377,14 @@ fun SeriesDetailScreen(s: Series) {
             }
         }
     }
-    trailerFallback?.let { TrailerFallbackDialog(it) { trailerFallback = null } }
+    trailerFallback?.let { TrailerQrDialog(it) { trailerFallback = null } }
 }
 
 /**
  * **Trailer** when one is known, otherwise a quieter **Find a trailer** once the details have
- * loaded. Hidden on kids profiles: the YouTube app is outside Relay's kids limits and parent PIN.
- * [onNoApp] receives the address when nothing on the device can open it.
+ * loaded. Hidden on kids profiles: YouTube is outside Relay's kids limits and parent PIN.
+ * On a TV both show the address as a QR code ([showQr]), so the trailer plays on the viewer's own phone
+ * and nothing opens on the TV. On a phone they open YouTube, and [showQr] is only used when nothing can.
  */
 @Composable
 private fun TrailerButton(
@@ -391,15 +395,24 @@ private fun TrailerButton(
     name: String,
     year: String?,
     key: String,
-    onNoApp: (String) -> Unit,
+    showQr: (String) -> Unit,
 ) {
     if (!allowed) return
+    val tv = rememberIsTv()
+    val go: (String) -> Unit = { url ->
+        if (tv) {
+            AppLog.i("Trailer", "QR code shown for ${displayTitle(name)}")
+            showQr(url)
+        } else if (!TrailerLauncher.open(ctx, url, displayTitle(name))) {
+            showQr(url)
+        }
+    }
     if (trailerId != null) {
         val url = Trailers.watchUrl(trailerId)
-        PillButton("Trailer", { if (!TrailerLauncher.open(ctx, url, displayTitle(name))) onNoApp(url) }, icon = Icons.Filled.PlayArrow, key = key)
+        PillButton("Trailer", { go(url) }, icon = Icons.Filled.PlayArrow, key = key)
     } else if (detailsDone && Trailers.SEARCH_ENABLED) {
         val url = remember(name, year) { Trailers.searchUrl(Tmdb.cleanTitle(name), year) }
-        PillButton("Find a trailer", { if (!TrailerLauncher.open(ctx, url, displayTitle(name))) onNoApp(url) }, icon = Icons.Filled.Search, key = key)
+        PillButton("Find a trailer", { go(url) }, icon = Icons.Filled.Search, key = key)
     }
 }
 

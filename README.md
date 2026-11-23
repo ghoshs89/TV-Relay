@@ -49,8 +49,8 @@ Relay signs in to an Xtream Codes account and plays what that account provides. 
   <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, daily viewing time and bedtime for kids, a parent PIN for anything that changes access</td></tr>
   <tr><td><b>Reliability</b></td><td>One entry per channel with automatic fallback to its other versions, backup servers (the ones meant for use with or without a VPN tried first to match), stalled streams reconnect on their own, failures explained in plain words, a library refresh that can't wipe your saved lists, and a ready-to-use copy of the library so channels appear within seconds after a restart</td></tr>
   <tr><td><b>Picture and sound</b></td><td>Refresh-rate matching, Dolby and DTS audio, lip-sync adjustment, subtitle style, stream info on start</td></tr>
-  <tr><td><b>Several screens</b></td><td>Optional sync keeps profiles, favourites, watch history, kids' viewing time and shared settings the same on every TV and phone you own, through a private GitHub repository of your own, encrypted before it leaves the screen. <b>Play on TV</b> hands what the phone is playing to a TV at home</td></tr>
-  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers that open in YouTube, API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates</td></tr>
+  <tr><td><b>Several screens</b></td><td>Optional sync keeps profiles, favourites, watch history, kids' viewing time and shared settings the same on every TV and phone you own, through a private GitHub repository of your own, encrypted before it leaves the screen. <b>Play on TV</b> hands what the phone is playing (a channel, a film, an episode, catch-up or Start over) to a TV at home</td></tr>
+  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers (a QR code to watch on your phone when you're at the TV, YouTube on a phone), API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates</td></tr>
 </table>
 
 ## Install
@@ -122,7 +122,13 @@ If your provider gives separate addresses for use with and without a VPN, enter 
 | OK | Show the player controls: audio, subtitles and speed |
 | Back | Hide the controls; otherwise a large prompt says *Press Back again to leave the player* and a second Back within about two seconds leaves it. Your position is saved. |
 
-**On a movie or series page:** the **Trailer** button opens the trailer in the YouTube app, and Back returns to the same page. It appears when your provider or TMDB knows a trailer (a TMDB key finds more, including trailers in the film's own language, for example Hindi or Bengali). When none is known, **Find a trailer** opens a YouTube search for the title instead. Neither button appears on kids profiles, because YouTube is outside Relay's kids limits and parent PIN. On a device without YouTube, Relay shows a QR code to watch it on your phone.
+**On a movie or series page:**
+
+- **Trailer** appears when your provider or TMDB knows a trailer (a TMDB key finds more, including trailers in the film's own language, for example Hindi or Bengali). When none is known, **Find a trailer** looks for one on YouTube instead.
+- **On a TV**, both show a **QR code**: scan it with your phone's camera and the trailer plays in YouTube on your phone, while the TV stays on the page. Back closes the code.
+- **On a phone**, both open the YouTube app, and Back returns to the same page. A phone without YouTube shows the QR code instead, for another phone.
+- Neither button appears on kids profiles, because YouTube is outside Relay's kids limits and parent PIN.
+- **The summary** shows a few lines. When there is more, press **Down** from the buttons to reach it (it says **More**) and **OK** to read all of it; Up and Down scroll a long one. Leftovers that some providers copy from other sites, such as "… Read all" or "See full summary »", are removed: they were never links.
 
 **Closing Relay:** on Home (any tab), the profile picker and the sign-in screen, Back asks **Close Relay?** with **Stay in Relay** selected. Back again, or choosing Stay, keeps Relay open; the app closes only when you choose **Close Relay**. On a film or series page Back still goes to the list underneath.
 
@@ -274,7 +280,7 @@ On a phone, **Play on TV** starts what you're watching on one of your TVs instea
 
 - **Where:** the **Play on TV** button at the top of the player (tap the video to show it), on a film's page, on a series page (it sends the episode in the Continue button), and in a Live TV channel's panel. **Hold** an episode card on a series page, or a programme in a channel's Catch-up list, to send that one instead.
 - **What it needs:** the phone and the TV both use sync (they're in the same household), they're on the same Wi-Fi, and **Relay is open on the TV**, on any screen. Relay can't start itself on a TV that is off or showing another app.
-- **What travels:** only which channel, film or episode to play and where to start, sealed with a key worked out from your household's sync key. No stream address, login or password leaves the phone. The TV plays the item from its own library with its own player, so pause and rewind, backup servers and channel versions all work as usual.
+- **What travels:** only which channel, film, episode or recorded programme to play and where to start, sealed with a key worked out from your household's sync key. No stream address, login or password leaves the phone. The TV plays the item from its own library with its own player, so pause and rewind, backup servers and channel versions all work as usual.
 - **Profiles:** the TV plays on the profile open on the TV. A kids profile on the TV refuses anything it couldn't open itself, and so does a profile that has reached its viewing time or bedtime. If the TV is on the profile picker, pick a profile there first.
 - **Other households:** a TV only accepts requests sealed with its own household's key, so a friend's phone, or anything else on your Wi-Fi, can't start things on your TVs.
 
@@ -306,7 +312,7 @@ Settings → Library → Rotten Tomatoes scores. Add a free MDBList key (mdblist
 <details>
 <summary><b>TMDB artwork and details</b></summary>
 
-Settings → Library → TMDB API key, then **Send from my phone** (or **Type it here**). A free key from themoviedb.org (Settings → API) adds better backdrops, ratings, genres, cast and trailers to movie and series pages. Without it, Relay uses your provider's own information. Either the 32-character "API Key" or the longer "API Read Access Token" works, and spaces, quotes or a leading `api_key=` in what you paste are ignored.
+Settings → Library → TMDB API key, then **Send from my phone** (or **Type it here**). A free key from themoviedb.org (Settings → API) adds better backdrops, ratings, genres, cast and trailers to movie and series pages, and a full summary where the provider's is cut short (many copy theirs from IMDb, which shortens them). Without it, Relay uses your provider's own information. Either the 32-character "API Key" or the longer "API Read Access Token" works, and spaces, quotes or a leading `api_key=` in what you paste are ignored.
 
 </details>
 
@@ -408,8 +414,10 @@ app/src/main/java/dev/relay/tv/
                     mergeable records and encryption for sync
   ui/               Compose screens for TV and phone
   player/           Media3 player, pause-buffer recorder, stream recovery
-  companion/        phone companion web page and library editor
-  sync/             sync engine, GitHub storage, pairing and status text
+  companion/        phone companion web page, library editor, and the small
+                    home-network HTTP helpers it shares with Play on TV
+  sync/             sync engine, GitHub storage, pairing, status text,
+                    and Play on TV (the TV's receiver and the phone's sender)
   tv/               Google TV home screen (Continue watching)
   update/           in-app updater
   net/              whether the device's connection goes through a VPN
@@ -445,7 +453,7 @@ flowchart TB
         RATINGS["data/Ratings, Tmdb,<br/>MdbList, Trailers"]
         STORE["data/Store<br/>profiles, favourites, history,<br/>settings, login"]
         API["data/XtreamApi<br/>provider calls, server order"]
-        SYNC["sync/<br/>merge engine, pairing"]
+        SYNC["sync/<br/>merge engine, pairing,<br/>Play on TV receiver"]
         UPD["update/<br/>in-app updater"]
     end
 
@@ -475,6 +483,8 @@ flowchart TB
     SYNC <--> STORE
     SYNC <-->|"read, merge, write"| SYNCFILE
     SCREENS <--> SYNCFILE
+    SCREENS -->|"Play on TV<br/>home Wi-Fi, sealed"| SYNC
+    SYNC -->|"play on this TV"| PLAYER
     UPD -->|"check, download"| REL
     WN -->|"in-progress titles"| GTV
 ```
@@ -486,8 +496,8 @@ flowchart TB
 | `data/XtreamApi` | All calls to the provider, and the list of stream URLs for the player. |
 | `data/Store` | Everything personal: profiles, favourites, history, settings and the login. Sync, backups and the phone page all read and write it. |
 | `player/` | A separate activity around Media3, with bundled FFmpeg audio decoders. |
-| `sync/` | Keeps screens the same through one encrypted file; also pairing a new screen. |
-| `companion/` | A small web server on the TV for the phone: sign-in, API keys, library editing and log download. |
+| `sync/` | Keeps screens the same through one encrypted file; also pairing a new screen, and Play on TV: on a TV with Relay open it listens on the home network for a phone of the same household. |
+| `companion/` | A small web server on the TV for the phone: sign-in, API keys, library editing and log download. Its plain HTTP helpers (`LanHttp`) are shared with the Play on TV receiver. |
 | `update/` | Compares the installed build number with the latest GitHub Release and installs the signed APK. |
 | `tv/` | Puts movies and episodes in progress on the Google TV home screen; choosing one opens Relay at `relay://resume`. |
 
@@ -525,6 +535,24 @@ sequenceDiagram
     B->>B: Merge, then apply what it lacked to its own Store
     B->>F: Write back only if it had something the file lacked
 ```
+
+### Play on TV
+
+```mermaid
+sequenceDiagram
+    participant P as Phone (Relay)
+    participant T as TV (Relay open, same household)
+    Note over P,T: Both hold the household sync key. The TV announces itself on the home network<br/>with a tag worked out from that key; the phone lists only its own household's TVs.
+    P->>P: Build the request: channel, film, episode or catch-up, and where to start
+    P->>T: Send it sealed (AES-GCM, a key worked out from the household key)
+    T->>T: Open it, check it is recent and not a repeat
+    T->>T: Look the item up in its own library, check the profile open on the TV
+    T->>T: Play it with its own player and its own login
+    T-->>P: "Playing on <TV>", or why not
+    P->>P: Stop playing, so the provider sees one connection
+```
+
+No stream address, user name or password is in the request: the TV builds the address from its own login.
 
 ### How the library gets on screen
 
