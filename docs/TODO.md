@@ -38,7 +38,7 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 ## Check on a device
 
-Trailers and the summary (first build after 1.0.116):
+Trailers and the summary (1.0.117):
 
 | Item | What to look for |
 |---|---|
@@ -126,7 +126,7 @@ Plan 3 (first build that contains it; see Done):
 | Item | What to look for |
 |---|---|
 | Keys from the phone (F) | Settings → Library → TMDB API key (or Rotten Tomatoes scores) → **Send from my phone**. Scan, paste a good key and a bad one. The phone and the TV both say whether each was accepted; the TV window closes after a good key; scores and artwork appear on a movie page. |
-| Trailers (G) | Since the release after 1.0.116, on a TV **Trailer** and **Find a trailer** show a QR code instead of opening YouTube (see the row at the top of this list). On a phone they open YouTube and Back returns to the same page; on a phone without YouTube the QR code appears. No button on a kids profile. |
+| Trailers (G) | Since 1.0.117, on a TV **Trailer** and **Find a trailer** show a QR code instead of opening YouTube (see the row at the top of this list). On a phone they open YouTube and Back returns to the same page; on a phone without YouTube the QR code appears. No button on a kids profile. |
 | Nothing looks different after the storage change (H1) | Remove a Continue watching card, add and remove a favourite, change a setting, restart Relay: everything is as you left it. Kids viewing time still counts and still stops at the limit. |
 | Turn on sync (H2) | Make the private repository and token (README, *Sync between screens*). Settings → Sync between screens → Turn on sync, scan, paste. The status says *In sync*; change a favourite and a commit appears in the repository within about a minute. Sync stays off until you do this. |
 | Add a second screen (H3) | On the new TV: Settings → Join sync from another screen (or the sign-in page's *I already use Relay on another screen*). On the first: Add a screen. Check: the new TV is listed within a few seconds (does discovery work on your Wi-Fi?), both show the same six digits, Join signs the new TV in by itself and shows the same Continue watching, favourites, keys and languages. |
@@ -165,7 +165,7 @@ Older checks:
 
 | Release | What |
 |---|---|
-| next release after 1.0.116 | On a TV, **Trailer** and **Find a trailer** show a QR code to watch the trailer on your phone (phones still open YouTube). Long summaries on film and series pages can be reached with the remote and opened in full; leftovers such as "… Read all" from the provider's text are removed |
+| 1.0.117 | On a TV, **Trailer** and **Find a trailer** show a QR code to watch the trailer on your phone (phones still open YouTube). Long summaries on film and series pages can be reached with the remote and opened in full; leftovers such as "… Read all" from the provider's text are removed |
 | 1.0.116 | **Play on TV** also takes catch-up shows and programmes watched with Start over (at the same minute), and series pages get a Play on TV button for the next episode; hold an episode card or a programme in a channel's Catch-up list to send that one |
 | 1.0.115 | **Play on TV**: a phone hands what it is playing (a live channel, a film at the same minute, an episode with the next ones queued) to a TV of the same sync household that has Relay open; the TV plays it from its own library under its own profile, and the phone stops. Nothing but the item and position travels, sealed with a key from the household sync key |
 | 1.0.113 | Three fixes from the 12 Nov review and TV log: a screen that joins sync no longer adds a second profile of the same name (its own "Me" becomes the household's, with its favourites and history); a failed request about one channel or title no longer makes Relay treat the whole server as down for 10 minutes; the provider's guide is downloaded once at start-up, not twice. Profiles already doubled are not merged: delete the spare one in Settings → Profiles. |
