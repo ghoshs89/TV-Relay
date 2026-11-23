@@ -1,8 +1,8 @@
-# Relay: what plans 1 to 4 did, and what they found out
+# Relay: what the plans did, and what they found out
 
-Plans 1 to 4 are finished and their full text is in the repository's history (`git log -- docs/PLAN.md docs/PLAN-2.md docs/PLAN-3.md docs/PLAN-4.md`). This file keeps the parts that still matter: the measurements, the benchmark results, the rules that came out of the work, and where each plan differed from what it set out to do. Later plans (5 to 7) are likewise only in the repository's history; what is open is in [TODO.md](TODO.md).
+Plans 1 to 4 are finished and their full text is in the repository's history (`git log -- docs/PLAN.md docs/PLAN-2.md docs/PLAN-3.md docs/PLAN-4.md`). This file keeps the parts that still matter: the measurements, the benchmark results, the rules that came out of the work, and where each plan differed from what it set out to do. Later plans (5 to 7 and the work after them) are likewise only in the repository's history, and are summed up in the table below; what is open is in [TODO.md](TODO.md).
 
-## 1. The four plans in one table
+## 1. The plans in one table
 
 | Plan | About | Released as | Left out (now tracked in TODO.md) |
 |---|---|---|---|
@@ -10,6 +10,11 @@ Plans 1 to 4 are finished and their full text is in the repository's history (`g
 | 2 | Frame and list timing in the log; the scripted benchmark; hold OK on a remote; cheaper focus; 1 s live start buffer; saves off the screen thread; cancellable list builds; image pool; sleep timer; "Are you still watching?" | 1.0.33 to 1.0.42, fix in 1.0.77 | Generated baseline profile, last five channels, Up next card, player split |
 | 3 | API keys from the phone; Trailer buttons; sync between screens (mergeable data, encrypted file in a private GitHub repository, pairing) | 1.0.91 | Hand-over hint, WebDAV, pairing link from a TV, sync benchmark stretch |
 | 4 | Saved ready-to-use copy of the prepared library; channel text work done once per name; cheaper refreshes; stall watch false alarm; first TV log read | 1.0.108 | Phase A's cost on the first start after an update; the saved copy's channel read |
+| 5 | Review of the app; a device tier so recent phones get shorter waits while TVs keep theirs; the player filling the screen on phones, touch sizes, headphones pausing; screen-thread fixes (A to Z strip, Home language rows, learned languages); quicker repeat searches; frame counting by refresh rate; guide, Search and touch stretches in the benchmark | 1.0.110 | Guide grid drawing only what is on screen, player correctness, media session, phone-shaped benchmark pass |
+| 6 | All of the provider's servers, marked for use with or without a VPN and tried in the right order (written and released by another session) | 1.0.112 | |
+| 7 | **Close Relay?** on Back; a clear "leave the player" prompt; updates without a token now the repository is public; README section on sharing the APK | 1.0.114 | Moving sync out of the public repository (needs the owner's screens) |
+| Play on TV | A phone of the household hands a channel, film or episode to a TV that has Relay open (1.0.115); then catch-up, Start over and series pages (1.0.116). Sealed with a key from the household sync key; the TV plays from its own library under its own profile | 1.0.115, 1.0.116 | Google Cast, parked (see TODO.md) |
+| Trailers and summaries | Trailers as a QR code on TVs; long summaries reachable with the remote and readable in full; "Read all" leftovers removed | release after 1.0.116 | |
 
 ## 2. Measurements from the TV
 
@@ -83,5 +88,5 @@ Plan 4 also found the channel stage on the JSON path 3 to 35% slower than `main`
 
 ## 6. Known gaps in what has been checked
 
-* Nothing from plans 2 to 5 has been seen on a TV or a phone by the people who wrote it. It is compiled, unit tested, started on an emulator and driven by the scripted benchmark. The "Check on a device" lists in TODO.md are the remaining check.
+* Most of plans 2 to 5 has not been seen on a TV or a phone by the people who wrote it: it is compiled, unit tested, started on an emulator and driven by the scripted benchmark. The owner has since confirmed **Close Relay?** (1.0.114) and **Play on TV** (1.0.115, 21 Nov) on a real TV and phone. The "Check on a device" lists in TODO.md are the remaining check.
 * The benchmark covers lists, grids, one live channel and (since plan 5) the guide grid, Search and touch flings. It does not cover the player's retry paths, sync, or pairing.

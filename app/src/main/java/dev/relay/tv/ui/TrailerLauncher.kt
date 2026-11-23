@@ -13,15 +13,16 @@ import dev.relay.tv.companion.QrCode
 import dev.relay.tv.data.AppLog
 
 /**
- * Trailers play in the YouTube app, not inside Relay: Relay's own player cannot play YouTube
- * (extracting its streams is against YouTube's terms and breaks every few months), and a web page
- * inside the app handles a remote control badly and is refused by many trailers.
+ * Trailers play in YouTube, not inside Relay: Relay's own player cannot play YouTube (extracting its
+ * streams is against YouTube's terms and breaks every few months), and a web page inside the app handles
+ * a remote control badly and is refused by many trailers. On TVs the trailer is offered as a QR code for
+ * a phone (see TrailerQrDialog); on phones this opens the YouTube app.
  */
 object TrailerLauncher {
 
     /**
      * Hands [url] to whichever app handles YouTube addresses. Returns false when nothing could open
-     * it, so the caller can show [TrailerFallbackDialog]. Back from YouTube returns to the page that called.
+     * it, so the caller can show [TrailerQrDialog]. Back from YouTube returns to the page that called.
      */
     fun open(ctx: Context, url: String, what: String): Boolean =
         try {
@@ -35,18 +36,23 @@ object TrailerLauncher {
         }
 }
 
-/** Shown when no app on the device can open YouTube: the address as a QR code for a phone. */
+/**
+ * The trailer's YouTube address as a QR code, to watch it on a phone. What TVs always show (the trailer
+ * plays on the viewer's own phone, nothing opens on the TV); on a phone, only when no app can open YouTube.
+ */
 @Composable
-fun TrailerFallbackDialog(url: String, onDismiss: () -> Unit) {
+fun TrailerQrDialog(url: String, onDismiss: () -> Unit) {
     val close = remember { FocusRequester() }
+    val tv = rememberIsTv()
     InitialFocus(close)
-    TvDialog(onDismiss, width = 520.dp) {
-        Text("Watch the trailer on your phone", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+    TvDialog(onDismiss, width = 560.dp) {
+        Text("Scan to watch the trailer on your phone", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
-            "This device has no app that can open YouTube. Scan the code to watch it on your phone.",
+            if (tv) "Point your phone's camera at the code to open it in YouTube."
+            else "This device has no app that can open YouTube. Scan the code with another phone to watch it there.",
             fontSize = Type.small, color = Palette.dim,
         )
-        QrCode(url, 160.dp)
-        PillButton("Close", onDismiss, focusRequester = close)
+        QrCode(url, if (tv) 220.dp else 160.dp)
+        PillButton("Close", onDismiss, focusRequester = close, key = "trailer:close")
     }
 }

@@ -9,7 +9,7 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 | # | What | Notes |
 |---|---|---|
 | A | **Move sync out of this repository, now that it is public** | Sync is pointed at this repository (`relay-sync.bin` is here, and about 100 "Relay sync" commits of it). The repository is **public** since 15 Nov, so the encrypted file and its history are downloadable by anyone (unreadable without your household key, but its size and the times you use Relay show). It also gives every screen a token that can write to the repository whose `main` branch builds and installs on every device. Turning sync on again in the new repository makes a new household key, so the old public file versions stay undecryptable. The new private repository `ghoshs89/Relay-TV_Sync` exists. Still to do: on every screen **Stop syncing on this screen**; on one screen turn sync on with `ghoshs89/Relay-TV_Sync` and its token; join the others; delete the old token on GitHub. Then `relay-sync.bin` and its line in `.github/workflows/build.yml` can go (to-do 1 below). The token for the new repository was pasted into a chat: once sync runs there, replace it (*Replace the token* on the phone page, then **Join again** on the other screens) and delete it. |
-| B | **Device checks, on the TV and on the phone** | The lists under "Check on a device". Nothing since 1.0.24 has been looked at on a TV, and no phone has ever been measured. |
+| B | **Device checks, on the TV and on the phone** | The lists under "Check on a device". Seen working on your TV and phone so far: **Close Relay?** on Back (1.0.114), **Play on TV** for a channel from the phone (1.0.115, 21 Nov). Still to look at: the phone player full screen and touch sizes (1.0.110), the catch-up and series additions to Play on TV (1.0.116), the trailer QR code and the summary (this release), and the plan 4 start-up timings for the measurements table in HISTORY.md. |
 | C | Delete the scratch branches on GitHub | `p2`, `p2base`, `p2r`, `p2s`, `p3base`, `p4base`, `p4base-big`, `pB`, `pC`, `pE1`, `pE2`, `pFA`, `pFB`, `pFC`, `plan3`, `plan4`, `plan4-big`, `plan4-exec`. |
 
 ## After installing the release that follows 1.0.110, in this order
@@ -33,9 +33,18 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 | 9 | Real baseline profile (plan 2 item A4) | The profile in the repo is a wildcard list. A generated one needs a Macrobenchmark run. |
 | 10 | Plan 4 leftovers | The first start after an update was 3 to 35% slower on the emulator (cause not found); the saved copy's channel read. Both need the TV log. |
 | 11 | Benchmark: a phone-shaped emulator pass and a `detail-open-and-back` stretch | Touch flings were added to the existing run in plan 5; a separate phone profile was not. |
+| 13 | **Stay close to live** | With pause & rewind on, each stream hiccup leaves the picture about 3 s further behind live for good (0:24 behind in the 18 Nov screenshot). Plan: play slightly faster (about 1.1×) until close to live when the viewer didn't pause or rewind, jump to live past about 30 s, and measure "behind live" by time instead of by data. Channels sending Dolby or DTS straight to a sound bar can only jump. |
 | 12 | Sync, later polish | Pairing link shown as a QR code on a TV; a hint under a Continue watching card that came from another screen; an extra pull when a detail page opens; WebDAV if you would rather keep the data at home. |
 
 ## Check on a device
+
+Trailers and the summary (first build after 1.0.116):
+
+| Item | What to look for |
+|---|---|
+| Trailer QR on a TV | On a film or series page with a trailer, **Trailer** shows a QR code and nothing opens on the TV. Scanning it with a phone opens the trailer in YouTube on the phone. Back or **Close** returns to the page with focus on the button. The same for **Find a trailer**. |
+| Trailer on a phone | **Trailer** still opens the YouTube app. |
+| The summary | On BB.Bakshi (or any title whose summary ended in "Read all"), that text is gone and a cut summary ends with "…". Down from the buttons reaches a long summary, which says **More**; OK shows the whole text, Up and Down scroll it, Back closes it. A short summary is skipped by the remote as before. |
 
 Play on TV (first build that contains it). Phone and TV in the same sync household, on the same Wi-Fi, Relay open on the TV:
 
@@ -117,7 +126,7 @@ Plan 3 (first build that contains it; see Done):
 | Item | What to look for |
 |---|---|
 | Keys from the phone (F) | Settings → Library → TMDB API key (or Rotten Tomatoes scores) → **Send from my phone**. Scan, paste a good key and a bad one. The phone and the TV both say whether each was accepted; the TV window closes after a good key; scores and artwork appear on a movie page. |
-| Trailers (G) | On a movie and on a series with a trailer, **Trailer** opens YouTube and Back returns to the same page. On a title without one, **Find a trailer** opens a YouTube search (G6: confirm the search lands on a sensible page on the TV). No button on a kids profile. On a TV without YouTube a QR code appears. |
+| Trailers (G) | Since the release after 1.0.116, on a TV **Trailer** and **Find a trailer** show a QR code instead of opening YouTube (see the row at the top of this list). On a phone they open YouTube and Back returns to the same page; on a phone without YouTube the QR code appears. No button on a kids profile. |
 | Nothing looks different after the storage change (H1) | Remove a Continue watching card, add and remove a favourite, change a setting, restart Relay: everything is as you left it. Kids viewing time still counts and still stops at the limit. |
 | Turn on sync (H2) | Make the private repository and token (README, *Sync between screens*). Settings → Sync between screens → Turn on sync, scan, paste. The status says *In sync*; change a favourite and a commit appears in the repository within about a minute. Sync stays off until you do this. |
 | Add a second screen (H3) | On the new TV: Settings → Join sync from another screen (or the sign-in page's *I already use Relay on another screen*). On the first: Add a screen. Check: the new TV is listed within a few seconds (does discovery work on your Wi-Fi?), both show the same six digits, Join signs the new TV in by itself and shows the same Continue watching, favourites, keys and languages. |
@@ -156,6 +165,7 @@ Older checks:
 
 | Release | What |
 |---|---|
+| next release after 1.0.116 | On a TV, **Trailer** and **Find a trailer** show a QR code to watch the trailer on your phone (phones still open YouTube). Long summaries on film and series pages can be reached with the remote and opened in full; leftovers such as "… Read all" from the provider's text are removed |
 | 1.0.116 | **Play on TV** also takes catch-up shows and programmes watched with Start over (at the same minute), and series pages get a Play on TV button for the next episode; hold an episode card or a programme in a channel's Catch-up list to send that one |
 | 1.0.115 | **Play on TV**: a phone hands what it is playing (a live channel, a film at the same minute, an episode with the next ones queued) to a TV of the same sync household that has Relay open; the TV plays it from its own library under its own profile, and the phone stops. Nothing but the item and position travels, sealed with a key from the household sync key |
 | 1.0.113 | Three fixes from the 12 Nov review and TV log: a screen that joins sync no longer adds a second profile of the same name (its own "Me" becomes the household's, with its favourites and history); a failed request about one channel or title no longer makes Relay treat the whole server as down for 10 minutes; the provider's guide is downloaded once at start-up, not twice. Profiles already doubled are not merged: delete the spare one in Settings → Profiles. |
@@ -186,4 +196,5 @@ Older checks:
 
 | Idea | Notes |
 |---|---|
+| Google Cast | Parked on 21 Nov 2026 in favour of **Play on TV** (built in 1.0.115). Cast would hand the stream address, which holds the provider login, to a Chromecast; many provider formats (MPEG-TS live, MKV films, plain `http`) don't play on Google's receiver; and pause & rewind, channel versions, backup servers and kids' limits would not apply there. Worth it only for screens that can't run Relay, starting with HLS channels on a real Chromecast. |
 | Stremio add-ons with Real-Debrid and TorBox | Parked by the owner on 12 Nov 2026. Sketch: "More sources" on movie and episode pages from the owner's own add-on URLs (direct links only), then the debrid clouds as a row, then add-on catalogs. Needs IMDb ids (through the TMDB lookup), an audio-codec answer for DTS and TrueHD files, and add-on URLs treated as secrets. |
