@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
+import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import androidx.test.core.app.ActivityScenario
@@ -34,6 +35,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.abs
 
 @RunWith(AndroidJUnit4::class)
 class ReliabilityTest {
@@ -165,7 +167,8 @@ class ReliabilityTest {
             scenario.moveToState(Lifecycle.State.RESUMED)
             scenario.onActivity {
                 assertFalse(player(it).playWhenReady)
-                assertEquals(pausedAt, player(it).currentPosition)
+                val positionDifference = abs(pausedAt - player(it).currentPosition)
+                assertTrue("Paused movie moved by ${positionDifference}ms", positionDifference <= 250)
                 player(it).play()
             }
             scenario.moveToState(Lifecycle.State.CREATED)

@@ -18,7 +18,9 @@ done
 curl -fsS http://localhost:8099/player_api.php > /dev/null
 
 ./gradlew :app:connectedDebugAndroidTest --no-daemon
-adb uninstall dev.relay.tv
+if adb shell pm path dev.relay.tv | grep -q '^package:'; then
+  adb uninstall dev.relay.tv
+fi
 bash .github/smoke-test.sh "$apk"
 adb uninstall dev.relay.tv
 
