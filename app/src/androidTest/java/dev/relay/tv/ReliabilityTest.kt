@@ -1,5 +1,6 @@
 package dev.relay.tv
 
+import android.os.ParcelFileDescriptor
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.setContent
@@ -137,8 +138,25 @@ class ReliabilityTest {
         }
     }
 
-    @OptIn(UnstableApi::class)
     @Test fun movieKeepsPlayingOrPausedAcrossStopAndStart() {
+        // ActivityScenario backgrounds the player with a user-leave hint. Disable PiP on this
+        // emulator for this test so the playing case reaches onStop as well as onPause.
+        val op = "appops set ${app.packageName} PICTURE_IN_PICTURE"
+        shell("$op ignore")
+        try {
+            checkMovieBackgroundPlayback()
+        } finally {
+            shell("$op default")
+        }
+    }
+
+    private fun shell(command: String) {
+        val result = instrumentation.uiAutomation.executeShellCommand(command)
+        ParcelFileDescriptor.AutoCloseInputStream(result).bufferedReader().use { it.readText() }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun checkMovieBackgroundPlayback() {
         instrumentation.runOnMainSync {
             app.store.profiles = listOf(adult)
             app.store.parentPin = null
