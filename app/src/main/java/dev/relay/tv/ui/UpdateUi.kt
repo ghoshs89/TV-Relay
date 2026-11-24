@@ -1,19 +1,42 @@
 package dev.relay.tv.ui
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.relay.tv.BuildConfig
@@ -48,12 +71,17 @@ fun UpdateDialog() {
 
     InitialFocus(primary, state::class)
 
-    TvDialog(onDismiss = close, width = 620.dp) {
+    val hasNotes = state is UpdateState.Available && state.info.notes.isNotBlank()
+    TvDialog(onDismiss = close, width = 620.dp, scrollContent = !hasNotes) {
         when (state) {
             is UpdateState.Available -> {
                 Title("Relay ${state.info.versionName} is ready")
                 Body("You have ${BuildConfig.VERSION_NAME}.")
-                if (state.info.notes.isNotBlank()) Notes(state.info.notes)
+                if (hasNotes) {
+                    key(state.info.versionCode) {
+                        Notes(state.info.notes, Modifier.weight(1f, fill = false))
+                    }
+                }
                 Buttons {
                     PillButton("Update now", {
                         scope.launch { Updater.downloadAndInstall(ctx, app.http, state.info) }
@@ -145,11 +173,48 @@ private fun Body(text: String) {
 }
 
 @Composable
-private fun Notes(text: String) {
-    Text(
-        text, fontSize = Type.body, color = Palette.text, lineHeight = 22.sp,
-        maxLines = 8, overflow = TextOverflow.Ellipsis,
-    )
+private fun Notes(text: String, modifier: Modifier = Modifier) {
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val step = with(LocalDensity.current) { 72.dp.toPx() }
+    val overflows = scroll.maxValue in 1 until Int.MAX_VALUE
+    var focused by remember { mutableStateOf(false) }
+    val thumb = if (focused) Palette.accent else Palette.dim
+    Box(
+        modifier.fillMaxWidth()
+            .border(1.dp, if (focused) Palette.accent else Color.Transparent, RoundedCornerShape(8.dp))
+            .drawWithContent {
+                drawContent()
+                val range = scroll.maxValue
+                if (range in 1 until Int.MAX_VALUE && size.height > 0f) {
+                    val thumbHeight = (size.height * size.height / (size.height + range))
+                        .coerceIn(minOf(16.dp.toPx(), size.height), size.height)
+                    val y = (size.height - thumbHeight) * (scroll.value.toFloat() / range)
+                    drawRoundRect(
+                        thumb, Offset(size.width - 6.dp.toPx(), y),
+                        Size(3.dp.toPx(), thumbHeight), CornerRadius(2.dp.toPx()),
+                    )
+                }
+            }
+            .onFocusChanged { focused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val delta = when {
+                    event.key == Key.DirectionUp && scroll.canScrollBackward -> -step
+                    event.key == Key.DirectionDown && scroll.canScrollForward -> step
+                    else -> return@onPreviewKeyEvent false
+                }
+                scope.launch { scroll.scrollBy(delta) }
+                true
+            }
+            .focusable(enabled = overflows)
+            .verticalScroll(scroll),
+    ) {
+        Text(
+            text, modifier = Modifier.padding(start = 4.dp, end = 14.dp, top = 2.dp, bottom = 2.dp),
+            fontSize = Type.body, color = Palette.text, lineHeight = 22.sp,
+        )
+    }
 }
 
 @Composable
