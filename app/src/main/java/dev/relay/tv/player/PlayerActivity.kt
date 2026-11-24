@@ -121,6 +121,7 @@ class PlayerActivity : ComponentActivity() {
     private var tsOffset = 0L
     private val tsDisabled = mutableSetOf<String>()
     private var stoppedInBackground = false
+    private var resumeVodAfterStop: Boolean? = null
     private lateinit var tsSource: ProgressiveMediaSource.Factory
     private lateinit var tsBar: TimeshiftBar
     private val tsTicker = object : Runnable {
@@ -246,7 +247,10 @@ class PlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         current = java.lang.ref.WeakReference(this)
         val r = app.pendingPlay
-        if (r == null || r.items.isEmpty() || app.api.account == null) {
+        val lock = app.session.profileSwitchLock(app.store)
+        if (r == null || r.items.isEmpty() || app.api.account == null ||
+            (lock != null && r.profileId != lock.profileId)
+        ) {
             finish()
             return
         }
@@ -1250,7 +1254,12 @@ class PlayerActivity : ComponentActivity() {
             stoppedInBackground = false
             playLive(liveIndex)
         } else if (::player.isInitialized) {
-            player.play()
+            if (req.live) {
+                player.play()
+            } else {
+                resumeVodAfterStop?.let { player.playWhenReady = it }
+                resumeVodAfterStop = null
+            }
         }
     }
 
@@ -1262,6 +1271,7 @@ class PlayerActivity : ComponentActivity() {
         }
         if (::player.isInitialized) {
             saveProgress(finished = false)
+            if (!req.live) resumeVodAfterStop = player.playWhenReady
             player.pause()
             // Don't keep recording (and using the connection) while Relay is in the background.
             if (req.live && timeshift != null && !isInPictureInPictureMode) {

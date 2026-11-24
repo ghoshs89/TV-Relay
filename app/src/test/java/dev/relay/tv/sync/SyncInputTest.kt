@@ -6,6 +6,14 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SyncInputTest {
+    @Test fun theAppRepositoryCannotBeUsedForSync() {
+        val app = "ghoshs89/TV-Relay"
+        for (input in listOf(app, "https://github.com/GHOSHS89/tv-relay.GIT/", "git@github.com:ghoshs89/TV-Relay.git")) {
+            org.junit.Assert.assertNotNull(SyncInput.repositoryProblem(checkNotNull(Repo.parse(input)), app))
+        }
+        org.junit.Assert.assertNull(SyncInput.repositoryProblem(Repo("ghoshs89", "relay-sync"), app))
+    }
+
     private val good = "github_pat_11ABCDEFG0abcdefghijkl_mnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
 
     @Test fun plainTokenPasses() = assertEquals(good, SyncInput.token(good))

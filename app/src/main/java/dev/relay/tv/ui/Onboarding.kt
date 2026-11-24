@@ -1,5 +1,6 @@
 package dev.relay.tv.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -239,20 +240,27 @@ fun ProfilesScreen(onPick: (Profile) -> Unit) {
     val first = remember { FocusRequester() }
     val gate = rememberParentGate()
 
+    val nav = LocalNav.current
+    val lock = app.session.profileSwitchLock(store)
+    val approved = lock != null && lock == nav.profileSwitchApproval
+    if (lock != null && !approved) {
+        val lockedProfile = profiles.firstOrNull { it.id == lock.profileId }
+        LaunchedEffect(lockedProfile) {
+            lockedProfile?.let {
+                AppLog.i("Access", "Kids lock: reopening ${it.name}")
+                app.session.autoPickDone = true
+                onPick(it)
+            }
+        }
+        return
+    }
+    BackHandler(enabled = approved) { nav.cancelProfileSwitch() }
     LaunchedEffect(Unit) {
         if (store.profiles.isEmpty()) {
             store.profiles = listOf(Profile(id = UUID.randomUUID().toString(), name = "Me", color = 0))
         }
-        if (!app.session.autoPickDone) {
+        if (!approved && !app.session.autoPickDone) {
             app.session.autoPickDone = true
-            // Kids lock: with a parent PIN set, a kids profile used last reopens directly;
-            // leaving it needs the parent PIN (Settings → Switch profile).
-            val last = store.profiles.firstOrNull { it.id == store.lastProfileId }
-            if (store.hasParentPin && last?.kids == true) {
-                AppLog.i("Access", "Kids lock: reopening ${last.name}")
-                onPick(last)
-                return@LaunchedEffect
-            }
             val only = store.profiles.singleOrNull()
             if (only != null && only.pin.isNullOrEmpty()) onPick(only)
         }
@@ -270,7 +278,7 @@ fun ProfilesScreen(onPick: (Profile) -> Unit) {
             profiles.forEachIndexed { i, p ->
                 ProfileTile(
                     name = p.name,
-                    color = Palette.avatars[p.color % Palette.avatars.size],
+                    color = Palette.avatars[p.color.coerceAtLeast(0) % Palette.avatars.size],
                     locked = !p.pin.isNullOrEmpty(),
                     kids = p.kids,
                     focusRequester = if (i == 0) first else null,
@@ -313,7 +321,10 @@ fun ProfilesScreen(onPick: (Profile) -> Unit) {
     pinFor?.let { p ->
         PinDialog(
             title = "PIN for ${p.name}",
-            onDismiss = { pinFor = null },
+            onDismiss = {
+                pinFor = null
+                if (approved) nav.cancelProfileSwitch()
+            },
             check = { it == p.pin },
             onOk = {
                 pinFor = null

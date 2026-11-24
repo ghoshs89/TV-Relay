@@ -145,7 +145,11 @@ fun AppRoot() {
                                         onCancel = if (nav.stack.size > 1) ({ nav.pop(ui.focus) }) else null,
                                     )
                                     Route.Profiles -> ProfilesScreen(
-                                        onPick = { p ->
+                                        onPick = pick@{ p ->
+                                            val lock = app.session.profileSwitchLock(app.store)
+                                            if (lock != null && lock.profileId != p.id && lock != nav.profileSwitchApproval) {
+                                                return@pick
+                                            }
                                             app.session.profile = p
                                             app.store.lastProfileId = p.id
                                             app.ui = UiState()

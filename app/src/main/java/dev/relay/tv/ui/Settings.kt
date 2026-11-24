@@ -455,7 +455,15 @@ fun SettingsTab() {
         backupNote?.let { n -> item { Info("", n) } }
 
         item { Section("Sync between screens") }
-        if (!app.sync.enabled) {
+        val migrationNotice = app.sync.migrationNotice
+        if (migrationNotice != null) {
+            item { Info("Sync paused", migrationNotice) }
+            item {
+                Setting("Stop syncing on this screen", "Keeps everything here", kidsLocked, danger = true) {
+                    gate.run("Parent PIN to stop syncing") { confirmStopSync = true }
+                }
+            }
+        } else if (!app.sync.enabled) {
             item {
                 Setting("Turn on sync", "Off · same favourites, history and settings on every screen", kidsLocked) {
                     gate.run("Parent PIN to set up sync") { syncSetup = true }
@@ -598,11 +606,16 @@ fun SettingsTab() {
         item {
             Setting("Switch profile", current?.name ?: "", false) {
                 val leave = {
+                    val approval = app.session.profileSwitchLock(store)
                     app.session.profile = null
                     app.ui = UiState()
-                    nav.reset(Route.Profiles)
+                    nav.openProfilePicker(approval)
                 }
-                if (current?.kids == true) gate.run("Parent PIN to leave the kids profile", leave) else leave()
+                if (app.session.profileSwitchLock(store) != null) {
+                    gate.run("Parent PIN to leave the kids profile", leave)
+                } else {
+                    leave()
+                }
             }
         }
         item { Setting("Add a profile", "", kidsLocked) { gate.run("Parent PIN to add a profile") { addingProfile = true } } }

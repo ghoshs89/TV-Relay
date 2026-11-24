@@ -9,6 +9,7 @@ import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import dev.relay.tv.BuildConfig
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Profile
@@ -45,6 +46,9 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
         private set
 
     val enabled: Boolean get() = settings.enabled
+    val migrationNotice: String? get() = settings.config?.repo?.let(::repositoryProblem)
+
+    private fun repositoryProblem(repo: Repo) = SyncInput.repositoryProblem(repo, BuildConfig.UPDATE_REPO)
 
     private var running = false
     private var rerun = false
@@ -93,6 +97,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
 
     private fun request(manual: Boolean) {
         val cfg = settings.config ?: return
+        if (repositoryProblem(cfg.repo) != null) return
         val now = System.currentTimeMillis()
         if (!manual && now - lastEnd < MIN_GAP_MS) {
             if (running) rerun = true
@@ -124,6 +129,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
     }
 
     private fun execute(cfg: SyncSettings.Config): SyncOutcome {
+        repositoryProblem(cfg.repo)?.let { return SyncOutcome(SyncResult.Problem, it) }
         val tid = Process.myTid()
         val before = Process.getThreadPriority(tid)
         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
@@ -205,6 +211,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
     suspend fun setUp(repoText: String, tokenText: String): String? = withContext(Dispatchers.IO) {
         SyncInput.problem(repoText, tokenText)?.let { return@withContext it }
         val repo = Repo.parse(repoText)!!
+        repositoryProblem(repo)?.let { return@withContext it }
         val token = SyncInput.token(tokenText)!!
         val transport = GitHubTransport(app.http, repo, token)
         transport.check()?.let { return@withContext it }
@@ -237,6 +244,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
     /** A new token for the repository this screen already syncs with (the old one expired). */
     suspend fun replaceToken(tokenText: String): String? = withContext(Dispatchers.IO) {
         val cfg = settings.config ?: return@withContext "Sync is not set up on this screen."
+        repositoryProblem(cfg.repo)?.let { return@withContext it }
         val token = SyncInput.token(tokenText)
             ?: return@withContext "That doesn't look like a GitHub token. Copy the whole token, it starts with github_pat_."
         GitHubTransport(app.http, cfg.repo, token).check()?.let { return@withContext it }
@@ -254,7 +262,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
      */
     suspend fun stop() {
         val cfg = settings.config
-        if (cfg != null) {
+        if (cfg != null && repositoryProblem(cfg.repo) == null) {
             withContext(Dispatchers.IO) {
                 try {
                     val local = StoreSyncLocal(app, screenName())
@@ -276,7 +284,11 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
     // ---------- adding, removing and locking out screens ----------
 
     /** What another screen needs to join this household, or null when sync is off here. */
-    fun pairBundle(): PairBundle? = settings.config?.let { PairBundle(it.repo.toString(), it.token, SyncSeal.keyToText(it.key)) }
+    fun pairBundle(): PairBundle? {
+        val cfg = settings.config ?: return null
+        if (repositoryProblem(cfg.repo) != null) return null
+        return PairBundle(cfg.repo.toString(), cfg.token, SyncSeal.keyToText(cfg.key))
+    }
 
     /**
      * Joins the household in [b]: checks the repository, takes its token and key, and does the first
@@ -285,6 +297,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
      */
     suspend fun join(b: PairBundle): String? = withContext(Dispatchers.IO) {
         val repo = Repo.parse(b.repo) ?: return@withContext "The pairing details are not valid."
+        repositoryProblem(repo)?.let { return@withContext it }
         val token = SyncInput.token(b.token) ?: return@withContext "The pairing details are not valid."
         val key = SyncSeal.keyFromText(b.key) ?: return@withContext "The pairing details are not valid."
         GitHubTransport(app.http, repo, token).check()?.let { return@withContext it }
@@ -343,6 +356,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
      */
     suspend fun newHouseholdKey(): String? = withContext(Dispatchers.IO) {
         val cfg = settings.config ?: return@withContext "Sync is not set up on this screen."
+        repositoryProblem(cfg.repo)?.let { return@withContext it }
         val newKey = SyncSeal.newKey()
         val local = StoreSyncLocal(app, screenName())
         val ok = SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).rekey(newKey)
@@ -356,6 +370,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
     /** Takes another screen off the list. Cosmetic: a screen that still has the key puts itself back when it syncs. */
     suspend fun removeScreen(id: String): Boolean {
         val cfg = settings.config ?: return false
+        if (repositoryProblem(cfg.repo) != null) return false
         val done = withContext(Dispatchers.IO) {
             val local = StoreSyncLocal(app, screenName())
             SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).forget(id)

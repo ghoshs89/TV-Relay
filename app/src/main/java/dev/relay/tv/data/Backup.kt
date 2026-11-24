@@ -106,7 +106,7 @@ object Backups {
         val ids = b.profiles.map { it.id }
         if (b.profiles.isEmpty()) throw BackupException("The backup has no profiles.")
         if (ids.any { it.isBlank() } || ids.toSet().size != ids.size) throw BackupException("The backup's profiles are damaged.")
-        if (b.profiles.any { it.name.isBlank() }) throw BackupException("The backup's profiles are damaged.")
+        if (b.profiles.any { it.name.isBlank() || it.color < 0 }) throw BackupException("The backup's profiles are damaged.")
         if (b.settings.timeshiftMinutes !in 1..240 || b.settings.subSize !in 0..3) {
             throw BackupException("The backup's settings are damaged.")
         }

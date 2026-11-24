@@ -25,6 +25,8 @@ object Playback {
 
     /** Every play request passes the profile's restrictions here; blocked items never reach the player. */
     private fun launch(ctx: Context, req: PlayRequest) {
+        val lock = app.session.profileSwitchLock(app.store)
+        if (lock != null && req.profileId != lock.profileId) return
         val r = app.catalog.restrictions(app.session.restrict(app.store.settings))
         val limit = app.store.viewingVerdict(req.profileId)
         if (limit is KidsLimits.Verdict.Blocked) {

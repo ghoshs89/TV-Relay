@@ -20,7 +20,7 @@ data class Repo(val owner: String, val name: String) {
                     break
                 }
             }
-            t = t.removeSuffix(".git")
+            if (t.endsWith(".git", ignoreCase = true)) t = t.dropLast(4)
             val parts = t.split('/')
             if (parts.size != 2) return null
             val (o, n) = parts

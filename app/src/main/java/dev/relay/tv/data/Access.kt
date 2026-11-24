@@ -64,6 +64,14 @@ class Restrictions(
     }
 }
 
+/** A parent approval applies to one picker visit and the PIN that was checked then. */
+data class ProfileSwitchLock(val profileId: String, val parentPin: String) {
+    companion object {
+        fun forProfile(profile: Profile?, parentPin: String?): ProfileSwitchLock? =
+            if (profile?.kids == true && !parentPin.isNullOrEmpty()) ProfileSwitchLock(profile.id, parentPin) else null
+    }
+}
+
 /** Parent PIN, stored as a salted hash. */
 object ParentPin {
     fun hash(pin: String, salt: String = newSalt()): String = "$salt:${sha256("$salt:$pin")}"

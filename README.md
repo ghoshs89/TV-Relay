@@ -21,9 +21,9 @@
 </p>
 
 > [!NOTE]
-> This repository is **public**. It holds no logins, keys or tokens: your provider login is typed in on each screen and stays in that screen's private storage, and the builds on the Releases page are the same APK for everyone. Relay updates itself from those releases and needs no token to do so.
+> Relay stores your provider login on your device. Anyone with access to this repository can download the APK from **Releases**. Automatic updates work without a token when the app repository is public. See [update access](#update-access) if you make it private.
 >
-> **Never use this repository for sync.** The sync file would be public, and the token every screen holds could change the app that all your screens install. Sync belongs in a private repository of your own; see *Sync between screens*.
+> Use a separate private GitHub repository for household sync. That keeps the token on each screen separate from the source code and releases. See [Sync between screens](#sync-between-screens).
 
 Relay signs in to an Xtream Codes account and plays what that account provides. No content comes with the app.
 
@@ -122,6 +122,8 @@ If your provider gives separate addresses for use with and without a VPN, enter 
 | OK | Show the player controls: audio, subtitles and speed |
 | Back | Hide the controls; otherwise a large prompt says *Press Back again to leave the player* and a second Back within about two seconds leaves it. Your position is saved. |
 
+When you put Relay in the background, a movie or episode you paused stays paused when you return. Playback resumes if the video was playing.
+
 **On a movie or series page:**
 
 - **Trailer** appears when your provider or TMDB knows a trailer (a TMDB key finds more, including trailers in the film's own language, for example Hindi or Bengali). When none is known, **Find a trailer** looks for one on YouTube instead.
@@ -134,13 +136,13 @@ If your provider gives separate addresses for use with and without a VPN, enter 
 
 **On Home:** hold OK on a Continue watching card or a Recently watched channel to remove it (Menu works too). The **Clear all** button at the end of the Continue watching row empties it after a confirmation.
 
-**In the guide grid:** OK on a past show plays it from catch-up, on a current show tunes in, and on a future show sets a reminder. In the Live TV list, **Right** opens the channel panel: favourite, guide, catch-up, rename and groups.
+**In the guide grid:** the time window advances every half hour while your selected programme stays in view for as long as it remains in the window. OK on a past show plays it from catch-up, on a current show tunes in, and on a future show sets a reminder. In the Live TV list, **Right** opens the channel panel: favourite, guide, catch-up, rename and groups.
 
 ## Settings worth knowing
 
 | Where | What |
 |---|---|
-| **Profiles** | Kids profiles, profile PINs, and the **parent PIN**. Once set, it's needed to add or remove profiles, leave a kids profile, show adult categories, restore a backup, change servers or sign out. A kids profile used last reopens directly when Relay starts. |
+| **Profiles** | Kids profiles, profile PINs, and the **parent PIN**. Once set, it's needed to add or remove profiles, leave a kids profile, show adult categories, restore a backup, change servers or sign out. A kids profile used last reopens directly when Relay starts or Android recreates its screen. Choose **Switch profile** and enter the parent PIN to leave it. |
 | **Profiles** › Viewing time | For each kids profile: minutes per day, bedtime and wake-up time, and **Allow 30 more minutes now**. Only time spent playing counts. |
 | **Playback** | Live stream format, pause & rewind buffer (15, 30 or 60 minutes, up to 1.5 GB, deleted when you leave the channel), refresh-rate matching, lip-sync, start on last channel, Continue watching on the TV home screen, audio language order, jump sizes for Left and Right, **Sleep timer** (30 to 120 minutes; a warning a minute before the end, and any key press then adds more time) and **Are you still watching?** (pauses after three episodes in a row or four hours of live TV with no key press; closes the player if nobody answers in five minutes) |
 | **Subtitles** | Size, colour and background |
@@ -180,7 +182,7 @@ Relay sorts everything into five groups: **English**, **Hindi**, **Bengali** (In
 
 A backup holds profiles, favourites, history, channel groups and renames, sort choices, per-series audio and subtitle choices, reminders and settings. It never contains your login, any PIN, or API keys.
 
-A restore checks the whole file first, so nothing changes if it's damaged or from a newer Relay. It then replaces those items on the device, so back up the device first if you might want its current setup back. PINs already set on the device are kept, and Relay lists any profiles that need a PIN set again. Backups from older versions still restore, without their PINs.
+A restore validates the whole file before replacing your data. A damaged backup, including an invalid avatar colour, or a backup from a newer Relay shows an error. A successful restore replaces those items on the device. Export a backup first if you might want the current setup back. PINs already set on the device are kept, and Relay lists any profiles that need a PIN set again. Backups from older versions still restore, without their PINs.
 
 **Restoring while sync is on:** Relay asks first, because the restored items count as changes made on this screen and spread to your other screens. To restore on this screen only, stop syncing on it first, restore, and join again afterwards. Before the first sync and before a merged file from your other screens is applied, Relay saves a safety copy of this screen's data (the last three are kept), so a sync that does something unexpected can be undone by restoring that copy.
 
@@ -213,6 +215,19 @@ Relay does not run a server for this. The data lives in **one encrypted file in 
 3. Name it `Relay sync`, pick the longest expiry offered, and under Repository access choose **Only select repositories** and pick the sync repository.
 4. Repository permissions → **Contents: Read and write**. Nothing else. Relay's own updates need no token.
 5. Copy the token (it starts with `github_pat_`). GitHub shows it once.
+
+</details>
+
+<details>
+<summary><b>Move sync to a separate private repository</b></summary>
+
+If Relay shows **Sync paused** because it was set up with the app repository, your saved profiles, favourites and history are still on this screen.
+
+1. Export a backup from the screen with the latest viewing history and favourites.
+2. On each screen, go to **Settings → Sync between screens → Stop syncing on this screen**.
+3. Create a separate private sync repository and a fresh token scoped only to that repository. Turn sync on using the backed-up screen as the first screen.
+4. Join the other screens. Check that a favourite and a movie resume position reach a second screen.
+5. Revoke the old sync token once all your screens have moved.
 
 </details>
 
@@ -328,9 +343,9 @@ To get the logs off a **TV**, open the phone companion (Settings → Backup & ph
 
 **Saved copy of the library:** Relay keeps a ready-to-use copy of your prepared library next to the downloaded lists, so after a restart or an update the channels appear in seconds instead of about a minute. It is written a few seconds after the library is prepared from a download or refresh, and it is ignored (and rewritten) whenever anything about it looks wrong, for example after some updates, so the first start after those takes the long way once. Settings → Refresh channels and library rewrites the saved copy. The logs from Settings → Diagnostics say at the top whether it was used and, if not, why.
 
-**Updates stopped arriving:** Settings → Account (or the **Update** button in the top bar) shows why. GitHub limits how often an unnamed visitor may ask (60 an hour per network), so several screens on one network checking at once can be told to wait; it clears by itself. If the message says GitHub rejected an update token, this is an older build that still carries one: install the newest release by hand once.
+**Updates stopped arriving:** Settings → Account (or the **Update** button in the top bar) shows why. GitHub limits how often an unnamed visitor may ask (60 an hour per network), so several screens on one network checking at once can be told to wait; it clears by itself. If GitHub rejects the update token, download and install the latest APK using a GitHub account with access. For automatic updates in private builds, see [update access](#update-access).
 
-**Sync status** (Settings → Sync between screens): *In sync, N minutes ago* is normal. *Waiting for the network* means the last try couldn't reach GitHub; it retries by itself. *The sync token was refused* or *can't be found with this token*: the token expired, was removed, or doesn't cover the repository; make a new one (Contents: read and write) and paste it under *Replace the token* on the phone page. *This screen's sync key doesn't open the file*: the household key was changed; choose **Join again from another screen**. *This screen is signed in to a different provider account*: sync is for one account; sign in with the same one or stop syncing here. *Update Relay on this screen to keep syncing*: another screen has a newer Relay that writes a newer file format; install the update. A message about the repository being public or the token being unable to write appears when sync is turned on; fix the repository or token and try again.
+**Sync status** (Settings → Sync between screens): *Sync paused* means this screen still points at the app repository. Follow the [household migration steps](#sync-between-screens). *In sync, N minutes ago* is normal. *Waiting for the network* means the last try couldn't reach GitHub; it retries by itself. *The sync token was refused* or *can't be found with this token*: the token expired, was removed, or doesn't cover the repository; make a new one (Contents: read and write) and paste it under *Replace the token* on the phone page. *This screen's sync key doesn't open the file*: the household key was changed; choose **Join again from another screen**. *This screen is signed in to a different provider account*: sync is for one account; sign in with the same one or stop syncing here. *Update Relay on this screen to keep syncing*: another screen has a newer Relay that writes a newer file format; install the update. A message about the repository being public or the token being unable to write appears when sync is turned on; fix the repository or token and try again.
 
 **Phones and TVs:** Relay decides once, when it starts, whether the device is a recent phone (six or more processor cores, plenty of memory, not a TV) or anything else. A recent phone reads more of the library at once, waits less before loading guide text and searching, and fades posters in; a TV keeps the gentler settings it has always had. Buttons are thumb-sized on touch screens only. The first lines of the logs say which was chosen (*Device tier: fast* or *standard*) and the numbers in force.
 
@@ -357,10 +372,10 @@ Every build checks that the APK is signed with this exact key and fails otherwis
 
 </details>
 
-<details>
-<summary><b>Update token (only if you make the repository private again)</b></summary>
+<details id="update-access">
+<summary><b>Update access for public and private repositories</b></summary>
 
-While the repository is public, updates need no token and builds are made without one. If you ever make your copy of the repository private, Relay needs a read-only token to see new releases, and CI must pass it to the build as `RELAY_UPDATE_TOKEN` again (an `env:` line on the *Build release APK* step).
+Public releases support automatic updates without a token. With a private repository, signed-in users with access can download the APK from Releases and install it over the existing app. To enable automatic updates in a trusted private build, CI must pass a repository-scoped read-only `RELAY_UPDATE_TOKEN` to the *Build release APK* step. The token is embedded in that APK, so distribute that build only to people who may read the repository. Build and distribute a fresh token-free APK when switching back to public, and revoke the private updater token after the household moves to the new build.
 
 1. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
 2. Name `Relay updater`, the longest expiry offered, and Repository access: **Only select repositories → TV-Relay**.
@@ -376,7 +391,7 @@ When the token nears expiry, replace the secret and let one build install. If it
 
 Every push to `main` that changes the app builds it in GitHub Actions and publishes it as release `v1.0.N`. Changes that touch only documentation or tools (`README.md`, `docs/`, `tools/`) don't make a release. You can also start a build from the Actions tab with **Run workflow**.
 
-Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. The release APK is shrunk with R8, then started on an Android emulator; if it crashes on launch, nothing is published. Test and lint reports are attached to each run as `reports-1.0.N`.
+Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. The emulator runs the profile, sync, playback and guide regressions against a synthetic provider. It also checks that the signed, shrunk APK starts from a fresh install and upgrades v1.0.117 with its saved profile, favourite, history and resume position intact. Test and lint reports are attached to each run as `reports-1.0.N`.
 
 A **benchmark** job can run beside the build. It costs about as many GitHub Actions minutes as the build itself, so releases skip it; start it by hand under Actions → Build APK → Run workflow with **Also run the benchmark** ticked. In it, a benchmark variant of the app (`assembleBenchmark`, never published, and the build fails if the release APK contains any of it) is driven on an emulator against a made-up provider (`tools/fake-provider`, 12,000 channels, 40,000 movies, 8,000 series) by `tools/bench/bench.sh`. The job log ends with frame times per screen, list build times and time to first picture. The run covers Home, Live TV, a live channel, the Movies and Series grids, the guide grid, Search, and touch flings. These numbers are for comparing one build with another and spotting a regression. They are not how fast a TV is: the emulator runs on a shared build server with a software renderer, and a TV's processor is slower in different ways. The job never blocks or delays a release, and a release does not wait for one. To see the same numbers from a real device, turn on **Save detailed logs** under Diagnostics for a day, use the app as usual, then share the logs: frame timing, list build times and time to first picture are in them.
 

@@ -387,7 +387,9 @@ class Store(ctx: Context) {
         }
 
         val profilesChanged = go(snapshot.profiles, target.profiles, cur.profiles) { profiles = target.profiles }
-        val gone = snapshot.profiles.map { it.id }.toSet() - target.profiles.map { it.id }.toSet()
+        val appliedProfiles = if (profilesChanged) target.profiles else cur.profiles
+        val ids = appliedProfiles.map { it.id }.toSet()
+        val gone = cur.profiles.map { it.id }.toSet() - ids
         for (pid in gone) {
             write<List<FavItem>?>("fav_$pid", null)
             write<List<WatchEntry>?>("hist_$pid", null)
@@ -395,8 +397,8 @@ class Store(ctx: Context) {
             prefs.edit().remove("use_$pid").remove("allow_$pid").apply()
             changes++
         }
-        val ids = target.profiles.map { it.id }
-        for (pid in ids) {
+        val targetIds = target.profiles.map { it.id }.toSet()
+        for (pid in ids.intersect(targetIds)) {
             go(snapshot.favs[pid].orEmpty(), target.favs[pid].orEmpty(), cur.favs[pid].orEmpty()) {
                 write("fav_$pid", target.favs[pid].orEmpty())
             }
