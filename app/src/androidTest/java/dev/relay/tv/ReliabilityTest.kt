@@ -1,5 +1,6 @@
 package dev.relay.tv
 
+import android.content.pm.ActivityInfo
 import android.os.ParcelFileDescriptor
 import android.view.View
 import android.view.ViewGroup
@@ -15,6 +16,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import dev.relay.tv.data.Account
@@ -31,6 +33,10 @@ import dev.relay.tv.ui.FocusMemory
 import dev.relay.tv.ui.GuideGrid
 import dev.relay.tv.ui.LocalFocusMemory
 import dev.relay.tv.ui.RelayTheme
+import dev.relay.tv.ui.UpdateDialog
+import dev.relay.tv.update.UpdateInfo
+import dev.relay.tv.update.UpdateState
+import dev.relay.tv.update.Updater
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -135,6 +141,37 @@ class ReliabilityTest {
             }
             val programme = By.textStartsWith("Programme 1-")
             assertTrue("The guide must display a programme", UiDevice.getInstance(instrumentation).wait(Until.hasObject(programme), 20_000))
+        }
+    }
+
+    @Test fun updateNotesScrollWhileTheButtonsStayVisible() {
+        val notes = (1..35).joinToString("\n") { "Release note $it. This text should be available by scrolling." }
+        val previous = Updater.state
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    Updater.state = UpdateState.Available(UpdateInfo(999, "1.0.999", notes, "", 0))
+                    activity.setContent { RelayTheme { UpdateDialog() } }
+                }
+                val device = UiDevice.getInstance(instrumentation)
+                val updateButton = By.text("Update now")
+                val laterButton = By.text("Later")
+                val scroller = By.scrollable(true)
+                assertTrue(device.wait(Until.hasObject(updateButton), 10_000))
+                assertTrue(device.hasObject(laterButton))
+
+                device.pressDPadUp()
+                assertTrue("The remote must be able to focus the notes", device.wait(Until.hasObject(By.scrollable(true).focused(true)), 5_000))
+                device.pressDPadDown()
+
+                val notesArea = checkNotNull(device.findObject(scroller))
+                assertTrue("Long notes must have more content to scroll", notesArea.scroll(Direction.DOWN, 0.75f))
+                assertTrue(device.hasObject(updateButton))
+                assertTrue(device.hasObject(laterButton))
+            }
+        } finally {
+            instrumentation.runOnMainSync { Updater.state = previous }
         }
     }
 

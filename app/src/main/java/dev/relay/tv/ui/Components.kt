@@ -584,7 +584,12 @@ fun TvTextField(
 }
 
 @Composable
-fun TvDialog(onDismiss: () -> Unit, width: Dp = 560.dp, content: @Composable ColumnScope.() -> Unit) {
+fun TvDialog(
+    onDismiss: () -> Unit,
+    width: Dp = 560.dp,
+    scrollContent: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CompositionLocalProvider(LocalFocusEnabled provides true) {
         Column(
@@ -592,7 +597,7 @@ fun TvDialog(onDismiss: () -> Unit, width: Dp = 560.dp, content: @Composable Col
                 .padding(horizontal = 24.dp)
                 .widthIn(max = width)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .then(if (scrollContent) Modifier.verticalScroll(rememberScrollState()) else Modifier)
                 .background(Palette.surface, RoundedCornerShape(16.dp))
                 .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
