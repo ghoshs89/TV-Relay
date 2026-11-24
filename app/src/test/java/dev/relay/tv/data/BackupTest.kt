@@ -66,6 +66,11 @@ class BackupTest {
     }
 
     @Test
+    fun negativeAvatarColourIsRejectedBeforeRestore() {
+        expectReject(Backups.encode(full.copy(profiles = listOf(dad.copy(color = -1)))))
+    }
+
+    @Test
     fun aNewerFormatIsRejectedWithAClearMessage() {
         try {
             Backups.decode("""{"app":"relay","schema":3,"profiles":[{"id":"a","name":"A"}]}""")

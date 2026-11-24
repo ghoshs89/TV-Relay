@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -65,8 +66,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.material.icons.filled.PlayArrow
 
 private const val DP_PER_MIN = 4f // 1 hour = 240 dp
-private const val HOURS_BACK = 3
-private const val HOURS_AHEAD = 8
 private val CHANNEL_COL = 170.dp
 private val ROW_HEIGHT = 60.dp
 
@@ -80,23 +79,23 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val density = LocalDensity.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
-    // Rows reload their listings every 15 minutes while the guide stays open.
-    var reload by remember { mutableIntStateOf(0) }
+    val initialRefresh = remember { now / 900 }
     LaunchedEffect(Unit) {
-        var minutes = 0
         while (true) {
-            delay(60_000)
-            now = System.currentTimeMillis() / 1000
-            if (++minutes % 15 == 0) reload++
+            val time = System.currentTimeMillis()
+            now = time / 1000
+            delay(60_000 - time % 60_000)
         }
     }
-    val windowStart = remember { (now - HOURS_BACK * 3600) / 1800 * 1800 }
-    val windowEnd = windowStart + (HOURS_BACK + HOURS_AHEAD) * 3600
+    val window = GuideWindow.at(now)
+    val windowStart = window.start
+    val windowEnd = window.end
     val totalMin = ((windowEnd - windowStart) / 60).toFloat()
-    // Minutes from windowStart at the left edge of the timeline.
-    var offsetMin by remember { mutableFloatStateOf(((now - windowStart) / 60 - 30).toFloat()) }
-    // A State, not read here: only the offset lambdas read it (at layout time), so scrolling doesn't recompose the rows.
-    val shown = animateFloatAsState(offsetMin, label = "guideScroll")
+    val initialStart = remember { windowStart }
+    val shiftMin = ((windowStart - initialStart) / 60).toFloat()
+    // Keep the scroll anchor in the same time coordinates when the window advances.
+    var anchorMin by remember { mutableFloatStateOf((now - initialStart) / 60f - 30) }
+    val animatedAnchor = animateFloatAsState(anchorMin, label = "guideScroll")
     val store = RelayApp.instance.store
     // Programmes with a reminder, as (channel, start). Equal sets keep the same instance, so rows aren't redrawn needlessly.
     val reminders by remember { derivedStateOf { store.version.intValue; store.reminders.map { it.channelId to it.start }.toSet() } }
@@ -112,9 +111,14 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
         val viewportMin = ((maxWidth - CHANNEL_COL).value / DP_PER_MIN).coerceAtLeast(60f)
         val maxOffset = (totalMin - viewportMin).coerceAtLeast(0f)
         val pxPerMin = with(density) { DP_PER_MIN.dp.toPx() }
+        val shown = remember(animatedAnchor, shiftMin, maxOffset) {
+            derivedStateOf { (animatedAnchor.value - shiftMin).coerceIn(0f, maxOffset) }
+        }
+        fun offset() = (anchorMin - shiftMin).coerceIn(0f, maxOffset)
 
         fun reveal(startMin: Float, endMin: Float) {
-            offsetMin = when {
+            val offsetMin = offset()
+            anchorMin = shiftMin + when {
                 endMin <= offsetMin + 5 -> (startMin - 10).coerceIn(0f, maxOffset)
                 startMin >= offsetMin + viewportMin - 25 -> (startMin - 30).coerceIn(0f, maxOffset)
                 else -> offsetMin
@@ -122,8 +126,10 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
         }
 
         Column(
-            Modifier.fillMaxSize().pointerInput(maxOffset) {
-                detectHorizontalDragGestures { _, dx -> offsetMin = (offsetMin - dx / pxPerMin).coerceIn(0f, maxOffset) }
+            Modifier.fillMaxSize().pointerInput(maxOffset, shiftMin, pxPerMin) {
+                detectHorizontalDragGestures { _, dx ->
+                    anchorMin = shiftMin + (offset() - dx / pxPerMin).coerceIn(0f, maxOffset)
+                }
             },
         ) {
             // Time ruler
@@ -161,7 +167,8 @@ fun GuideGrid(channels: List<Channel>, modifier: Modifier = Modifier) {
                 itemsIndexed(channels, key = { _, c -> c.id }) { i, ch ->
                     GuideRow(
                         ch = ch,
-                        reload = reload,
+                        refresh = now / 900,
+                        initialRefresh = initialRefresh,
                         windowStart = windowStart,
                         windowEnd = windowEnd,
                         now = now,
@@ -198,7 +205,8 @@ private fun NowLine(x: androidx.compose.ui.unit.Dp) {
 @Composable
 private fun GuideRow(
     ch: Channel,
-    reload: Int,
+    refresh: Long,
+    initialRefresh: Long,
     windowStart: Long,
     windowEnd: Long,
     now: Long,
@@ -215,13 +223,25 @@ private fun GuideRow(
     var entries by remember(ch.id) { mutableStateOf<List<EpgEntry>?>(null) }
     var failed by remember(ch.id) { mutableStateOf(false) }
     var retry by remember(ch.id) { mutableIntStateOf(0) }
-    LaunchedEffect(ch.id, reload, retry) {
+    LaunchedEffect(ch.id, refresh, retry, windowStart, windowEnd) {
         delay(dev.relay.tv.data.DeviceTier.current.gridRowDelayMs) // let fast scrolling skip rows before asking the provider
-        val fresh = reload > 0 || retry > 0
+        val fresh = refresh != initialRefresh || retry > 0
         val got = app.catalog.gridEpgOrNull(ch, windowStart, windowEnd, fresh)
         // A failed reload keeps what's already on screen.
         if (got != null) entries = got
         failed = got == null && entries == null
+    }
+    val window = GuideWindow(windowStart, windowEnd)
+    val memory = LocalFocusMemory.current
+    val programmePrefix = "gp:${ch.id}:"
+    var lastProgramme by remember(ch.id) { mutableStateOf<EpgEntry?>(null) }
+    LaunchedEffect(window, entries) {
+        val previous = lastProgramme ?: return@LaunchedEffect
+        if (memory.lastKey == "$programmePrefix${previous.start}" && window.expired(previous)) {
+            val current = entries?.firstOrNull { it.start <= now && now < it.end && window.shows(it) }
+            memory.lastKey = current?.let { "$programmePrefix${it.start}" } ?: "gch:${ch.id}"
+            memory.restoreTick++
+        }
     }
     val (tag, title) = remember(ch.name) { splitChannelName(ch.name) }
     // OK on the programme that is on now: channels with catch-up offer to start it from the beginning.
@@ -272,7 +292,7 @@ private fun GuideRow(
                     .fillMaxHeight()
                     .offset { IntOffset(-(shown.value * pxPerMin).roundToInt(), 0) },
             ) {
-                val list = entries
+                val list = remember(entries, window) { entries?.filter(window::shows) }
                 val nowX = ((now - windowStart) / 60f * DP_PER_MIN).dp
                 when {
                     list == null && failed -> {
@@ -295,63 +315,67 @@ private fun GuideRow(
                         }
                     }
                     else -> list.forEach { e ->
-                        val s = ((maxOf(e.start, windowStart) - windowStart) / 60f)
-                        val en = ((minOf(e.end, windowEnd) - windowStart) / 60f)
-                        if (en - s < 1f) return@forEach
-                        val past = e.end <= now
-                        val live = e.start <= now && now < e.end
-                        val canCatchUp = past && ch.hasArchive && e.start >= now - ch.archiveDays * 86_400L
-                        val reminder = !past && !live && (ch.id to e.start) in reminders
-                        Focusable(
-                            onClick = {
-                                when {
-                                    live -> { if (ch.hasArchive) startOver = e else onWatch() }
-                                    past -> if (canCatchUp) Playback.catchup(ctx, ch, e) else onMessage("This show isn't available on catch-up")
-                                    else -> onMessage(ReminderCenter.toggle(ch, e))
-                                }
-                            },
-                            modifier = Modifier
-                                .offset(x = (s * DP_PER_MIN).dp)
-                                .width(((en - s) * DP_PER_MIN).dp - 3.dp)
-                                .fillMaxHeight(),
-                            key = "gp:${ch.id}:${e.start}",
-                            shape = RoundedCornerShape(6.dp),
-                            scaleOnFocus = 1f,
-                            onFocused = { onReveal(s, en) },
-                        ) { f ->
-                            Column(
-                                Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        when {
-                                            f -> Palette.accent
-                                            live -> Palette.surface2
-                                            past -> Palette.bg
-                                            else -> Palette.surface
-                                        },
-                                    )
-                                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                            ) {
-                                val fg = if (f) Color.Black else if (past && !canCatchUp) Palette.dim else Palette.text
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (reminder) {
-                                        Icon(Icons.Filled.Notifications, contentDescription = null, tint = fg, modifier = Modifier.size(12.dp))
-                                        Spacer(Modifier.width(3.dp))
+                        key(e.start) {
+                            val s = ((maxOf(e.start, windowStart) - windowStart) / 60f)
+                            val en = ((minOf(e.end, windowEnd) - windowStart) / 60f)
+                            val past = e.end <= now
+                            val live = e.start <= now && now < e.end
+                            val canCatchUp = past && ch.hasArchive && e.start >= now - ch.archiveDays * 86_400L
+                            val reminder = !past && !live && (ch.id to e.start) in reminders
+                            Focusable(
+                                onClick = {
+                                    when {
+                                        live -> { if (ch.hasArchive) startOver = e else onWatch() }
+                                        past -> if (canCatchUp) Playback.catchup(ctx, ch, e) else onMessage("This show isn't available on catch-up")
+                                        else -> onMessage(ReminderCenter.toggle(ch, e))
                                     }
-                                    if (canCatchUp) {
-                                        Icon(Icons.Filled.Refresh, contentDescription = null, tint = fg, modifier = Modifier.size(12.dp))
-                                        Spacer(Modifier.width(3.dp))
+                                },
+                                modifier = Modifier
+                                    .offset(x = (s * DP_PER_MIN).dp)
+                                    .width(((en - s) * DP_PER_MIN).dp - 3.dp)
+                                    .fillMaxHeight(),
+                                key = "gp:${ch.id}:${e.start}",
+                                shape = RoundedCornerShape(6.dp),
+                                scaleOnFocus = 1f,
+                                onFocused = {
+                                    lastProgramme = e
+                                    onReveal(s, en)
+                                },
+                            ) { f ->
+                                Column(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            when {
+                                                f -> Palette.accent
+                                                live -> Palette.surface2
+                                                past -> Palette.bg
+                                                else -> Palette.surface
+                                            },
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                                ) {
+                                    val fg = if (f) Color.Black else if (past && !canCatchUp) Palette.dim else Palette.text
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (reminder) {
+                                            Icon(Icons.Filled.Notifications, contentDescription = null, tint = fg, modifier = Modifier.size(12.dp))
+                                            Spacer(Modifier.width(3.dp))
+                                        }
+                                        if (canCatchUp) {
+                                            Icon(Icons.Filled.Refresh, contentDescription = null, tint = fg, modifier = Modifier.size(12.dp))
+                                            Spacer(Modifier.width(3.dp))
+                                        }
+                                        Text(
+                                            e.title,
+                                            color = fg, fontSize = Type.caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                            fontWeight = if (live) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
                                     }
                                     Text(
-                                        e.title,
-                                        color = fg, fontSize = Type.caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                        fontWeight = if (live) FontWeight.SemiBold else FontWeight.Normal,
+                                        "${hhmm(e.start)} – ${hhmm(e.end)}",
+                                        color = if (f) Color.Black else Palette.dim, fontSize = Type.label, maxLines = 1,
                                     )
                                 }
-                                Text(
-                                    "${hhmm(e.start)} – ${hhmm(e.end)}",
-                                    color = if (f) Color.Black else Palette.dim, fontSize = Type.label, maxLines = 1,
-                                )
                             }
                         }
                     }

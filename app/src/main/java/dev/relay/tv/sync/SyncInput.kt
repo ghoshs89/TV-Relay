@@ -16,6 +16,13 @@ object SyncInput {
         return t
     }
 
+    fun repositoryProblem(repo: Repo, appRepository: String): String? =
+        if (repo.toString().equals(appRepository, ignoreCase = true)) {
+            "Sync is paused for the Relay app repository. Stop syncing on this screen, then use a separate private GitHub repository."
+        } else {
+            null
+        }
+
     /** What to tell the viewer when [repo] or [token] is no good, or null when both are. */
     fun problem(repo: String, token: String): String? = when {
         Repo.parse(repo) == null -> "Enter the repository as owner/name, for example me/relay-sync."

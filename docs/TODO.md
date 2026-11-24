@@ -8,7 +8,7 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 | # | What | Notes |
 |---|---|---|
-| A | **Move sync out of this repository, now that it is public** | Sync is pointed at this repository (`relay-sync.bin` is here, and about 100 "Relay sync" commits of it). The repository is **public** since 15 Nov, so the encrypted file and its history are downloadable by anyone (unreadable without your household key, but its size and the times you use Relay show). It also gives every screen a token that can write to the repository whose `main` branch builds and installs on every device. Turning sync on again in the new repository makes a new household key, so the old public file versions stay undecryptable. The new private repository `ghoshs89/Relay-TV_Sync` exists. Still to do: on every screen **Stop syncing on this screen**; on one screen turn sync on with `ghoshs89/Relay-TV_Sync` and its token; join the others; delete the old token on GitHub. Then `relay-sync.bin` and its line in `.github/workflows/build.yml` can go (to-do 1 below). The token for the new repository was pasted into a chat: once sync runs there, replace it (*Replace the token* on the phone page, then **Join again** on the other screens) and delete it. |
+| A | **Move household sync to its own private repository** | The app now pauses sync when a screen is configured with the release repository. Follow the [migration steps](../README.md#sync-between-screens) on all TVs and phones. Verify a favourite and a resume position on two screens, then revoke the old token. Keep the old encrypted file and its workflow exclusion until migration is verified. |
 | B | **Device checks, on the TV and on the phone** | The lists under "Check on a device". Seen working on your TV and phone so far: **Close Relay?** on Back (1.0.114), **Play on TV** for a channel from the phone (1.0.115, 21 Nov). Still to look at: the phone player full screen and touch sizes (1.0.110), the catch-up and series additions to Play on TV (1.0.116), the trailer QR code and the summary (this release), and the plan 4 start-up timings for the measurements table in HISTORY.md. |
 | C | Delete the scratch branches on GitHub | `p2`, `p2base`, `p2r`, `p2s`, `p3base`, `p4base`, `p4base-big`, `pB`, `pC`, `pE1`, `pE2`, `pFA`, `pFB`, `pFC`, `plan3`, `plan4`, `plan4-big`, `plan4-exec`. |
 
@@ -24,7 +24,7 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 |---|---|---|
 | 1 | Remove `relay-sync.bin` and its `paths-ignore` line | Only after A. Changing `build.yml` makes a release, so ship it with other work. |
 | 2 | Guide grid: draw only the programmes on screen (plan 5, U4) | Each row builds every programme in an 11 hour window. Needs a benchmark run before and after; the guide stretches now exist. |
-| 3 | Player correctness (plan 5, B1 to B3) | One automatic retry for a film after a network drop; re-tune live after coming back to the app; don't resume a film the viewer had paused. After the player checks in B. |
+| 3 | Player recovery (plan 5, B1 and B2) | Add an automatic retry for a film after a network drop and re-tune direct live streams after coming back to the app. |
 | 4 | **Finish splitting the player code** | Done so far (1.0.30): kids limit timing, audio and subtitle choices, failure panel, pause bar and its arithmetic, reminder banner, number entry and the picture-in-picture ratio are separate classes with tests. `PlayerActivity.kt` is about 1,200 lines. Not done: live channel switching and recovery (`LiveSession`), the pause buffer controller (`TimeshiftController`) and view construction (`PlayerViews`). After the player checks in B. |
 | 5 | Up next card and last five channels | Plan 2 items D6 and D4. With to-do 4. |
 | 6 | Phone layout on short screens (plan 5, P7) and double-tap to skip (P8) | P7 after a look at the phone: a phone on its side is only about 360 to 410 dp tall. |
@@ -37,6 +37,8 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 | 12 | Sync, later polish | Pairing link shown as a QR code on a TV; a hint under a Continue watching card that came from another screen; an extra pull when a detail page opens; WebDAV if you would rather keep the data at home. |
 
 ## Check on a device
+
+For the reliability release, verify parent PIN switching and cancellation on a TV remote, guide focus during a half-hour rollover, and picture-in-picture and live pause-and-rewind when backgrounding on a phone. If you use household sync, verify the migration separately using the two-screen check above.
 
 Trailers and the summary (1.0.117):
 

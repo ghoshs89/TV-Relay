@@ -11,6 +11,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import dev.relay.tv.data.Movie
 import dev.relay.tv.data.Profile
+import dev.relay.tv.data.ProfileSwitchLock
+import dev.relay.tv.data.Store
 import dev.relay.tv.data.Series
 import dev.relay.tv.data.Settings
 
@@ -22,6 +24,12 @@ class Session {
     var expiryChecked = false
     var autoStartDone = false
     val profileId: String get() = profile?.id ?: "default"
+    fun profileSwitchLock(store: Store): ProfileSwitchLock? {
+        val selectedId = profile?.id ?: store.lastProfileId
+        val selected = store.profiles.firstOrNull { it.id == selectedId }
+        return ProfileSwitchLock.forProfile(selected, store.parentPin)
+    }
+
     fun restrict(settings: Settings): Boolean = profile?.kids == true || settings.hideAdult
 
     /** This profile's language order, or the household default. */
@@ -115,6 +123,17 @@ sealed interface Route {
 class Nav(start: Route) {
     val stack = mutableStateListOf(start)
     private val memories = mutableListOf(FocusMemory())
+    var profileSwitchApproval by mutableStateOf<ProfileSwitchLock?>(null)
+        private set
+
+    fun openProfilePicker(approval: ProfileSwitchLock?) {
+        reset(Route.Profiles)
+        profileSwitchApproval = approval
+    }
+
+    fun cancelProfileSwitch() {
+        profileSwitchApproval = null
+    }
 
     /** Focus memory for the screen at [index]; Home uses [home] so it survives profile changes. */
     fun memory(index: Int, home: FocusMemory): FocusMemory =
@@ -136,6 +155,7 @@ class Nav(start: Route) {
     }
 
     fun reset(r: Route) {
+        profileSwitchApproval = null
         stack.clear()
         stack.add(r)
         memories.clear()

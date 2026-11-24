@@ -16,6 +16,12 @@ Plans 1 to 4 are finished and their full text is in the repository's history (`g
 | Play on TV | A phone of the household hands a channel, film or episode to a TV that has Relay open (1.0.115); then catch-up, Start over and series pages (1.0.116). Sealed with a key from the household sync key; the TV plays from its own library under its own profile | 1.0.115, 1.0.116 | Google Cast, parked (see TODO.md) |
 | Trailers and summaries | Trailers as a QR code on TVs; long summaries reachable with the remote and readable in full; "Read all" leftovers removed | 1.0.117 | |
 
+## Android reliability release
+
+Profile cleanup follows accepted sync changes so a concurrent local edit does not lose favourites, history or kids' viewing time. Relay restores the kids profile after Android recreates the screen and checks the parent PIN before switching away. Paused movies and episodes stay paused on return. Backup validation rejects invalid avatar colours, and the guide advances its time window while preserving the viewer's place where possible. Relay pauses sync configurations that point at its app repository. The household migration stays open in [TODO.md](TODO.md).
+
+The APK workflow covers unit tests, lint, fresh installation, the fake-provider emulator tests, and a signed upgrade from v1.0.117. See the linked build on the release commit for the recorded results. Physical TV and phone checks are tracked separately.
+
 ## 2. Measurements from the TV
 
 onn 4K Plus: 4 cores, 1917 MB RAM, 384 MB app limit, 1920x1080 at 320 dpi (960x540 dp), 60 Hz. Library: 56,019 channels, 165,672 movies, 38,104 series, 1,510 categories; saved JSON 132.7 MB.
