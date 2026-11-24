@@ -593,6 +593,8 @@ flowchart TB
 
 ## Credits
 
+Development contributions from [OpenAI Codex](https://openai.com/codex/) and [Google Gemini](https://gemini.google.com/).
+
 Built with Jetpack Compose, Media3 ExoPlayer, the Jellyfin FFmpeg audio decoder for Dolby and DTS (GPL-3.0), OkHttp, Coil and kotlinx.serialization. The wordmark uses Space Grotesk (SIL Open Font License).
 
 This product uses the TMDB API but is not endorsed or certified by TMDB. Rotten Tomatoes scores are provided through MDBList; Rotten Tomatoes is a trademark of its owner.
