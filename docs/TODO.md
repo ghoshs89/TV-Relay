@@ -9,7 +9,7 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 | # | What | Notes |
 |---|---|---|
 | A | **Move household sync to its own private repository** | The app now pauses sync when a screen is configured with the release repository. Follow the [migration steps](../README.md#sync-between-screens) on all TVs and phones. Verify a favourite and a resume position on two screens, then revoke the old token. Keep the old encrypted file and its workflow exclusion until migration is verified. |
-| B | **Device checks, on the TV and on the phone** | The lists under "Check on a device". Seen working on your TV and phone so far: **Close Relay?** on Back (1.0.114), **Play on TV** for a channel from the phone (1.0.115, 21 Nov). Still to look at: the phone player full screen and touch sizes (1.0.110), the catch-up and series additions to Play on TV (1.0.116), the trailer QR code and the summary (this release), and the plan 4 start-up timings for the measurements table in HISTORY.md. |
+| B | **Device checks, on the TV and on the phone** | The lists under "Check on a device". Seen working on your TV and phone so far: **Close Relay?** on Back (1.0.114), **Play on TV** for a channel from the phone (1.0.115, 21 Nov). Still to look at: the phone player full screen and touch sizes (1.0.110), the catch-up and series additions to Play on TV (1.0.116), the trailer QR code and the summary (1.0.117), and the plan 4 start-up timings for the measurements table in HISTORY.md. |
 | C | Delete the scratch branches on GitHub | `p2`, `p2base`, `p2r`, `p2s`, `p3base`, `p4base`, `p4base-big`, `pB`, `pC`, `pE1`, `pE2`, `pFA`, `pFB`, `pFC`, `plan3`, `plan4`, `plan4-big`, `plan4-exec`. |
 
 ## After installing the release that follows 1.0.110, in this order

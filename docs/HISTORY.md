@@ -20,7 +20,7 @@ Plans 1 to 4 are finished and their full text is in the repository's history (`g
 
 Profile cleanup follows accepted sync changes so a concurrent local edit does not lose favourites, history or kids' viewing time. Relay restores the kids profile after Android recreates the screen and checks the parent PIN before switching away. Paused movies and episodes stay paused on return. Backup validation rejects invalid avatar colours, and the guide advances its time window while preserving the viewer's place where possible. Relay pauses sync configurations that point at its app repository. The household migration stays open in [TODO.md](TODO.md).
 
-The APK workflow covers unit tests, lint, fresh installation, the fake-provider emulator tests, and a signed upgrade from v1.0.117. See the linked build on the release commit for the recorded results. Physical TV and phone checks are tracked separately.
+The release branch passed 666 unit tests. The lint gate reported six findings and zero critical findings. The APK workflow also checks fresh installation, fake-provider playback and guide behaviour, and a signed upgrade from v1.0.117. See the linked build on the release commit for the recorded results. Physical TV and phone checks are tracked separately.
 
 ## 2. Measurements from the TV
 

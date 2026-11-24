@@ -137,6 +137,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Install the test media generator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
       - name: Download the signed upgrade baseline
         env:
           GH_TOKEN: ${{ github.token }}

@@ -120,7 +120,9 @@ If your provider gives separate addresses for use with and without a VPN, enter 
 |---|---|
 | Left / Right | Back / forward by the sizes set in Settings → Playback (10 s and 30 s to begin with) |
 | OK | Show the player controls: audio, subtitles and speed |
-| Back | Hide the controls; otherwise a large prompt says *Press Back again to leave the player* and a second Back within about two seconds leaves it. Your position is saved. A movie or episode you paused stays paused when you return to the player. |
+| Back | Hide the controls; otherwise a large prompt says *Press Back again to leave the player* and a second Back within about two seconds leaves it. Your position is saved. |
+
+When you put Relay in the background, a movie or episode you paused stays paused when you return. Playback resumes if the video was playing.
 
 **On a movie or series page:**
 
@@ -180,7 +182,7 @@ Relay sorts everything into five groups: **English**, **Hindi**, **Bengali** (In
 
 A backup holds profiles, favourites, history, channel groups and renames, sort choices, per-series audio and subtitle choices, reminders and settings. It never contains your login, any PIN, or API keys.
 
-A restore validates the whole file before replacing your data. A damaged backup, including an invalid avatar colour, or a backup from a newer Relay shows an error. It then replaces those items on the device, so back up the device first if you might want its current setup back. PINs already set on the device are kept, and Relay lists any profiles that need a PIN set again. Backups from older versions still restore, without their PINs.
+A restore validates the whole file before replacing your data. A damaged backup, including an invalid avatar colour, or a backup from a newer Relay shows an error. A successful restore replaces those items on the device. Export a backup first if you might want the current setup back. PINs already set on the device are kept, and Relay lists any profiles that need a PIN set again. Backups from older versions still restore, without their PINs.
 
 **Restoring while sync is on:** Relay asks first, because the restored items count as changes made on this screen and spread to your other screens. To restore on this screen only, stop syncing on it first, restore, and join again afterwards. Before the first sync and before a merged file from your other screens is applied, Relay saves a safety copy of this screen's data (the last three are kept), so a sync that does something unexpected can be undone by restoring that copy.
 
@@ -341,7 +343,7 @@ To get the logs off a **TV**, open the phone companion (Settings → Backup & ph
 
 **Saved copy of the library:** Relay keeps a ready-to-use copy of your prepared library next to the downloaded lists, so after a restart or an update the channels appear in seconds instead of about a minute. It is written a few seconds after the library is prepared from a download or refresh, and it is ignored (and rewritten) whenever anything about it looks wrong, for example after some updates, so the first start after those takes the long way once. Settings → Refresh channels and library rewrites the saved copy. The logs from Settings → Diagnostics say at the top whether it was used and, if not, why.
 
-**Updates stopped arriving:** Settings → Account (or the **Update** button in the top bar) shows why. GitHub limits how often an unnamed visitor may ask (60 an hour per network), so several screens on one network checking at once can be told to wait; it clears by itself. If the message says GitHub rejected an update token, this is an older build that still carries one: install the newest release by hand once.
+**Updates stopped arriving:** Settings → Account (or the **Update** button in the top bar) shows why. GitHub limits how often an unnamed visitor may ask (60 an hour per network), so several screens on one network checking at once can be told to wait; it clears by itself. If GitHub rejects the update token, download and install the latest APK using a GitHub account with access. For automatic updates in private builds, see [update access](#update-access).
 
 **Sync status** (Settings → Sync between screens): *Sync paused* means this screen still points at the app repository. Follow the [household migration steps](#sync-between-screens). *In sync, N minutes ago* is normal. *Waiting for the network* means the last try couldn't reach GitHub; it retries by itself. *The sync token was refused* or *can't be found with this token*: the token expired, was removed, or doesn't cover the repository; make a new one (Contents: read and write) and paste it under *Replace the token* on the phone page. *This screen's sync key doesn't open the file*: the household key was changed; choose **Join again from another screen**. *This screen is signed in to a different provider account*: sync is for one account; sign in with the same one or stop syncing here. *Update Relay on this screen to keep syncing*: another screen has a newer Relay that writes a newer file format; install the update. A message about the repository being public or the token being unable to write appears when sync is turned on; fix the repository or token and try again.
 
