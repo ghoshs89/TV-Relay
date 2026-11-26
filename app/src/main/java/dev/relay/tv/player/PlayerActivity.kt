@@ -1268,6 +1268,19 @@ class PlayerActivity : ComponentActivity() {
             reminder.watch(r)
             return true
         }
+        // The transport buttons on some remotes are delivered to the activity without a focused control.
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_PLAY -> player.play()
+                        KeyEvent.KEYCODE_MEDIA_PAUSE -> player.pause()
+                        else -> player.playWhenReady = !player.playWhenReady
+                    }
+                }
+                return true
+            }
+        }
         if (event.action == KeyEvent.ACTION_DOWN && req.live && timeshift != null) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_MEDIA_REWIND -> {

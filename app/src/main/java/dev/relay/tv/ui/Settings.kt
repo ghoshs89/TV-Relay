@@ -29,7 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,6 +75,7 @@ private enum class SettingsPage(val title: String) {
     ADVANCED("Advanced playback"),
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun SettingsTab() {
     val app = RelayApp.instance
@@ -176,11 +179,14 @@ fun SettingsTab() {
     key(page) {
         val list = rememberLazyListState()
         val focus = remember { FocusRequester() }
+        val inputMode = LocalInputModeManager.current
+        val isTv = rememberIsTv()
         var targetFocused by remember { mutableStateOf(false) }
         val observeTarget = Modifier.onFocusChanged { targetFocused = it.isFocused }
         LaunchedEffect(restore) {
             val target = if (page == null) restore?.let { it.ordinal + 1 } else if (restore == null) 0 else 1
             if (target == null) return@LaunchedEffect
+            if (isTv || restore != null) inputMode.requestInputMode(InputMode.Keyboard)
             if (list.layoutInfo.visibleItemsInfo.none { it.index == target }) list.scrollToItem(target)
             repeat(30) {
                 runCatching { focus.requestFocus() }
