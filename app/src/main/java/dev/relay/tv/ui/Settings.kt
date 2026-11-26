@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import dev.relay.tv.companion.CompanionDialog
 import dev.relay.tv.data.ChannelGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +52,7 @@ import dev.relay.tv.sync.SyncStatusText
 import dev.relay.tv.update.Updater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -174,10 +176,18 @@ fun SettingsTab() {
     key(page) {
         val list = rememberLazyListState()
         val focus = remember { FocusRequester() }
+        var targetFocused by remember { mutableStateOf(false) }
+        val observeTarget = Modifier.onFocusChanged { targetFocused = it.isFocused }
         LaunchedEffect(restore) {
-            restore?.let { list.scrollToItem(if (page == null) it.ordinal + 1 else 1) }
+            val target = if (page == null) restore?.let { it.ordinal + 1 } else if (restore == null) 0 else 1
+            if (target == null) return@LaunchedEffect
+            if (list.layoutInfo.visibleItemsInfo.none { it.index == target }) list.scrollToItem(target)
+            repeat(30) {
+                runCatching { focus.requestFocus() }
+                if (targetFocused) return@LaunchedEffect
+                delay(50)
+            }
         }
-        if (page != null || restore != null) InitialFocus(focus, restore)
         LazyColumn(
             Modifier.fillMaxSize().fadeEdges(),
             state = list,
@@ -186,7 +196,13 @@ fun SettingsTab() {
         ) {
             val currentPage = page
             if (currentPage != null) {
-                item { ListRow("‹  ${currentPage.title}", ::back, focusRequester = if (restore == null) focus else null) }
+                item {
+                    ListRow(
+                        "‹  ${currentPage.title}", ::back,
+                        modifier = if (restore == null) observeTarget else Modifier,
+                        focusRequester = if (restore == null) focus else null,
+                    )
+                }
             }
             when (currentPage) {
                 null -> {
@@ -197,13 +213,20 @@ fun SettingsTab() {
                             category.title,
                             onClick = { restore = null; page = category },
                             key = "settings:${category.name}",
+                            modifier = if (restore == category) observeTarget else Modifier,
                             focusRequester = if (restore == category) focus else null,
                         )
                     }
                 }
                 SettingsPage.PLAYBACK -> {
                     item {
-                        ListRow("Advanced playback", { restore = null; page = SettingsPage.ADVANCED }, focusRequester = if (restore == SettingsPage.ADVANCED) focus else null)
+                        val returning = restore == SettingsPage.ADVANCED
+                        ListRow(
+                            "Advanced playback",
+                            onClick = { restore = null; page = SettingsPage.ADVANCED },
+                            modifier = if (returning) observeTarget else Modifier,
+                            focusRequester = if (returning) focus else null,
+                        )
                     }
                     item { Section("Playback") }
                     if (WatchNext.supported(ctx)) {

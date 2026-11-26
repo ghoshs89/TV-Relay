@@ -19,7 +19,10 @@ for _ in $(seq 15); do
 done
 curl -fsS http://localhost:8099/player_api.php > /dev/null
 
-./gradlew :app:connectedDebugAndroidTest --no-daemon
+if ! ./gradlew :app:connectedDebugAndroidTest --no-daemon; then
+  adb logcat -d -v brief | grep -E 'Relay/(Player|Timeshift|Focus|Epg)' | tail -120 || true
+  exit 1
+fi
 if adb shell pm path dev.relay.tv | grep -q '^package:'; then
   adb uninstall dev.relay.tv
 fi

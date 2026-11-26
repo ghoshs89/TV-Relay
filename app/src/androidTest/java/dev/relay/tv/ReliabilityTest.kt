@@ -217,10 +217,15 @@ class ReliabilityTest {
                     it.isPlaying && it.currentMediaItem?.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8
                 }
                 if (buffer) {
-                    scenario.onActivity { findPlayerView(it.window.decorView)?.hideController() }
-                    device.pressDPadDown()
+                    scenario.onActivity { activity ->
+                        val view = checkNotNull(findPlayerView(activity.window.decorView))
+                        view.hideController()
+                        assertTrue(activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)))
+                        activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN))
+                    }
                     awaitPlayer(scenario, "MPEG-TS channel should use the pause buffer") {
-                        it.isPlaying && it.currentMediaItem?.localConfiguration?.uri?.scheme == "relayts"
+                        it.isPlaying && it.currentMediaItem?.mediaId == ts.key &&
+                            it.currentMediaItem?.localConfiguration?.uri?.scheme == "relayts"
                     }
                     Thread.sleep(10_500)
                     runBlocking { withTimeout(5_000) { app.catalog.shortEpgOrNull(2, fresh = true) } }
@@ -248,16 +253,19 @@ class ReliabilityTest {
         message: String,
         condition: (androidx.media3.common.Player) -> Boolean,
     ) {
+        var lastState = ""
         repeat(100) {
             var matched = false
             scenario.onActivity { activity ->
                 val player = checkNotNull(findPlayerView(activity.window.decorView)?.player)
                 matched = condition(player)
+                lastState = "item=${player.currentMediaItem?.mediaId}, state=${player.playbackState}, " +
+                    "source=${player.currentMediaItem?.localConfiguration?.uri?.scheme}, error=${player.playerError?.errorCodeName}"
             }
             if (matched) return
             Thread.sleep(200)
         }
-        throw AssertionError(message)
+        throw AssertionError("$message ($lastState)")
     }
 
     @Test @OptIn(UnstableApi::class)
