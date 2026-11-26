@@ -29,21 +29,29 @@ Relay signs in to an Xtream Codes account and plays what that account provides. 
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/screenshots/home.jpg"><img src="docs/screenshots/home.jpg" alt="Home: Continue watching with progress bars, then recently watched channels"></a><br><sub><b>Home</b> · pick up where you left off</sub></td>
-    <td width="50%"><a href="docs/screenshots/live-tv.jpg"><img src="docs/screenshots/live-tv.jpg" alt="Live TV: categories grouped by country, the channel list, and the toolbar with Guide grid, Sort, Find and Catch-up"></a><br><sub><b>Live TV</b> · categories by country, guide, sort and filters</sub></td>
+    <td width="50%"><a href="docs/screenshots/home.jpg"><img src="docs/screenshots/home.jpg" alt="Continue watching and recently watched channels"></a><br><sub><b>Home</b> · continue watching and recently watched channels</sub></td>
+    <td width="50%"><a href="docs/screenshots/live-tv.jpg"><img src="docs/screenshots/live-tv.jpg" alt="Channel categories and the channel list"></a><br><sub><b>Live TV</b> · channel categories and the channel list</sub></td>
   </tr>
   <tr>
-    <td width="50%"><a href="docs/screenshots/series.jpg"><img src="docs/screenshots/series.jpg" alt="Series: provider categories on the left and posters on the right"></a><br><sub><b>Series</b> · your provider's categories and posters</sub></td>
-    <td width="50%"><a href="docs/screenshots/player.jpg"><img src="docs/screenshots/player.jpg" alt="The player showing a live 4K football match"></a><br><sub><b>Player</b> · live 4K, with pause and rewind</sub></td>
+    <td width="50%"><a href="docs/screenshots/guide.jpg"><img src="docs/screenshots/guide.jpg" alt="Live programme listings on a timeline"></a><br><sub><b>Guide</b> · live programme listings on a timeline</sub></td>
+    <td width="50%"><a href="docs/screenshots/settings.jpg"><img src="docs/screenshots/settings.jpg" alt="Seven categories for common and advanced controls"></a><br><sub><b>Settings</b> · seven categories for common and advanced controls</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/movies.jpg"><img src="docs/screenshots/movies.jpg" alt="Recently added movies and the category menu"></a><br><sub><b>Movies</b> · recently added movies and the category menu</sub></td>
+    <td width="50%"><a href="docs/screenshots/series.jpg"><img src="docs/screenshots/series.jpg" alt="Recently added series and the category menu"></a><br><sub><b>Series</b> · recently added series and the category menu</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/player-paused.jpg"><img src="docs/screenshots/player-paused.jpg" alt="The title and release year above the video"></a><br><sub><b>Paused on TV</b> · the title and release year above the video</sub></td>
+    <td width="50%"><a href="docs/screenshots/phone-paused.jpg"><img src="docs/screenshots/phone-paused.jpg" alt="The title and touch controls in landscape"></a><br><sub><b>Paused on phone</b> · the title and touch controls in landscape</sub></td>
   </tr>
 </table>
 
-<sub>Screenshots from an Android phone. What you see in your lists depends on your provider.</sub>
+<sub>Captured on Android TV and Android phone emulators with a demo playlist.</sub>
 
 ## Features
 
 <table>
-  <tr><td><b>Watch</b></td><td>Live TV with pause and rewind, catch-up, movies and series with resume, next episode, picture-in-picture on phones</td></tr>
+  <tr><td><b>Watch</b></td><td>Live TV with pause and rewind, catch-up, movies and series with resume, the current title while paused, next episode, and picture-in-picture on phones</td></tr>
   <tr><td><b>Your languages</b></td><td>English, Hindi and Bengali first by default, then South Indian and Bangladesh; every other language still there, lower down. Order, Home rows and audio follow each profile</td></tr>
   <tr><td><b>Find</b></td><td>Timeline guide with now and next in every list, search that also finds programmes on TV, categories by country and by language, hide or pin categories, favourites, channel groups and renames</td></tr>
   <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, daily viewing time and bedtime for kids, a parent PIN for anything that changes access</td></tr>
@@ -95,9 +103,9 @@ Open the APK from the Releases page and allow your browser to install apps when 
 1. Enter a name for the playlist, the server address, any backup servers (comma separated), your username and password. A phone can fill this in for you: scan the QR code on the sign-in screen.
 2. Relay checks the login and downloads your channels, movies and series. A large playlist takes about a minute the first time; after that it opens from its saved copy.
 3. Pick or create a profile.
-4. Set up your library (once, skippable): put your languages in order and untick Live TV countries you never watch. Both can be changed later in Settings → Library.
+4. Set up your library (once, skippable): put your languages in order and untick Live TV countries you never watch. Both can be changed later in Settings → Library & guide.
 
-If your provider gives separate addresses for use with and without a VPN, enter all of them. Pasting the provider's whole message (on the sign-in screen or the phone page) marks which are for a VPN; the phone page also has a field to list them yourself. Relay then tries the servers that suit the device's connection first and keeps the others as a last resort, and it notices when a VPN is turned on or off. Settings → Account lists every server with its mark and state; press one to change its mark.
+If your provider gives separate addresses for use with and without a VPN, enter all of them. Pasting the provider's whole message (on the sign-in screen or the phone page) marks which are for a VPN; the phone page also has a field to list them yourself. Relay then tries the servers that suit the device's connection first and keeps the others as a last resort, and it notices when a VPN is turned on or off. Settings → Account & sync lists every server with its mark and state; press one to change its mark.
 
 ## Remote controls
 
@@ -118,9 +126,11 @@ If your provider gives separate addresses for use with and without a VPN, enter 
 
 | Button | Action |
 |---|---|
-| Left / Right | Back / forward by the sizes set in Settings → Playback (10 s and 30 s to begin with) |
+| Left / Right | Back / forward by the sizes set in Settings → Playback & subtitles (10 s and 30 s to begin with) |
 | OK | Show the player controls: audio, subtitles and speed |
 | Back | Hide the controls; otherwise a large prompt says *Press Back again to leave the player* and a second Back within about two seconds leaves it. Your position is saved. |
+
+Pause a video to see its title above the picture. Movies also show the year, episodes show the series and episode details, and catch-up shows the programme and channel. Live TV uses the programme at the paused position when guide data is available and shows the channel name otherwise. The title stays visible after the controls fade and clears when playback resumes.
 
 When you put Relay in the background, a movie or episode you paused stays paused when you return. Playback resumes if the video was playing.
 
@@ -132,7 +142,7 @@ When you put Relay in the background, a movie or episode you paused stays paused
 - Neither button appears on kids profiles, because YouTube is outside Relay's kids limits and parent PIN.
 - **The summary** shows a few lines. When there is more, press **Down** from the buttons to reach it (it says **More**) and **OK** to read all of it; Up and Down scroll a long one. Leftovers that some providers copy from other sites, such as "… Read all" or "See full summary »", are removed: they were never links.
 
-**Closing Relay:** on Home (any tab), the profile picker and the sign-in screen, Back asks **Close Relay?** with **Stay in Relay** selected. Back again, or choosing Stay, keeps Relay open; the app closes only when you choose **Close Relay**. On a film or series page Back still goes to the list underneath.
+**Closing Relay:** on the main tabs, the profile picker and the sign-in screen, Back asks **Close Relay?** with **Stay in Relay** selected. Back again, or choosing Stay, keeps Relay open; the app closes only when you choose **Close Relay**. On a film or series page Back goes to the list underneath. Inside a Settings category, Back returns to the category menu.
 
 **On Home:** hold OK on a Continue watching card or a Recently watched channel to remove it (Menu works too). The **Clear all** button at the end of the Continue watching row empties it after a confirmation.
 
@@ -140,17 +150,19 @@ When you put Relay in the background, a movie or episode you paused stays paused
 
 ## Settings worth knowing
 
-| Where | What |
+Open **Settings** and choose a category. Back closes the open dialog or returns to the category menu. On TV, press OK to reopen the focused category.
+
+| Category | What you can change |
 |---|---|
-| **Profiles** | Kids profiles, profile PINs, and the **parent PIN**. Once set, it's needed to add or remove profiles, leave a kids profile, show adult categories, restore a backup, change servers or sign out. A kids profile used last reopens directly when Relay starts or Android recreates its screen. Choose **Switch profile** and enter the parent PIN to leave it. |
-| **Profiles** › Viewing time | For each kids profile: minutes per day, bedtime and wake-up time, and **Allow 30 more minutes now**. Only time spent playing counts. |
-| **Playback** | Live stream format, pause & rewind buffer (15, 30 or 60 minutes, up to 1.5 GB, deleted when you leave the channel), refresh-rate matching, lip-sync, start on last channel, Continue watching on the TV home screen, audio language order, jump sizes for Left and Right, **Sleep timer** (30 to 120 minutes; a warning a minute before the end, and any key press then adds more time) and **Are you still watching?** (pauses after three episodes in a row or four hours of live TV with no key press; closes the player if nobody answers in five minutes) |
-| **Subtitles** | Size, colour and background |
-| **Channels & guide** | Channel groups, an external XMLTV guide, guide time offset, reminders, **Show each channel once**, **Search the whole TV guide** |
-| **Backup & phone** | Phone companion, backup to a file, restore (asks first while sync is on, because a restore spreads to your other screens) |
-| **Sync between screens** | Turn on sync, join from another screen, add or remove a screen, sync now, **New household key**, stop syncing on this screen. See [Sync between screens](#sync-between-screens) |
-| **Library** | **My languages**, **Home screen** rows, **Manage categories** (hide, show, pin, whole countries), start screen, set up my library again, TMDB key and Rotten Tomatoes scores (both optional, below). The two key rows offer **Send from my phone**, so nothing has to be typed with the remote |
-| **Diagnostics** | Recent activity, saved logs, sharing logs, **Library and language report** (what Relay recognised in your playlist) |
+| **Playback & subtitles** | Audio and subtitle languages, subtitle size and colour, autoplay, skip intervals, sleep timer, and pause and rewind for live TV. **Advanced playback** contains stream format, user agent, TV refresh-rate matching, stream information, and lip-sync. |
+| **Library & guide** | Preferred languages, Home rows, pinned and hidden categories, channel groups, guide source and offset, programme reminders, and optional artwork and ratings keys. |
+| **Profiles & parental controls** | Switch or manage profiles, set PINs, hide adult categories, and set viewing limits and bedtime. An active kids profile reopens when Relay restarts. Use **Switch profile** and enter the parent PIN to leave it. |
+| **Account & sync** | Provider status, servers, refresh the playlist, sign-in, and household sync and screen management. |
+| **Appearance** | Theme, keyboard, and which screen opens at startup. |
+| **Backup & phone** | Phone companion and local file backup or restore. Relay asks for confirmation before a restore when sync is on. |
+| **About & diagnostics** | Version, **Check for app updates**, activity logs, and the library and language report. |
+
+The [library browsing study](docs/BROWSING.md) compares two possible ways to group large Live TV, Movies and Series libraries.
 
 <details>
 <summary><b>How languages work</b></summary>
@@ -160,7 +172,7 @@ Relay sorts everything into five groups: **English**, **Hindi**, **Bengali** (In
 - It reads title tags (`HI - `, `SO-IN - `), category names (`HINDI MOVIES`, `BANGLADESH`), well-known channel names (Star Jalsha, Channel i, Sun TV) and country tags. With a TMDB key, a title's original language is learned the first time you open it.
 - Your order decides what comes first in lists, search and the guide. Nothing is filtered out; other languages sit lower down.
 - Languages marked **Home row** get a *New in …* row on Home. Live TV has a **By language** section, with Bangladesh directly under Bengali.
-- Each profile can have its own order (Settings → Library → My languages); profiles without one use the household order chosen during setup.
+- Each profile can have its own order (Settings → Library & guide → My languages); profiles without one use the household order chosen during setup.
 - If a lot lands in Unclassified, the Library and language report lists the tags and categories it didn't recognise.
 
 </details>
@@ -233,22 +245,22 @@ Relay does not run a server for this. The data lives in **one encrypted file in 
 <details>
 <summary><b>Move sync to a separate private repository</b></summary>
 
-If Relay shows **Sync paused** because it was set up with the app repository, your saved profiles, favourites and history are still on this screen. A screen on an older Relay may still be writing to the app repository with that token, so the old token goes first:
+If Relay shows **Sync paused** because it was set up with the app repository, your saved profiles, favourites and history are still on this screen. The household migration is complete for this project. Use these steps if you recover an older backup or still have a screen pointing at the app repository.
 
 1. Export a backup from the screen with the latest viewing history and favourites.
 2. On GitHub, delete the old sync token straight away (the one that can write to the app repository). Screens stop syncing; nothing on them is lost.
-3. On each screen, go to **Settings → Sync between screens → Stop syncing on this screen**, and update Relay.
+3. On each screen, go to **Settings → Account & sync → Stop syncing on this screen**, and update Relay.
 4. Create a separate private sync repository and a fresh token scoped only to that repository. Turn sync on using the backed-up screen as the first screen.
 5. Join the other screens. Check that a favourite and a movie resume position reach a second screen.
 
 </details>
 
-**Turn it on (first screen):** Settings → Sync between screens → **Turn on sync** (parent PIN if you have one). Scan the QR code with your phone, open the page, find *Sync between screens*, type the repository as `your-name/relay-sync`, paste the token and press **Turn on sync**. Relay checks that the repository is private and that the token can write to it, makes the household key, and does the first sync. The window closes when it is on, and Settings shows the status and the list of screens.
+**Turn it on (first screen):** Settings → Account & sync → **Turn on sync** (parent PIN if you have one). Scan the QR code with your phone, open the page, find *Sync between screens*, type the repository as `your-name/relay-sync`, paste the token and press **Turn on sync**. Relay checks that the repository is private and that the token can write to it, makes the household key, and does the first sync. The window closes when it is on, and Settings shows the status and the list of screens.
 
 **Add another screen:**
 
-1. On the new screen open Settings → Sync between screens → **Join sync from another screen**. On a fresh install the sign-in page has **I already use Relay on another screen** instead; a screen that joins signs in by itself.
-2. On a screen that already syncs open Settings → Sync between screens → **Add a screen** and choose the waiting screen from the list.
+1. On the new screen open Settings → Account & sync → **Join sync from another screen**. On a fresh install the sign-in page has **I already use Relay on another screen** instead; a screen that joins signs in by itself.
+2. On a screen that already syncs open Settings → Account & sync → **Add a screen** and choose the waiting screen from the list.
 3. Both screens now show the same six digits. If they match, press **Yes, they match** on the first screen, then **Join** on the new one. If they differ, press **No** and stop: someone else on your network is getting in the way. The details sent between the screens are sealed with a key worked out from the two screens' own keys, so nothing useful travels in the clear.
 
 The new screen keeps a safety copy of what it had before it joins, then brings its favourites and history together with the others'.
@@ -293,7 +305,7 @@ Two households never mix: the file is tied to the provider account, and a screen
 <details>
 <summary><b>Removing a screen, a lost screen, a new token, stopping</b></summary>
 
-- **Remove a screen** (Settings → Sync between screens) only takes it off the list. A screen that still has the key puts itself back the next time it syncs.
+- **Remove a screen** (Settings → Account & sync) only takes it off the list. A screen that still has the key puts itself back the next time it syncs.
 - **A lost or sold screen:** on a screen you still have, choose **New household key**. The file is sealed again, and a screen with the old key can no longer open it. Because the old token can still change the file even though it can't read it, also make a new GitHub token (as above) and delete the old one in GitHub. Paste the new token on this screen: Settings → Backup & phone → Phone companion, scan the code, and use *Replace the token* under *Sync between screens*. Then, on each of your other screens, choose **Join again from another screen** (it appears once the status says the key or token no longer works) and add it from this one; the new token travels with the pairing.
 - **The token expired or was removed:** the status says *The sync token was refused*. Make a new token as above and paste it under *Replace the token* on the phone page (Settings → Backup & phone → Phone companion). The token is kept on each screen, not in the shared file, so every screen needs it; the quick way is **Join again from another screen** on the others.
 - **Stop syncing on this screen** keeps everything on it, forgets the repository, token and key, and takes it off the list. The others keep going. Signing out on a screen that syncs stops sync there too, because the login would otherwise come back from the other screens.
@@ -326,7 +338,7 @@ You can give the APK to a friend or relative. Nothing of yours is in it: no logi
 <details>
 <summary><b>Rotten Tomatoes scores</b></summary>
 
-Settings → Library → Rotten Tomatoes scores. Add a free MDBList key (mdblist.com: sign in, then Preferences → API Access). Choose **Send from my phone**, scan the code and paste the key on the page; a key is checked before it is saved and you see the result on both screens. Or choose **Type it here**. Movie and series pages then show the critics and audience scores when Rotten Tomatoes has them; titles without a score show nothing extra.
+Settings → Library & guide → Rotten Tomatoes scores. Add a free MDBList key (mdblist.com: sign in, then Preferences → API Access). Choose **Send from my phone**, scan the code and paste the key on the page; a key is checked before it is saved and you see the result on both screens. Or choose **Type it here**. Movie and series pages then show the critics and audience scores when Rotten Tomatoes has them; titles without a score show nothing extra.
 
 - Lookups happen only when you open a title, after the page appears, and never delay Play.
 - Scores are saved and checked again after a day for this year's releases, a week for older titles, and three days for titles with no score.
@@ -339,31 +351,31 @@ Settings → Library → Rotten Tomatoes scores. Add a free MDBList key (mdblist
 <details>
 <summary><b>TMDB artwork and details</b></summary>
 
-Settings → Library → TMDB API key, then **Send from my phone** (or **Type it here**). A free key from themoviedb.org (Settings → API) adds better backdrops, ratings, genres, cast and trailers to movie and series pages, and a full summary where the provider's is cut short (many copy theirs from IMDb, which shortens them). Without it, Relay uses your provider's own information. Either the 32-character "API Key" or the longer "API Read Access Token" works, and spaces, quotes or a leading `api_key=` in what you paste are ignored.
+Settings → Library & guide → TMDB API key, then **Send from my phone** (or **Type it here**). A free key from themoviedb.org (Settings → API) adds better backdrops, ratings, genres, cast and trailers to movie and series pages, and a full summary where the provider's is cut short (many copy theirs from IMDb, which shortens them). Without it, Relay uses your provider's own information. Either the 32-character "API Key" or the longer "API Read Access Token" works, and spaces, quotes or a leading `api_key=` in what you paste are ignored.
 
 </details>
 
 ## Troubleshooting
 
-**Logs:** Settings → Diagnostics. Important lines (library loads with timings, downloads, errors, playback problems, and the screen freezing) are always saved, so they survive a force-close. **Save detailed logs** adds every detail line for 24 hours, then turns itself off; disk use is capped at about 1 MB. Usernames, passwords, tokens and API keys are removed from every line. Shared logs start with the device's memory and processor, the library size and the main settings.
+**Logs:** Settings → About & diagnostics. Important lines (library loads with timings, downloads, errors, playback problems, and the screen freezing) are always saved, so they survive a force-close. **Save detailed logs** adds every detail line for 24 hours, then turns itself off; disk use is capped at about 1 MB. Usernames, passwords, tokens and API keys are removed from every line. Shared logs start with the device's memory and processor, the library size and the main settings.
 
 To get the logs off a **TV**, open the phone companion (Settings → Backup & phone), scan the QR code and press **Download logs** on the phone. **Share logs** works directly on phones. With adb: `adb pull /sdcard/Android/data/dev.relay.tv/files/logs/`.
 
-**Refreshing the playlist:** the top bar shows how far along it is, and Settings → Account shows the step (downloading, checking, preparing). The percentage is based on how big each list was last time, so the very first download shows megabytes instead. A refresh keeps going if you move to another screen.
+**Refreshing the playlist:** the top bar shows how far along it is, and Settings → Account & sync shows the step (downloading, checking, preparing). The percentage is based on how big each list was last time, so the very first download shows megabytes instead. A manual refresh keeps going when you switch tabs. If the refresh is interrupted or fails, Relay continues to show its last complete library. Use **Refresh channels and library** to try again.
 
-**Slow to start with a VPN on (or off):** Settings → Account lists your servers. Each should say whether it is for use with a VPN, and the VPN line should match how the device connects. Press a server to change its mark. The log's header lists the servers too.
+**Slow to start with a VPN on (or off):** Settings → Account & sync lists your servers. Each should say whether it is for use with a VPN, and the VPN line should match how the device connects. Press a server to change its mark. The log's header lists the servers too.
 
-**Saved copy of the library:** Relay keeps a ready-to-use copy of your prepared library next to the downloaded lists, so after a restart or an update the channels appear in seconds instead of about a minute. It is written a few seconds after the library is prepared from a download or refresh, and it is ignored (and rewritten) whenever anything about it looks wrong, for example after some updates, so the first start after those takes the long way once. Settings → Refresh channels and library rewrites the saved copy. The logs from Settings → Diagnostics say at the top whether it was used and, if not, why.
+**Saved copy of the library:** Relay keeps a ready-to-use copy of your prepared library next to the downloaded lists, so after a restart or an update the channels appear in seconds instead of about a minute. It is written a few seconds after the library is prepared from a download or refresh, and it is ignored (and rewritten) whenever anything about it looks wrong, for example after some updates, so the first start after those takes the long way once. Settings → Account & sync → Refresh channels and library rewrites the saved copy. The logs from Settings → About & diagnostics say at the top whether it was used and, if not, why.
 
-**Updates stopped arriving:** Settings → Account (or the **Update** button in the top bar) shows why. GitHub limits how often an unnamed visitor may ask (60 an hour per network), so several screens on one network checking at once can be told to wait; it clears by itself. If GitHub rejects the update token, download and install the latest APK using a GitHub account with access. For automatic updates in private builds, see [update access](#update-access).
+**Updates stopped arriving:** Settings → About & diagnostics (or the **Update** button in the top bar) shows why. GitHub limits how often an unnamed visitor may ask (60 an hour per network), so several screens on one network checking at once can be told to wait; it clears by itself. If the repository is private, sign in to GitHub, download the latest APK, and install it over your existing copy. See [update access](#update-access).
 
-**Sync status** (Settings → Sync between screens): *Sync paused* means this screen still points at the app repository. Follow the [household migration steps](#sync-between-screens). *In sync, N minutes ago* is normal. *Waiting for the network* means the last try couldn't reach GitHub; it retries by itself. *The sync token was refused* or *can't be found with this token*: the token expired, was removed, or doesn't cover the repository; make a new one (Contents: read and write) and paste it under *Replace the token* on the phone page. *This screen's sync key doesn't open the file*: the household key was changed; choose **Join again from another screen**. *This screen is signed in to a different provider account*: sync is for one account; sign in with the same one or stop syncing here. *Update Relay on this screen to keep syncing*: another screen has a newer Relay that writes a newer file format; install the update. A message about the repository being public or the token being unable to write appears when sync is turned on; fix the repository or token and try again.
+**Sync status** (Settings → Account & sync): *Sync paused* means this screen still points at the app repository. Follow the [household migration steps](#sync-between-screens). *In sync, N minutes ago* is normal. *Waiting for the network* means the last try couldn't reach GitHub; it retries by itself. *The sync token was refused* or *can't be found with this token*: the token expired, was removed, or doesn't cover the repository; make a new one (Contents: read and write) and paste it under *Replace the token* on the phone page. *This screen's sync key doesn't open the file*: the household key was changed; choose **Join again from another screen**. *This screen is signed in to a different provider account*: sync is for one account; sign in with the same one or stop syncing here. *Update Relay on this screen to keep syncing*: another screen has a newer Relay that writes a newer file format; install the update. A message about the repository being public or the token being unable to write appears when sync is turned on; fix the repository or token and try again.
 
 **Phones and TVs:** Relay decides once, when it starts, whether the device is a recent phone (six or more processor cores, plenty of memory, not a TV) or anything else. A recent phone reads more of the library at once, waits less before loading guide text and searching, and fades posters in; a TV keeps the gentler settings it has always had. Buttons are thumb-sized on touch screens only. The first lines of the logs say which was chosen (*Device tier: fast* or *standard*) and the numbers in force.
 
-**Play on TV says no TV was found:** open Relay on the TV (any screen), check the phone and the TV are on the same Wi-Fi (some guest and mesh networks keep devices apart), and that both show sync turned on in Settings → Sync between screens.
+**Play on TV says no TV was found:** open Relay on the TV (any screen), check the phone and the TV are on the same Wi-Fi (some guest and mesh networks keep devices apart), and that both show sync turned on in Settings → Account & sync.
 
-**A channel won't play:** try Settings → Playback → Live stream format (MPEG-TS or HLS). Pause & rewind needs MPEG-TS.
+**A channel won't play:** try Settings → Playback & subtitles → Advanced playback → Live stream format (MPEG-TS or HLS). If a provider returns an HLS playlist from an MPEG-TS address, Relay plays it as HLS. Pause and rewind uses the MPEG-TS buffer on compatible channels.
 
 ## Maintaining Relay
 
@@ -387,23 +399,16 @@ Every build checks that the APK is signed with this exact key and fails otherwis
 <details id="update-access">
 <summary><b>Update access for public and private repositories</b></summary>
 
-Keep the app repository **public**: builds since 1.0.114 carry no update token, so making it private would stop automatic updates on every screen until a build with a token is installed. Public releases support automatic updates without a token. With a private repository, signed-in users with access can download the APK from Releases and install it over the existing app. To enable automatic updates in a trusted private build, CI must pass a repository-scoped read-only `RELAY_UPDATE_TOKEN` to the *Build release APK* step. The token is embedded in that APK, so distribute that build only to people who may read the repository. Build and distribute a fresh token-free APK when switching back to public, and revoke the private updater token after the household moves to the new build.
-
-1. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
-2. Name `Relay updater`, the longest expiry offered, and Repository access: **Only select repositories → TV-Relay**.
-3. Repository permissions → **Contents: Read-only**. Nothing else.
-4. Save it as the Actions secret **`RELAY_UPDATE_TOKEN`**.
-
-When the token nears expiry, replace the secret and let one build install. If it has already expired, install the next build by hand once.
+The standard release uses GitHub's public Releases endpoint. When the app repository is **public**, open **Settings → About & diagnostics → Check for app updates**. When the repository is **private**, sign in with a GitHub account that has access, download the latest APK from Releases, and install it over the existing app. Android keeps your data when the APK has the same signing key. Household sync uses its own private repository in either case.
 
 </details>
 
 <details>
 <summary><b>Builds and releases</b></summary>
 
-Every push to `main` that changes the app builds it in GitHub Actions and publishes it as release `v1.0.N`. Changes that touch only documentation or tools (`README.md`, `docs/`, `tools/`) don't make a release. You can also start a build from the Actions tab with **Run workflow**; such a run never publishes.
+Every push to `main` that changes the app builds it in GitHub Actions and publishes it as release `v1.0.N`. Changes that touch only documentation or tools (`README.md`, `docs/`, `tools/`) don't make a release. You can also use **Run workflow** in the Actions tab. A run on a feature branch produces a downloadable build artifact. A run on `main` can publish.
 
-The workflow has three jobs, each with only what it needs:
+The release workflow uses three jobs:
 
 | Job | Can write to the repository | Has the signing key | Does |
 |---|---|---|---|
@@ -413,9 +418,11 @@ The workflow has three jobs, each with only what it needs:
 
 So the emulator and the test scripts never run where the signing key or a write token is. Every action the workflow uses is pinned to an exact commit, with its version in a comment beside it; update both together.
 
-Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. The emulator runs the profile, sync, playback and guide regressions against a synthetic provider. It also checks that the signed, shrunk APK starts from a fresh install and upgrades v1.0.117 with its saved profile, favourite, history and resume position intact. Test and lint reports are attached to each run as `reports-1.0.N`.
+Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. The emulator runs the profile, sync, playback and guide regressions against a synthetic provider. It also checks that the signed, shrunk APK starts from a fresh install and upgrades v1.0.126 with its saved profile, favourite, history, resume position and settings intact. Test and lint reports are attached to each run as `reports-1.0.N`.
 
-A **benchmark** job can run beside the build. It costs about as many GitHub Actions minutes as the build itself, so releases skip it; start it by hand under Actions → Build APK → Run workflow with **Also run the benchmark** ticked. In it, a benchmark variant of the app (`assembleBenchmark`, never published, and the build fails if the release APK contains any of it) is driven on an emulator against a made-up provider (`tools/fake-provider`, 12,000 channels, 40,000 movies, 8,000 series) by `tools/bench/bench.sh`. The job log ends with frame times per screen, list build times and time to first picture. The run covers Home, Live TV, a live channel, the Movies and Series grids, the guide grid, Search, and touch flings. These numbers are for comparing one build with another and spotting a regression. They are not how fast a TV is: the emulator runs on a shared build server with a software renderer, and a TV's processor is slower in different ways. The job never blocks or delays a release, and a release does not wait for one. To see the same numbers from a real device, turn on **Save detailed logs** under Diagnostics for a day, use the app as usual, then share the logs: frame timing, list build times and time to first picture are in them.
+To refresh the README gallery, start **Actions → Build APK → Run workflow** on a feature branch and select **Capture the README gallery on Android TV and phone emulators**. The gallery jobs run the screenshot test against the fake provider and attach the JPEGs as **gallery-tv** and **gallery-phone**.
+
+A **benchmark** job can run beside the build. It costs about as many GitHub Actions minutes as the build itself, so releases skip it; start it by hand under Actions → Build APK → Run workflow with **Also run the benchmark** ticked. In it, a benchmark variant of the app (`assembleBenchmark`, never published, and the build fails if the release APK contains any of it) is driven on an emulator against a made-up provider (`tools/fake-provider`, 12,000 channels, 40,000 movies, 8,000 series) by `tools/bench/bench.sh`. The job log ends with frame times per screen, list build times and time to first picture. The run covers Home, Live TV, a live channel, the Movies and Series grids, the guide grid, Search, and touch flings. These numbers are for comparing one build with another and spotting a regression. They are not how fast a TV is: the emulator runs on a shared build server with a software renderer, and a TV's processor is slower in different ways. The job never blocks or delays a release, and a release does not wait for one. To see the same numbers from a real device, turn on **Save detailed logs** under About & diagnostics for a day, use the app as usual, then share the logs: frame timing, list build times and time to first picture are in them.
 
 To build locally (JDK 17 and the Android SDK):
 

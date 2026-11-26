@@ -17,9 +17,18 @@ Plans 1 to 4 are finished and their full text is in the repository's history (`g
 | Trailers and summaries | Trailers as a QR code on TVs; long summaries reachable with the remote and readable in full; "Read all" leftovers removed | 1.0.117 | |
 | Safety release | From the Gemini review and ChatGPT's notes on it (26 Nov): a joining screen's untouched settings no longer overwrite the household's; each phone page serves only what its screen opened it for, and only under the TV's own address; one folder per pause-buffer recording, and trimming that never leaves a rewind in a deleted piece; picture-in-picture settings kept current; the play list let go when the player closes; the release workflow split so the signing key and write access never meet the emulator, with every action pinned | 1.0.126 | Nine larger findings, to-do 14 |
 
+## Playback and Settings release
+
+- The player displays the active title while paused. Episode details, movie years and live or catch-up programme information appear when available.
+- Settings opens by category. Back returns to the menu with focus on the category the viewer opened.
+- Household migration was confirmed. The app repository no longer tracks the sync file at its tip. Sync applies favourite and history changes per item so an unrelated edit does not undo a remote deletion.
+- Cancelling a provider request closes the active HTTP call through the response-body read. Incomplete lists are discarded and the saved library remains available. A live `.ts` address that returns a playlist is played as HLS.
+- The README gallery uses the fake provider on TV and phone emulators. The [browsing study](BROWSING.md) records the two candidate layouts and how their remote navigation compares.
+
+
 ## Android reliability release
 
-Profile cleanup follows accepted sync changes so a concurrent local edit does not lose favourites, history or kids' viewing time. Relay restores the kids profile after Android recreates the screen and checks the parent PIN before switching away. Paused movies and episodes stay paused on return. Backup validation rejects invalid avatar colours, and the guide advances its time window while preserving the viewer's place where possible. Relay pauses sync configurations that point at its app repository. The household migration stays open in [TODO.md](TODO.md).
+Profile cleanup follows accepted sync changes so a concurrent local edit does not lose favourites, history or kids' viewing time. Relay restores the kids profile after Android recreates the screen and checks the parent PIN before switching away. Paused movies and episodes stay paused on return. Backup validation rejects invalid avatar colours, and the guide advances its time window while preserving the viewer's place where possible. Relay pauses sync configurations that point at its app repository. The household has since moved sync to a separate private repository.
 
 The release branch passed 666 unit tests and four emulator tests covering the store, kids profile recreation, playback and guide listings. The lint gate reported six findings and zero critical findings. The signed APK started on a fresh install and preserved the test profile, favourite, history and resume position when upgrading from v1.0.117. Physical TV and phone checks are tracked separately. [Validation run](https://github.com/ghoshs89/TV-Relay/actions/runs/45399176619)
 
