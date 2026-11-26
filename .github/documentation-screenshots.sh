@@ -22,8 +22,19 @@ python3 tools/fake-provider/fake_provider.py --port 8099 --ts "$fixture/demo.ts"
 provider=$!
 trap 'kill "$provider" 2>/dev/null || true' EXIT
 curl --retry 10 --retry-connrefused --retry-delay 1 -fsS http://localhost:8099/player_api.php > /dev/null
-./gradlew :app:connectedDebugAndroidTest --no-daemon \
-  -Pandroid.testInstrumentationRunnerArguments.class=dev.relay.tv.DocumentationScreenshotsTest \
-  -Pandroid.testInstrumentationRunnerArguments.gallery="$layout"
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+
+adb shell am instrument -w -r \
+  -e class dev.relay.tv.DocumentationScreenshotsTest -e gallery "$layout" \
+  dev.relay.tv.test/androidx.test.runner.AndroidJUnitRunner | tee "$fixture/instrumentation.log"
+
 mkdir -p "gallery-$layout"
-adb pull "/sdcard/Android/data/dev.relay.tv/files/gallery-$layout/." "gallery-$layout"
+adb shell run-as dev.relay.tv ls "files/gallery-$layout" | tr -d '\r' | while IFS= read -r image; do
+  if [[ "$image" == *.jpg ]]; then
+    adb exec-out run-as dev.relay.tv cat "files/gallery-$layout/$image" < /dev/null > "gallery-$layout/$image"
+    test -s "gallery-$layout/$image"
+  fi
+done
+grep -F 'OK (1 test)' "$fixture/instrumentation.log"

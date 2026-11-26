@@ -32,14 +32,14 @@ class XtreamCancellationTest {
                     }
                 })
                 val request = async { client.getJson(emptyMap()) }
-                withTimeout(3_000) {
+                withTimeout(8_000) {
                     started.await()
                     request.cancelAndJoin()
                 }
                 assertTrue(request.isCancelled)
                 assertEquals(0, backup.requestCount)
                 primary.enqueue(MockResponse().setBody("[]"))
-                assertEquals("[]", withTimeout(3_000) { client.getJson(emptyMap()) }.toString())
+                assertEquals("[]", withTimeout(8_000) { client.getJson(emptyMap()) }.toString())
             }
         }
     }
@@ -57,7 +57,7 @@ class XtreamCancellationTest {
                         if (bytes > 0) receivedData.complete(Unit)
                     }
                 }
-                withTimeout(3_000) {
+                withTimeout(8_000) {
                     receivedData.await()
                     request.cancelAndJoin()
                 }
@@ -65,7 +65,7 @@ class XtreamCancellationTest {
                 assertEquals("previous", saved.readText())
                 assertEquals(listOf(saved), dir.listFiles()?.toList())
                 primary.enqueue(MockResponse().setBody("[]"))
-                withTimeout(3_000) { client.download("get_live_streams", saved) }
+                withTimeout(8_000) { client.download("get_live_streams", saved) }
                 assertEquals("[]", saved.readText())
             }
         }

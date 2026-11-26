@@ -391,7 +391,8 @@ class Store(ctx: Context) {
         val now = current.associateBy(key)
         val incoming = remote.associateBy(key)
         val common = was.keys.intersect(now.keys)
-        val localOrderChanged = was.keys.filter { it in common } != now.keys.filter { it in common }
+        val localOrderChanged = now.keys.any { it !in was } ||
+            was.keys.filter { it in common } != now.keys.filter { it in common }
         val order = if (localOrderChanged) now.keys + incoming.keys else incoming.keys + now.keys
         return order.mapNotNull { id -> if (now[id] != was[id]) now[id] else incoming[id] }
     }

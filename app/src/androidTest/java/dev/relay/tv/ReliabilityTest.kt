@@ -253,6 +253,51 @@ class ReliabilityTest {
         throw AssertionError(message)
     }
 
+    @Test @OptIn(UnstableApi::class)
+    fun pauseTitleFollowsEpisodeChangesAndUsesTheCatchupProgrammeName() {
+        val fakeMovie = "http://10.0.2.2:8099/movie/bench/bench/100001.ts"
+        val title = "Northbound"
+        val first = PlayItem("ep:1", "episode", title, "S1 E1 · The Departure", streamId = "1", ext = "ts", urls = listOf(fakeMovie))
+        val second = first.copy(key = "ep:2", subtitle = "S1 E2 · A Long Journey Through the Mountains", streamId = "2")
+        val catchup = first.copy(key = "catchup:7:now", kind = "catchup", title = "Coast News", subtitle = "Evening News")
+        val device = UiDevice.getInstance(instrumentation)
+
+        fun queue(items: List<PlayItem>) {
+            instrumentation.runOnMainSync {
+                app.store.profiles = listOf(adult)
+                app.store.parentPin = null
+                app.session.profile = adult
+                configureProvider()
+                app.pendingPlay = PlayRequest(adult.id, items, 0)
+            }
+        }
+
+        queue(listOf(first, second))
+        ActivityScenario.launch(PlayerActivity::class.java).use { scenario ->
+            awaitPlayer(scenario, "The first episode should play") { it.isPlaying }
+            scenario.onActivity {
+                val player = checkNotNull(findPlayerView(it.window.decorView)?.player)
+                player.seekToNextMediaItem()
+            }
+            awaitPlayer(scenario, "The second episode should play") {
+                it.isPlaying && it.currentMediaItem?.mediaId == second.key
+            }
+            device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_PAUSE)
+            assertTrue(device.wait(Until.hasObject(By.text("$title\n${second.subtitle}")), 5_000))
+        }
+        queue(listOf(catchup))
+        ActivityScenario.launch(PlayerActivity::class.java).use { scenario ->
+            awaitPlayer(scenario, "The catch-up programme should play") { it.isPlaying }
+            val playPause = device.findObject(By.desc("Pause"))
+            if (playPause == null) {
+                scenario.onActivity { findPlayerView(it.window.decorView)?.showController() }
+            }
+            val pause = checkNotNull(device.wait(Until.findObject(By.desc("Pause")), 5_000))
+            pause.click()
+            assertTrue(device.wait(Until.hasObject(By.text("Evening News\nCoast News")), 5_000))
+        }
+    }
+
     @Test fun movieKeepsPlayingOrPausedAcrossStopAndStart() {
         // ActivityScenario backgrounds the player with a user-leave hint. Disable PiP on this
         // emulator for this test so the playing case reaches onStop as well as onPause.

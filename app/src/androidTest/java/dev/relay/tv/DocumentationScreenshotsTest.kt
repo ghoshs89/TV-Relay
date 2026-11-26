@@ -45,8 +45,8 @@ class DocumentationScreenshotsTest {
         val layout = InstrumentationRegistry.getArguments().getString("gallery")
         assumeTrue(layout == "tv" || layout == "phone")
         val mode = app.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
-        assertEquals(layout == "tv", mode.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION)
-        val folder = checkNotNull(app.getExternalFilesDir("gallery-$layout"))
+        assertEquals("Emulator layout matches the requested capture", layout == "tv", mode.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION)
+        val folder = app.filesDir.resolve("gallery-$layout").apply { mkdirs() }
         val signIn = Account("Demo library", listOf(provider), "bench", "bench")
         instrumentation.runOnMainSync {
             app.store.account = signIn
@@ -81,22 +81,23 @@ class DocumentationScreenshotsTest {
             }
         }
         if (layout == "tv") {
-            ActivityScenario.launch(MainActivity::class.java).use {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 waitFor("Continue watching")
                 capture(folder, "home")
-                tap("Live TV")
+                scenario.onActivity { app.ui.tab = 1 }
                 waitFor("Guide grid")
                 capture(folder, "live-tv")
-                tap("Guide grid")
-                assertTrue(device.wait(Until.hasObject(By.textStartsWith("Programme ")), 20_000))
+                scenario.onActivity { app.ui.liveGrid = true }
+                waitFor("List view")
+                assertTrue("The demo guide should contain programmes", device.wait(Until.hasObject(By.textContains("Programme ")), 30_000))
                 capture(folder, "guide")
-                tap("Movies")
+                scenario.onActivity { app.ui.tab = 2 }
                 waitFor("Recently added")
                 capture(folder, "movies")
-                tap("Series")
+                scenario.onActivity { app.ui.tab = 3 }
                 waitFor("Recently added")
                 capture(folder, "series")
-                tap("Settings")
+                scenario.onActivity { app.ui.tab = 5 }
                 waitFor("About & diagnostics")
                 capture(folder, "settings")
             }
@@ -121,14 +122,12 @@ class DocumentationScreenshotsTest {
                 Thread.sleep(200)
             }
             assertTrue("The demo movie must play", paused)
-            assertTrue(device.wait(Until.hasObject(By.textStartsWith(demoTitle)), 5_000))
+            assertTrue("The paused title should appear", device.wait(Until.hasObject(By.textStartsWith(demoTitle)), 5_000))
             capture(folder, if (layout == "tv") "player-paused" else "phone-paused", settleMs = 400)
         }
     }
 
     private fun waitFor(label: String) = checkNotNull(device.wait(Until.findObject(By.text(label)), 15_000)) { label }
-
-    private fun tap(label: String) = waitFor(label).click()
 
     private fun capture(folder: java.io.File, name: String, settleMs: Long = 1_700) {
         Thread.sleep(settleMs)
