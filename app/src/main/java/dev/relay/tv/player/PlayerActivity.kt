@@ -13,6 +13,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.widget.Toast
 import android.util.Rational
 import android.view.Gravity
@@ -52,6 +56,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.ui.PlayerView
@@ -67,6 +73,10 @@ import dev.relay.tv.ui.RelayTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.IOException
 
 @OptIn(UnstableApi::class)
 class PlayerActivity : ComponentActivity() {
@@ -79,6 +89,10 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var player: ExoPlayer
     private lateinit var view: PlayerView
     private lateinit var overlay: TextView
+    private lateinit var pauseTitle: TextView
+    private var pausedItemKey: String? = null
+    private var pausedAtSec: Long? = null
+    private var pauseGuideJob: Job? = null
     private lateinit var infoView: TextView
 
     /** Centred prompt shown after the first Back: says what a second one will do. */
@@ -123,6 +137,11 @@ class PlayerActivity : ComponentActivity() {
     private var timeshift: TimeshiftBuffer? = null
     private var tsOffset = 0L
     private val tsDisabled = mutableSetOf<String>()
+    private val playlistSources = mutableSetOf<String>()
+    private var liveUrls = emptyList<String>()
+    @Volatile private var probeLiveUrl: String? = null
+
+    private class LivePlaylist : IOException("Live source returned an HLS playlist")
     private var stoppedInBackground = false
     private var resumeVodAfterStop: Boolean? = null
     private lateinit var tsSource: ProgressiveMediaSource.Factory
@@ -197,6 +216,7 @@ class PlayerActivity : ComponentActivity() {
         player.pause()
         overlay.visibility = View.GONE
         view.hideController()
+        pauseTitle.visibility = View.GONE
         failure.showStillWatching {
             failure.hide()
             stillWatching.answered(SystemClock.elapsedRealtime())
@@ -301,13 +321,32 @@ class PlayerActivity : ComponentActivity() {
         skipBackSec = SkipSizes.clean(s.skipBackSec, SkipSizes.DEFAULT_BACK)
         skipForwardSec = SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)
         // Streams give up after 15 s without data (menus keep the longer default) so recovery starts sooner.
-        val streamHttp = app.http.newBuilder().readTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
+        val streamHttp = app.http.newBuilder()
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val url = chain.request().url.toString()
+                val response = chain.proceed(chain.request())
+                if (url != probeLiveUrl || !response.isSuccessful) return@addInterceptor response
+                try {
+                    val head = response.peekBody(TimeshiftSupport.PLAYLIST_PREFIX_BYTES).bytes()
+                    if (TimeshiftSupport.looksLikePlaylist(head, head.size)) throw LivePlaylist()
+                    response
+                } catch (e: IOException) {
+                    response.close()
+                    throw e
+                }
+            }
+            .build()
         val dataSource = OkHttpDataSource.Factory(streamHttp).setUserAgent(s.userAgent.ifBlank { "RelayTV/1.0" })
         val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
         )
         val mediaSources = DefaultMediaSourceFactory(dataSource, extractors)
+            .setLoadErrorHandlingPolicy(object : DefaultLoadErrorHandlingPolicy() {
+                override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+                    if (isPlaylistError(info.exception)) C.TIME_UNSET else super.getRetryDelayMsFor(info)
+            })
         tsSource = ProgressiveMediaSource.Factory(
             TimeshiftDataSource.Factory { timeshift },
             DefaultExtractorsFactory().setTsExtractorFlags(
@@ -376,6 +415,17 @@ class PlayerActivity : ComponentActivity() {
             setBackgroundColor(0xDD0B1220.toInt())
             visibility = View.GONE
         }
+        pauseTitle = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = if (isTv) 23f else 18f
+            setPadding(tvPx(20), tvPx(12), tvPx(20), tvPx(12))
+            maxWidth = (resources.displayMetrics.widthPixels * 0.66f).toInt()
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xD914171C.toInt())
+                cornerRadius = tvPx(8).toFloat()
+            }
+            visibility = View.GONE
+        }
         infoView = TextView(this).apply {
             setTextColor(0xFFE8EEF7.toInt())
             textSize = 14f
@@ -440,6 +490,7 @@ class PlayerActivity : ComponentActivity() {
             setOnClickListener {
                 view.hideController()
                 playOnTvOpen = true
+                updatePauseTitle()
             }
         }
         view.setControllerVisibilityListener(
@@ -465,7 +516,10 @@ class PlayerActivity : ComponentActivity() {
                                 saveProgress(finished = false)
                                 finish()
                             },
-                            onDismiss = { playOnTvOpen = false },
+                            onDismiss = {
+                                playOnTvOpen = false
+                                updatePauseTitle()
+                            },
                         )
                     }
                 }
@@ -474,8 +528,13 @@ class PlayerActivity : ComponentActivity() {
 
         val root = FrameLayout(this)
         root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val topLabels = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(pauseTitle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(this@PlayerActivity.overlay, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
         root.addView(
-            overlay,
+            topLabels,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -660,7 +719,7 @@ class PlayerActivity : ComponentActivity() {
         val item = currentItem() ?: return
         lastErrorName = "STALL"
         lastHttp = null
-        val urls = urlsFor(item)
+        val urls = if (req.live) liveUrls else urlsFor(item)
         if (req.live) {
             liveStalls++
             AppLog.w("Player", "Live '${item.title}' stuck buffering (reconnect $liveStalls of ${StallWatchdog.LIVE_TRIES})")
@@ -703,15 +762,17 @@ class PlayerActivity : ComponentActivity() {
         item.urls.ifEmpty { app.api.streamUrls(item.kind, item.streamId, item.ext) }
 
     private fun mediaItem(item: PlayItem, attempt: Int): MediaItem {
-        val urls = urlsFor(item)
+        val urls = if (req.live) liveUrls else urlsFor(item)
         val url = if (urls.isEmpty()) "" else urls[attempt % urls.size]
+        val hls = isHlsSource(url)
+        if (req.live) probeLiveUrl = if (hls) null else url.toHttpUrlOrNull()?.toString()
         val b = MediaItem.Builder()
             .setUri(url)
             .setMediaId(item.key)
             .setMediaMetadata(
                 MediaMetadata.Builder().setTitle(item.title).setSubtitle(item.subtitle).build(),
             )
-        if (url.contains(".m3u8")) b.setMimeType(MimeTypes.APPLICATION_M3U8)
+        if (hls) b.setMimeType(MimeTypes.APPLICATION_M3U8)
         return b.build()
     }
 
@@ -737,7 +798,7 @@ class PlayerActivity : ComponentActivity() {
         playLive(target)
     }
 
-    private fun playLive(index: Int) {
+    private fun playLive(index: Int, playlistUrl: String? = null) {
         tuneStartedAt = SystemClock.elapsedRealtime()
         val n = req.items.size
         liveIndex = ((index % n) + n) % n
@@ -749,11 +810,15 @@ class PlayerActivity : ComponentActivity() {
         if (failing) hideFailure()
         val item = req.items[liveIndex]
         stopTimeshift()
+        pausedItemKey = null
+        probeLiveUrl = null
+        liveUrls = urlsFor(item)
+        if (playlistUrl != null) liveUrls = listOf(playlistUrl) + liveUrls.filterNot { it == playlistUrl }
         val s = app.store.settings
-        // The pause buffer records MPEG-TS; HLS channels play directly.
-        if (s.timeshift && item.key !in tsDisabled && TimeshiftSupport.supports(urlsFor(item))) {
+        // An HLS source plays directly. Only MPEG-TS candidates go to the recorder.
+        if (s.timeshift && item.key !in tsDisabled && liveUrls.firstOrNull()?.let { !isHlsSource(it) } == true) {
             val ts = TimeshiftBuffer(
-                TimeshiftBuffer.sessionDir(cacheDir), app.http, urlsFor(item),
+                TimeshiftBuffer.sessionDir(cacheDir), app.http, liveUrls.filterNot(::isHlsSource),
                 s.userAgent.ifBlank { "RelayTV/1.0" }, s.timeshiftMinutes,
             )
             timeshift = ts
@@ -852,10 +917,85 @@ class PlayerActivity : ComponentActivity() {
         else -> listOfNotNull(item.title, item.subtitle).joinToString("  ·  ")
     }
 
+    private fun isHlsSource(url: String): Boolean =
+        TimeshiftSupport.isHls(url) || url in playlistSources
+
+    private fun isPlaylistError(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.any { it is LivePlaylist }
+
+    private fun updatePauseTitle() {
+        if (!::pauseTitle.isInitialized) return
+        val item = currentItem()
+        val state = player.playbackState
+        if (item == null || player.playWhenReady || state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
+            pausedItemKey = null
+            pauseGuideJob?.cancel()
+            pauseTitle.visibility = View.GONE
+            return
+        }
+        if (isInPictureInPictureMode || failing || stillWatching.asking || channelOverlayOpen || playOnTvOpen) {
+            pauseTitle.visibility = View.GONE
+            return
+        }
+
+        val channel = item.streamId.toIntOrNull()?.takeIf { item.kind == "live" }
+        val newPause = pausedItemKey != item.key
+        if (newPause) {
+            pausedItemKey = item.key
+            pausedAtSec = if (channel != null) liveFrameTime() else null
+            handler.removeCallbacks(hideOverlay)
+            overlay.visibility = View.GONE
+            pauseGuideJob?.cancel()
+        }
+        val time = pausedAtSec
+        val programme = if (channel != null && time != null) app.catalog.programmeAt(channel, time)?.title else null
+        val details = item.subtitle?.takeIf { it.isNotBlank() }
+        val (title, subtitle) = when (item.kind) {
+            "live" -> if (programme.isNullOrBlank()) item.title to null else programme to item.title
+            "catchup" -> if (details == null) item.title to null else details to item.title
+            else -> item.title to details
+        }
+        pauseTitle.text = SpannableStringBuilder(title).apply {
+            setSpan(StyleSpan(Typeface.BOLD), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (subtitle != null) {
+                append('\n')
+                val start = length
+                append(subtitle)
+                setSpan(RelativeSizeSpan(0.8f), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+        pauseTitle.visibility = View.VISIBLE
+        if (newPause && channel != null && time != null && programme == null) {
+            pauseGuideJob = lifecycleScope.launch {
+                withTimeoutOrNull(5_000) { app.catalog.shortEpgOrNull(channel) }
+                updatePauseTitle()
+            }
+        }
+    }
+
+    private fun liveFrameTime(): Long? {
+        val now = System.currentTimeMillis() / 1000
+        val buffer = timeshift
+        if (buffer != null) return if (buffer.bytesPerSecond > 0) now - tsBehindSec() else null
+        val liveOffset = player.currentLiveOffset
+        return if (liveOffset >= 0) now - liveOffset / 1000 else now
+    }
+
     // ---------- Events ----------
 
     private val listener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) = handleError(error)
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_POSITION_DISCONTINUITY)) {
+                pausedItemKey = null
+            }
+            if (events.containsAny(
+                    Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAYER_ERROR,
+                )
+            ) updatePauseTitle()
+        }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             if (req.live) return
@@ -945,6 +1085,15 @@ class PlayerActivity : ComponentActivity() {
         val item = currentItem() ?: return
         lastErrorName = e.errorCodeName
         lastHttp = httpCodeOf(e)
+        val recorderPlaylist = timeshift?.playlistUrl
+        val directPlaylist = if (req.live && isPlaylistError(e)) liveUrls.getOrNull(hostAttempt) else null
+        val playlist = recorderPlaylist ?: directPlaylist
+        if (playlist != null && playlistSources.add(playlist)) {
+            AppLog.i("Player", "Playing detected HLS directly from ${hostOf(playlist)}")
+            playLive(liveIndex, playlist)
+            if (recorderPlaylist != null) showOverlay("Pause and rewind aren't available on this HLS stream")
+            return
+        }
         AppLog.e("Player", "${e.errorCodeName} on ${item.kind} '${item.title}' via ${hostOf(urlsFor(item).getOrNull(hostAttempt))}", e)
         if (req.live && timeshift != null) {
             AppLog.w("Timeshift", "Pause buffer playback failed for ${item.title}; playing directly")
@@ -958,7 +1107,7 @@ class PlayerActivity : ComponentActivity() {
             player.prepare()
             return
         }
-        val urls = urlsFor(item)
+        val urls = if (req.live) liveUrls else urlsFor(item)
         if (hostAttempt + 1 < urls.size) {
             hostAttempt++
             val pos = player.currentPosition
@@ -1054,12 +1203,14 @@ class PlayerActivity : ComponentActivity() {
         channelOverlayOpen = true
         channelsView.visibility = View.VISIBLE
         channelsView.requestFocus()
+        updatePauseTitle()
     }
 
     private fun closeChannelOverlay() {
         channelOverlayOpen = false
         channelsView.visibility = View.GONE
         view.requestFocus()
+        updatePauseTitle()
     }
 
     // ---------- Number keys ----------
@@ -1116,6 +1267,19 @@ class PlayerActivity : ComponentActivity() {
         ) {
             reminder.watch(r)
             return true
+        }
+        // The transport buttons on some remotes are delivered to the activity without a focused control.
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_PLAY -> player.play()
+                        KeyEvent.KEYCODE_MEDIA_PAUSE -> player.pause()
+                        else -> player.playWhenReady = !player.playWhenReady
+                    }
+                }
+                return true
+            }
         }
         if (event.action == KeyEvent.ACTION_DOWN && req.live && timeshift != null) {
             when (event.keyCode) {
@@ -1213,6 +1377,7 @@ class PlayerActivity : ComponentActivity() {
             leaveHint.visibility = View.GONE
             if (channelOverlayOpen) closeChannelOverlay()
         }
+        updatePauseTitle()
     }
 
     private fun refreshPipParams() {

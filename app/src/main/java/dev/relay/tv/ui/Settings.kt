@@ -1,8 +1,11 @@
 package dev.relay.tv.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import dev.relay.tv.companion.CompanionDialog
 import dev.relay.tv.data.ChannelGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,8 +27,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,7 +53,9 @@ import dev.relay.tv.player.Playback
 import dev.relay.tv.sync.SyncResult
 import dev.relay.tv.sync.SyncStatusText
 import dev.relay.tv.update.Updater
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -55,6 +65,18 @@ import java.util.Locale
 
 private enum class Edit { TMDB, RATINGS, AUDIO, SUBS, UA, XMLTV }
 
+private enum class SettingsPage(val title: String) {
+    PLAYBACK("Playback & subtitles"),
+    LIBRARY("Library & guide"),
+    PROFILES("Profiles & parental controls"),
+    ACCOUNT("Account & sync"),
+    APPEARANCE("Appearance"),
+    BACKUP("Backup & phone"),
+    ABOUT("About & diagnostics"),
+    ADVANCED("Advanced playback"),
+}
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun SettingsTab() {
     val app = RelayApp.instance
@@ -65,6 +87,14 @@ fun SettingsTab() {
     val s = store.settings
     val acc = store.account
     val current = app.session.profile
+
+    var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    var restore by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    fun back() {
+        restore = page
+        page = if (page == SettingsPage.ADVANCED) SettingsPage.PLAYBACK else null
+    }
+    BackHandler(enabled = page != null) { back() }
 
     var info by remember { mutableStateOf<AccountInfo?>(null) }
     var infoError by remember { mutableStateOf<String?>(null) }
@@ -130,9 +160,14 @@ fun SettingsTab() {
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(page, acc) {
+        if (page != SettingsPage.ACCOUNT || acc == null) return@LaunchedEffect
+        info = null
+        infoError = null
         try {
             info = app.api.authenticate()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             infoError = e.message
         }
@@ -142,563 +177,620 @@ fun SettingsTab() {
     val timeFmt = remember { SimpleDateFormat("d MMM, h:mm a", Locale.getDefault()) }
     val kidsLocked = current?.kids == true
 
-    LazyColumn(
-        Modifier.fillMaxSize().fadeEdges(),
-        contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 24.dp, bottom = 64.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        item { Section("Account") }
-        item { Info("Playlist", acc?.name ?: "Not signed in") }
-        item {
-            Info(
-                "Status",
-                info?.status ?: infoError?.let { "Unreachable ($it)" } ?: "Checking…",
-            )
-        }
-        item {
-            val exp = info?.expires
-            Info(
-                "Expires",
-                when {
-                    exp == null -> if (info != null) "Unlimited" else "…"
-                    else -> {
-                        val days = ((exp * 1000 - System.currentTimeMillis()) / 86_400_000L)
-                        "${dateFmt.format(Date(exp * 1000))}  (${if (days >= 0) "$days days left" else "expired"})"
-                    }
-                },
-            )
-        }
-        item {
-            val i = info
-            Info("Connections", if (i?.maxConnections != null) "${i.activeConnections ?: 0} in use of ${i.maxConnections}" else "…")
-        }
-        item {
-            val inUse = app.api.host
-            Info(
-                "Server in use",
-                if (inUse != null) "$inUse (${acc?.netOf(inUse)?.label ?: dev.relay.tv.data.HostNet.ANY.label})"
-                else acc?.hosts?.firstOrNull() ?: "None",
-            )
-        }
-        item { Info("VPN", dev.relay.tv.net.VpnWatch.describe(app.vpnWatch.vpnOn).replaceFirstChar { it.uppercase() }) }
-        // One row per server, in saved order (so a row doesn't move when pressed). Pressing a row changes
-        // which network it is marked for; Relay then tries the servers that suit the network first.
-        if (acc != null) {
-            val now = app.api.health.clock()
-            val inUse = app.api.host
-            for (st in app.api.health.snapshot(acc.hosts)) {
-                item(key = "srv:${st.host}") {
-                    Setting(
-                        if (st.host == inUse) "${st.host} (in use)" else st.host,
-                        "${acc.netOf(st.host).label.replaceFirstChar { it.uppercase() }} · ${dev.relay.tv.data.ServerText.status(st, now)}",
-                        kidsLocked,
-                    ) {
-                        gate.run("Parent PIN to change servers") {
-                            val cur = store.account ?: return@run
-                            val next = cur.netOf(st.host).next()
-                            val nets = cur.hosts.associateWith { cur.netOf(it) } + (st.host to next)
-                            val updated = cur.copy(hostNets = dev.relay.tv.data.Account.netsFor(cur.hosts, nets))
-                            store.account = updated
-                            app.api.account = updated
-                            AppLog.i("Api", "Server ${st.host} now marked for ${next.label}")
-                        }
-                    }
-                }
+    key(page) {
+        val list = rememberLazyListState()
+        val focus = remember { FocusRequester() }
+        val inputMode = LocalInputModeManager.current
+        val isTv = rememberIsTv()
+        var targetFocused by remember { mutableStateOf(false) }
+        // Return focus to the opener even when the viewer tapped it before using a remote.
+        val observeTarget = Modifier
+            .focusProperties { canFocus = true }
+            .onFocusChanged { targetFocused = it.isFocused }
+        LaunchedEffect(restore) {
+            val target = if (page == null) restore?.let { it.ordinal + 1 } else if (restore == null) 0 else 1
+            if (target == null) return@LaunchedEffect
+            if (isTv || restore != null) inputMode.requestInputMode(InputMode.Keyboard)
+            if (list.layoutInfo.visibleItemsInfo.none { it.index == target }) list.scrollToItem(target)
+            repeat(30) {
+                runCatching { focus.requestFocus() }
+                if (targetFocused) return@LaunchedEffect
+                delay(50)
             }
         }
-        item {
-            Setting(
-                "Refresh channels and library",
-                if (app.catalog.loading) app.catalog.progress?.text ?: "Refreshing…"
-                else "Last updated ${if (app.catalog.updatedAt > 0) timeFmt.format(Date(app.catalog.updatedAt)) else "never"}" +
-                    (app.catalog.error?.let { " · $it" } ?: ""),
-                locked = false,
-            ) {
-                if (app.catalog.loading) return@Setting
-                AppLog.i("Catalog", "Refresh requested from Settings")
-                // App scope: the refresh keeps going if you leave Settings.
-                app.appScope.launch { app.catalog.load(force = true) }
-            }
-        }
-        item {
-            Setting("Change servers or login", "${acc?.hosts?.size ?: 0} server(s) saved", kidsLocked) {
-                gate.run("Parent PIN to change servers") { nav.push(Route.Login) }
-            }
-        }
-
-        item { Section("Playback") }
-        if (WatchNext.supported(ctx)) {
-            item {
-                Setting(
-                    "Continue watching on the TV home screen",
-                    if (s.watchNext) "On · movies and episodes in progress (not kids profiles)" else "Off",
-                    kidsLocked,
-                ) {
-                    val on = !s.watchNext
-                    store.settings = s.copy(watchNext = on)
-                    if (!on) app.appScope.launch(Dispatchers.IO) { WatchNext.clear(ctx.applicationContext) }
-                }
-            }
-        }
-        item {
-            Setting("Play next episode automatically", if (s.autoNext) "On" else "Off", false) {
-                store.settings = s.copy(autoNext = !s.autoNext)
-            }
-        }
-        item {
-            Setting("Live stream format", if (s.liveExt == "ts") "MPEG-TS (most compatible)" else "HLS (m3u8)", false) {
-                store.settings = s.copy(liveExt = if (s.liveExt == "ts") "m3u8" else "ts")
-            }
-        }
-        item {
-            Setting(
-                "Audio language order",
-                s.audioLangs.ifBlank { "Follow my languages (" + app.session.langOrder(s).take(3).joinToString(", ") { Langs.label(it) } + ")" },
-                false,
-            ) { edit = Edit.AUDIO }
-        }
-        item { Setting("Subtitle languages", s.subtitleLang.ifBlank { "Off" }, false) { edit = Edit.SUBS } }
-        item { Setting("Player user agent", s.userAgent, kidsLocked) { edit = Edit.UA } }
-        item {
-            Setting("Match TV refresh rate to video", if (s.matchFrameRate) "On (TVs only)" else "Off", false) {
-                store.settings = s.copy(matchFrameRate = !s.matchFrameRate)
-            }
-        }
-        item {
-            Setting("Show stream info when playback starts", if (s.showStreamInfo) "On, 5 seconds" else "Off", false) {
-                store.settings = s.copy(showStreamInfo = !s.showStreamInfo)
-            }
-        }
-        item {
-            Setting("Jump back (Left key)", SkipSizes.label(SkipSizes.clean(s.skipBackSec, SkipSizes.DEFAULT_BACK)), false) {
-                store.settings = s.copy(skipBackSec = SkipSizes.next(SkipSizes.clean(s.skipBackSec, SkipSizes.DEFAULT_BACK)))
-            }
-        }
-        item {
-            Setting("Jump forward (Right key)", SkipSizes.label(SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)), false) {
-                store.settings = s.copy(skipForwardSec = SkipSizes.next(SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)))
-            }
-        }
-        item {
-            val sleep = SleepTimer.clean(s.sleepMinutes)
-            Setting("Sleep timer", if (sleep == 0) "Off" else "${SleepTimer.label(sleep)} after playback starts (press a key in the last minute to add more)", false) {
-                store.settings = s.copy(sleepMinutes = SleepTimer.next(sleep))
-            }
-        }
-        item {
-            Setting("Ask \"Are you still watching?\"", if (s.askStillWatching) "On (after 3 episodes in a row or 4 hours of live TV)" else "Off", false) {
-                store.settings = s.copy(askStillWatching = !s.askStillWatching)
-            }
-        }
-        item { Setting("Lip-sync adjustment", lipSyncLabel(s.audioDelayMs), false) { lipSync = true } }
-        item {
-            Setting("Pause & rewind live TV", if (s.timeshift) "On" else "Off", false) {
-                store.settings = s.copy(timeshift = !s.timeshift)
-            }
-        }
-        if (s.timeshift) {
-            item {
-                Setting("Rewind buffer", "${s.timeshiftMinutes} minutes (max 1.5 GB, deleted on exit)", false) {
-                    store.settings = s.copy(
-                        timeshiftMinutes = when (s.timeshiftMinutes) {
-                            15 -> 30
-                            30 -> 60
-                            else -> 15
-                        },
+        LazyColumn(
+            Modifier.fillMaxSize().fadeEdges(),
+            state = list,
+            contentPadding = PaddingValues(start = 36.dp, end = 36.dp, top = 16.dp, bottom = 36.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val currentPage = page
+            if (currentPage != null) {
+                item {
+                    ListRow(
+                        "‹  ${currentPage.title}", ::back,
+                        modifier = if (restore == null) observeTarget else Modifier,
+                        focusRequester = if (restore == null) focus else null,
                     )
                 }
             }
-        }
-        item {
-            Setting("Start on last channel", if (s.startOnLastChannel) "On" else "Off", false) {
-                store.settings = s.copy(startOnLastChannel = !s.startOnLastChannel)
-            }
-        }
-
-        item { Section("Subtitles") }
-        item {
-            Setting("Size", SUB_SIZES[s.subSize.coerceIn(0, 3)], false) {
-                store.settings = s.copy(subSize = (s.subSize + 1) % 4)
-            }
-        }
-        item {
-            Setting("Colour", if (s.subYellow) "Yellow" else "White", false) {
-                store.settings = s.copy(subYellow = !s.subYellow)
-            }
-        }
-        item {
-            Setting("Background", if (s.subBox) "Dark box" else "Outline only", false) {
-                store.settings = s.copy(subBox = !s.subBox)
-            }
-        }
-
-        item { Section("Appearance") }
-        item {
-            Setting("Theme", if (s.neutralTheme) "Neutral black" else "Navy", false) {
-                val next = !s.neutralTheme
-                store.settings = s.copy(neutralTheme = next)
-                Palette.neutral = next
-            }
-        }
-
-        item {
-            Setting(
-                "Keyboard",
-                when (s.keyboard) {
-                    "relay" -> "Relay keyboard"
-                    "system" -> "System keyboard"
-                    else -> "Auto (Relay on TVs, system on phones)"
-                },
-                false,
-            ) {
-                store.settings = s.copy(
-                    keyboard = when (s.keyboard) {
-                        "auto" -> "relay"
-                        "relay" -> "system"
-                        else -> "auto"
-                    },
-                )
-            }
-        }
-
-        item { Section("Channels & guide") }
-        item {
-            Setting("Create a channel group", "${store.channelCustom.groups.size} group(s)", kidsLocked) {
-                edit = null
-                newGroupPrompt.value = true
-            }
-        }
-        store.channelCustom.groups.forEach { g ->
-            item { Setting("Group: ${g.name}", "${g.channelIds.size} channels", kidsLocked) { managingGroup = g } }
-        }
-        item {
-            Setting(
-                "External guide (XMLTV) URL",
-                if (s.xmltvUrl.isBlank()) "Not set (optional)" else (guide?.status ?: "Set"),
-                kidsLocked,
-            ) { edit = Edit.XMLTV }
-        }
-        if (s.xmltvUrl.isNotBlank()) {
-            item {
-                Setting("Refresh external guide", "", false) {
-                    app.appScope.launch { app.catalog.refreshGuideIfNeeded(force = true) }
+            when (currentPage) {
+                null -> {
+                    item { Section("Settings") }
+                    items(SettingsPage.ADVANCED.ordinal) { index ->
+                        val category = SettingsPage.entries[index]
+                        ListRow(
+                            category.title,
+                            onClick = { restore = null; page = category },
+                            key = "settings:${category.name}",
+                            modifier = if (restore == category) observeTarget else Modifier,
+                            focusRequester = if (restore == category) focus else null,
+                        )
+                    }
                 }
-            }
-        }
-        item { Setting("Guide time offset", offsetLabel(s.epgOffsetMin), false) { offsetDialog = true } }
-        item {
-            val n = app.catalog.versionGroupCount
-            Setting(
-                "Show each channel once",
-                if (s.mergeVariants) "On · $n channels have more than one version (HD, FHD, backup)" else "Off · every version listed",
-                false,
-            ) { store.settings = s.copy(mergeVariants = !s.mergeVariants) }
-        }
-        item {
-            Setting(
-                "Search the whole TV guide",
-                when {
-                    s.xmltvUrl.isNotBlank() -> "Uses your external guide"
-                    s.fullGuideSearch -> "On · your languages and favourites (${guide?.status ?: "downloading"})"
-                    else -> "Off · finds what's on channels you've browsed"
-                },
-                kidsLocked,
-            ) {
-                if (s.xmltvUrl.isNotBlank()) return@Setting
-                val on = !s.fullGuideSearch
-                store.settings = s.copy(fullGuideSearch = on)
-                if (on) {
-                    app.appScope.launch { app.catalog.refreshGuideIfNeeded(force = true) }
-                } else if (guide?.source == Catalog.PROVIDER_GUIDE) {
-                    guide?.clear()
-                    app.catalog.clearGuideCache()
-                }
-            }
-        }
-        item {
-            val n = store.reminders.size
-            Setting("Programme reminders", if (n == 0) "None set · set them from the guide grid" else "$n set · clear all", false) {
-                if (n > 0) store.reminders = emptyList()
-            }
-        }
-
-        item { Section("Backup & phone") }
-        item {
-            Setting("Phone companion", "Sign in, back up or restore from your phone", kidsLocked) {
-                gate.run("Parent PIN for the phone companion") { companion = true }
-            }
-        }
-        item {
-            Setting("Back up to a file", "Not including your login, PINs or API keys", false) {
-                try {
-                    createDoc.launch("relay-backup.json")
-                } catch (e: Exception) {
-                    backupNote = "No file picker on this device. Use Phone companion instead."
-                }
-            }
-        }
-        item {
-            Setting("Restore from a file", "", kidsLocked) {
-                gate.run("Parent PIN to restore a backup") {
-                    if (app.sync.enabled) {
-                        confirmRestore = true
-                    } else {
-                        try {
-                            openDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
-                        } catch (e: Exception) {
-                            backupNote = "No file picker on this device. Use Phone companion instead."
+                SettingsPage.PLAYBACK -> {
+                    item {
+                        val returning = restore == SettingsPage.ADVANCED
+                        ListRow(
+                            "Advanced playback",
+                            onClick = { restore = null; page = SettingsPage.ADVANCED },
+                            modifier = if (returning) observeTarget else Modifier,
+                            focusRequester = if (returning) focus else null,
+                        )
+                    }
+                    item { Section("Playback") }
+                    if (WatchNext.supported(ctx)) {
+                        item {
+                            Setting(
+                                "Continue watching on the TV home screen",
+                                if (s.watchNext) "On · movies and episodes in progress (not kids profiles)" else "Off",
+                                kidsLocked,
+                            ) {
+                                val on = !s.watchNext
+                                store.settings = s.copy(watchNext = on)
+                                if (!on) app.appScope.launch(Dispatchers.IO) { WatchNext.clear(ctx.applicationContext) }
+                            }
+                        }
+                    }
+                    item {
+                        Setting("Play next episode automatically", if (s.autoNext) "On" else "Off", false) {
+                            store.settings = s.copy(autoNext = !s.autoNext)
+                        }
+                    }
+                    item {
+                        Setting(
+                            "Audio language order",
+                            s.audioLangs.ifBlank { "Follow my languages (" + app.session.langOrder(s).take(3).joinToString(", ") { Langs.label(it) } + ")" },
+                            false,
+                        ) { edit = Edit.AUDIO }
+                    }
+                    item { Setting("Subtitle languages", s.subtitleLang.ifBlank { "Off" }, false) { edit = Edit.SUBS } }
+                    item {
+                        Setting("Jump back (Left key)", SkipSizes.label(SkipSizes.clean(s.skipBackSec, SkipSizes.DEFAULT_BACK)), false) {
+                            store.settings = s.copy(skipBackSec = SkipSizes.next(SkipSizes.clean(s.skipBackSec, SkipSizes.DEFAULT_BACK)))
+                        }
+                    }
+                    item {
+                        Setting("Jump forward (Right key)", SkipSizes.label(SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)), false) {
+                            store.settings = s.copy(skipForwardSec = SkipSizes.next(SkipSizes.clean(s.skipForwardSec, SkipSizes.DEFAULT_FORWARD)))
+                        }
+                    }
+                    item {
+                        val sleep = SleepTimer.clean(s.sleepMinutes)
+                        Setting("Sleep timer", if (sleep == 0) "Off" else "${SleepTimer.label(sleep)} after playback starts (press a key in the last minute to add more)", false) {
+                            store.settings = s.copy(sleepMinutes = SleepTimer.next(sleep))
+                        }
+                    }
+                    item {
+                        Setting("Ask \"Are you still watching?\"", if (s.askStillWatching) "On (after 3 episodes in a row or 4 hours of live TV)" else "Off", false) {
+                            store.settings = s.copy(askStillWatching = !s.askStillWatching)
+                        }
+                    }
+                    item {
+                        Setting("Pause & rewind live TV", if (s.timeshift) "On" else "Off", false) {
+                            store.settings = s.copy(timeshift = !s.timeshift)
+                        }
+                    }
+                    if (s.timeshift) {
+                        item {
+                            Setting("Rewind buffer", "${s.timeshiftMinutes} minutes (max 1.5 GB, deleted on exit)", false) {
+                                store.settings = s.copy(
+                                    timeshiftMinutes = when (s.timeshiftMinutes) {
+                                        15 -> 30
+                                        30 -> 60
+                                        else -> 15
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        Setting("Start on last channel", if (s.startOnLastChannel) "On" else "Off", false) {
+                            store.settings = s.copy(startOnLastChannel = !s.startOnLastChannel)
+                        }
+                    }
+                    item { Section("Subtitles") }
+                    item {
+                        Setting("Size", SUB_SIZES[s.subSize.coerceIn(0, 3)], false) {
+                            store.settings = s.copy(subSize = (s.subSize + 1) % 4)
+                        }
+                    }
+                    item {
+                        Setting("Colour", if (s.subYellow) "Yellow" else "White", false) {
+                            store.settings = s.copy(subYellow = !s.subYellow)
+                        }
+                    }
+                    item {
+                        Setting("Background", if (s.subBox) "Dark box" else "Outline only", false) {
+                            store.settings = s.copy(subBox = !s.subBox)
                         }
                     }
                 }
-            }
-        }
-        backupNote?.let { n -> item { Info("", n) } }
-
-        item { Section("Sync between screens") }
-        val migrationNotice = app.sync.migrationNotice
-        if (migrationNotice != null) {
-            item { Info("Sync paused", migrationNotice) }
-            item {
-                Setting("Stop syncing on this screen", "Keeps everything here", kidsLocked, danger = true) {
-                    gate.run("Parent PIN to stop syncing") { confirmStopSync = true }
-                }
-            }
-        } else if (!app.sync.enabled) {
-            item {
-                Setting("Turn on sync", "Off · same favourites, history and settings on every screen", kidsLocked) {
-                    gate.run("Parent PIN to set up sync") { syncSetup = true }
-                }
-            }
-            item {
-                Setting("Join sync from another screen", "Already syncing on another screen? Add this one to it", kidsLocked) {
-                    gate.run("Parent PIN to join sync") { joinSync = true }
-                }
-            }
-        } else {
-            val st = app.sync.status
-            item {
-                Info(
-                    "Sync",
-                    SyncStatusText.line(st.result, st.message, st.lastOk, System.currentTimeMillis()) + if (st.running) " · syncing…" else "",
-                )
-            }
-            if (st.note.isNotEmpty()) item { Info("Last change", st.note) }
-            item {
-                Setting("Sync now", "", kidsLocked) { app.sync.runNow() }
-            }
-            item {
-                val me = store.deviceId
-                val now = System.currentTimeMillis()
-                Info(
-                    "Screens",
-                    if (st.screens.isEmpty()) "This screen" else st.screens.joinToString("\n") {
-                        "${it.name}${if (it.id == me) " (this screen)" else ""} · ${SyncStatusText.ago(now - it.seen)}"
-                    },
-                )
-            }
-            if (st.result == SyncResult.WrongKey || st.result == SyncResult.Refused || st.result == SyncResult.NotFound) {
-                item {
-                    Setting("Join again from another screen", "For a new key or a new token", kidsLocked) {
-                        gate.run("Parent PIN to join sync") { joinSync = true }
+                SettingsPage.LIBRARY -> {
+                    item {
+                        Setting("My languages", app.session.langOrder(s).joinToString(" · ") { Langs.label(it) }, false) { langsOpen = true }
+                    }
+                    item {
+                        val rows = HomeLayout.resolve(current?.homeRows, app.session.langFeatured(s))
+                        Setting("Home screen", "${rows.size} rows" + if (current?.homeRows == null) " (default)" else "", false) { homeOpen = true }
+                    }
+                    item {
+                        Setting("Manage categories", if (s.hiddenCats.isEmpty()) "Hide, show or pin categories" else "${s.hiddenCats.size} hidden", kidsLocked) {
+                            catsOpen = true
+                        }
+                    }
+                    item {
+                        Setting("Set up my library again", "Languages and Live TV countries", kidsLocked) { nav.push(Route.Setup) }
+                    }
+                    item {
+                        Setting("TMDB API key (optional)", tmdbStatus ?: if (s.tmdbKey.isBlank()) "Not set" else "Set", kidsLocked) {
+                            keyChoice = Edit.TMDB
+                        }
+                    }
+                    item {
+                        Setting(
+                            "Rotten Tomatoes scores (MDBList key)",
+                            ratingsStatus ?: if (s.ratingsKey.isBlank()) "Not set" else "Set · ${app.ratings.cache.usedToday} lookups today",
+                            kidsLocked,
+                        ) { keyChoice = Edit.RATINGS }
+                    }
+                    if (s.ratingsKey.isNotBlank()) {
+                        item {
+                            Setting("Scores on posters", if (s.posterScores) "On (titles you've opened)" else "Off", false) {
+                                store.settings = s.copy(posterScores = !s.posterScores)
+                            }
+                        }
+                    }
+                    item { Section("Channels & guide") }
+                    item {
+                        Setting("Create a channel group", "${store.channelCustom.groups.size} group(s)", kidsLocked) {
+                            edit = null
+                            newGroupPrompt.value = true
+                        }
+                    }
+                    store.channelCustom.groups.forEach { g ->
+                        item { Setting("Group: ${g.name}", "${g.channelIds.size} channels", kidsLocked) { managingGroup = g } }
+                    }
+                    item {
+                        Setting(
+                            "External guide (XMLTV) URL",
+                            if (s.xmltvUrl.isBlank()) "Not set (optional)" else (guide?.status ?: "Set"),
+                            kidsLocked,
+                        ) { edit = Edit.XMLTV }
+                    }
+                    if (s.xmltvUrl.isNotBlank()) {
+                        item {
+                            Setting("Refresh external guide", "", false) {
+                                app.appScope.launch { app.catalog.refreshGuideIfNeeded(force = true) }
+                            }
+                        }
+                    }
+                    item { Setting("Guide time offset", offsetLabel(s.epgOffsetMin), false) { offsetDialog = true } }
+                    item {
+                        val n = app.catalog.versionGroupCount
+                        Setting(
+                            "Show each channel once",
+                            if (s.mergeVariants) "On · $n channels have more than one version (HD, FHD, backup)" else "Off · every version listed",
+                            false,
+                        ) { store.settings = s.copy(mergeVariants = !s.mergeVariants) }
+                    }
+                    item {
+                        Setting(
+                            "Search the whole TV guide",
+                            when {
+                                s.xmltvUrl.isNotBlank() -> "Uses your external guide"
+                                s.fullGuideSearch -> "On · your languages and favourites (${guide?.status ?: "downloading"})"
+                                else -> "Off · finds what's on channels you've browsed"
+                            },
+                            kidsLocked,
+                        ) {
+                            if (s.xmltvUrl.isNotBlank()) return@Setting
+                            val on = !s.fullGuideSearch
+                            store.settings = s.copy(fullGuideSearch = on)
+                            if (on) {
+                                app.appScope.launch { app.catalog.refreshGuideIfNeeded(force = true) }
+                            } else if (guide?.source == Catalog.PROVIDER_GUIDE) {
+                                guide?.clear()
+                                app.catalog.clearGuideCache()
+                            }
+                        }
+                    }
+                    item {
+                        val n = store.reminders.size
+                        Setting("Programme reminders", if (n == 0) "None set · set them from the guide grid" else "$n set · clear all", false) {
+                            if (n > 0) store.reminders = emptyList()
+                        }
                     }
                 }
-            }
-            item {
-                Setting("Add a screen", "Another TV or phone joins this household", kidsLocked) {
-                    gate.run("Parent PIN to add a screen") { addScreen = true }
-                }
-            }
-            if (st.screens.any { it.id != store.deviceId }) {
-                item {
-                    Setting("Remove a screen", "Takes it off the list", kidsLocked) {
-                        gate.run("Parent PIN to remove a screen") { removeScreen = true }
+                SettingsPage.PROFILES -> {
+                    item {
+                        Setting("Switch profile", current?.name ?: "", false) {
+                            val leave = {
+                                val approval = app.session.profileSwitchLock(store)
+                                app.session.profile = null
+                                app.ui = UiState()
+                                nav.openProfilePicker(approval)
+                            }
+                            if (app.session.profileSwitchLock(store) != null) {
+                                gate.run("Parent PIN to leave the kids profile", leave)
+                            } else {
+                                leave()
+                            }
+                        }
+                    }
+                    item { Setting("Add a profile", "", kidsLocked) { gate.run("Parent PIN to add a profile") { addingProfile = true } } }
+                    store.profiles.filter { it.id != current?.id }.forEach { p ->
+                        item {
+                            Setting("Remove profile \"${p.name}\"", if (p.kids) "Kids" else "", kidsLocked, danger = true) {
+                                gate.run("Parent PIN to remove a profile") { deleting = p }
+                            }
+                        }
+                    }
+                    store.profiles.forEach { p ->
+                        item {
+                            Setting("PIN for ${p.name}", if (p.pin.isNullOrEmpty()) "None" else "Set", kidsLocked) {
+                                gate.run("Parent PIN to change a profile PIN") { pinFor = p }
+                            }
+                        }
+                    }
+                    store.profiles.filter { it.kids }.forEach { p ->
+                        item {
+                            // On the kids profile itself this needs a parent PIN to exist, or a child could change it.
+                            Setting(
+                                "Viewing time for ${p.name}",
+                                KidsLimits.describe(p.dailyLimitMin, p.bedtime, p.wakeTime),
+                                kidsLocked && !store.hasParentPin,
+                            ) { gate.run("Parent PIN for viewing time") { limitsFor = p } }
+                        }
+                    }
+                    item {
+                        Setting("Parent PIN", if (store.hasParentPin) "Set · change or remove" else "Not set", kidsLocked) {
+                            gate.run("Current parent PIN") { parentPinDialog = true }
+                        }
+                    }
+                    item {
+                        Setting(
+                            "Hide adult categories for all profiles",
+                            if (s.hideAdult) "On" else "Off",
+                            kidsLocked,
+                        ) {
+                            if (!s.hideAdult) {
+                                store.settings = s.copy(hideAdult = true)
+                            } else if (store.hasParentPin) {
+                                gate.run("Parent PIN to show adult categories") {
+                                    store.settings = store.settings.copy(hideAdult = false)
+                                }
+                            } else if (!current?.pin.isNullOrEmpty()) {
+                                pinGate = true
+                            } else {
+                                store.settings = s.copy(hideAdult = false)
+                            }
+                        }
                     }
                 }
-            }
-            item {
-                Setting("New household key", "Locks out a lost or sold screen", kidsLocked, danger = true) {
-                    gate.run("Parent PIN to make a new household key") { confirmNewKey = true }
-                }
-            }
-            syncNote?.let { n -> item { Info("", n) } }
-            item {
-                Setting("Stop syncing on this screen", "Keeps everything here", kidsLocked, danger = true) {
-                    gate.run("Parent PIN to stop syncing") { confirmStopSync = true }
-                }
-            }
-        }
-
-        item { Section("Library") }
-        item {
-            Setting("My languages", app.session.langOrder(s).joinToString(" · ") { Langs.label(it) }, false) { langsOpen = true }
-        }
-        item {
-            val rows = HomeLayout.resolve(current?.homeRows, app.session.langFeatured(s))
-            Setting("Home screen", "${rows.size} rows" + if (current?.homeRows == null) " (default)" else "", false) { homeOpen = true }
-        }
-        item {
-            Setting("Manage categories", if (s.hiddenCats.isEmpty()) "Hide, show or pin categories" else "${s.hiddenCats.size} hidden", kidsLocked) {
-                catsOpen = true
-            }
-        }
-        item {
-            Setting(
-                "Start screen",
-                when (s.startScreen) {
-                    "live" -> "Live TV"
-                    "guide" -> "Live TV guide"
-                    else -> "Home"
-                },
-                false,
-            ) {
-                store.settings = s.copy(
-                    startScreen = when (s.startScreen) {
-                        "home" -> "live"
-                        "live" -> "guide"
-                        else -> "home"
-                    },
-                )
-            }
-        }
-        item {
-            Setting("Set up my library again", "Languages and Live TV countries", kidsLocked) { nav.push(Route.Setup) }
-        }
-        item {
-            Setting("TMDB API key (optional)", tmdbStatus ?: if (s.tmdbKey.isBlank()) "Not set" else "Set", kidsLocked) {
-                keyChoice = Edit.TMDB
-            }
-        }
-        item {
-            Setting(
-                "Rotten Tomatoes scores (MDBList key)",
-                ratingsStatus ?: if (s.ratingsKey.isBlank()) "Not set" else "Set · ${app.ratings.cache.usedToday} lookups today",
-                kidsLocked,
-            ) { keyChoice = Edit.RATINGS }
-        }
-        if (s.ratingsKey.isNotBlank()) {
-            item {
-                Setting("Scores on posters", if (s.posterScores) "On (titles you've opened)" else "Off", false) {
-                    store.settings = s.copy(posterScores = !s.posterScores)
-                }
-            }
-        }
-        item {
-            Setting(
-                "Hide adult categories for all profiles",
-                if (s.hideAdult) "On" else "Off",
-                kidsLocked,
-            ) {
-                if (!s.hideAdult) {
-                    store.settings = s.copy(hideAdult = true)
-                } else if (store.hasParentPin) {
-                    gate.run("Parent PIN to show adult categories") {
-                        store.settings = store.settings.copy(hideAdult = false)
+                SettingsPage.ACCOUNT -> {
+                    item { Info("Playlist", acc?.name ?: "Not signed in") }
+                    item {
+                        Info(
+                            "Status",
+                            info?.status ?: infoError?.let { "Unreachable ($it)" } ?: "Checking…",
+                        )
                     }
-                } else if (!current?.pin.isNullOrEmpty()) {
-                    pinGate = true
-                } else {
-                    store.settings = s.copy(hideAdult = false)
+                    item {
+                        val exp = info?.expires
+                        Info(
+                            "Expires",
+                            when {
+                                exp == null -> if (info != null) "Unlimited" else "…"
+                                else -> {
+                                    val days = ((exp * 1000 - System.currentTimeMillis()) / 86_400_000L)
+                                    "${dateFmt.format(Date(exp * 1000))}  (${if (days >= 0) "$days days left" else "expired"})"
+                                }
+                            },
+                        )
+                    }
+                    item {
+                        val i = info
+                        Info("Connections", if (i?.maxConnections != null) "${i.activeConnections ?: 0} in use of ${i.maxConnections}" else "…")
+                    }
+                    item {
+                        val inUse = app.api.host
+                        Info(
+                            "Server in use",
+                            if (inUse != null) "$inUse (${acc?.netOf(inUse)?.label ?: dev.relay.tv.data.HostNet.ANY.label})"
+                            else acc?.hosts?.firstOrNull() ?: "None",
+                        )
+                    }
+                    item { Info("VPN", dev.relay.tv.net.VpnWatch.describe(app.vpnWatch.vpnOn).replaceFirstChar { it.uppercase() }) }
+                    // One row per server, in saved order (so a row doesn't move when pressed). Pressing a row changes
+                    // which network it is marked for; Relay then tries the servers that suit the network first.
+                    if (acc != null) {
+                        val now = app.api.health.clock()
+                        val inUse = app.api.host
+                        for (st in app.api.health.snapshot(acc.hosts)) {
+                            item(key = "srv:${st.host}") {
+                                Setting(
+                                    if (st.host == inUse) "${st.host} (in use)" else st.host,
+                                    "${acc.netOf(st.host).label.replaceFirstChar { it.uppercase() }} · ${dev.relay.tv.data.ServerText.status(st, now)}",
+                                    kidsLocked,
+                                ) {
+                                    gate.run("Parent PIN to change servers") {
+                                        val cur = store.account ?: return@run
+                                        val next = cur.netOf(st.host).next()
+                                        val nets = cur.hosts.associateWith { cur.netOf(it) } + (st.host to next)
+                                        val updated = cur.copy(hostNets = dev.relay.tv.data.Account.netsFor(cur.hosts, nets))
+                                        store.account = updated
+                                        app.api.account = updated
+                                        AppLog.i("Api", "Server ${st.host} now marked for ${next.label}")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Setting(
+                            "Refresh channels and library",
+                            if (app.catalog.loading) app.catalog.progress?.text ?: "Refreshing…"
+                            else "Last updated ${if (app.catalog.updatedAt > 0) timeFmt.format(Date(app.catalog.updatedAt)) else "never"}" +
+                                (app.catalog.error?.let { " · $it" } ?: ""),
+                            locked = false,
+                        ) {
+                            if (app.catalog.loading) return@Setting
+                            AppLog.i("Catalog", "Refresh requested from Settings")
+                            // App scope: the refresh keeps going if you leave Settings.
+                            app.appScope.launch { app.catalog.load(force = true) }
+                        }
+                    }
+                    item {
+                        Setting("Change servers or login", "${acc?.hosts?.size ?: 0} server(s) saved", kidsLocked) {
+                            gate.run("Parent PIN to change servers") { nav.push(Route.Login) }
+                        }
+                    }
+                    item { Section("Sync between screens") }
+                    val migrationNotice = app.sync.migrationNotice
+                    if (migrationNotice != null) {
+                        item { Info("Sync paused", migrationNotice) }
+                        item {
+                            Setting("Stop syncing on this screen", "Keeps everything here", kidsLocked, danger = true) {
+                                gate.run("Parent PIN to stop syncing") { confirmStopSync = true }
+                            }
+                        }
+                    } else if (!app.sync.enabled) {
+                        item {
+                            Setting("Turn on sync", "Off · same favourites, history and settings on every screen", kidsLocked) {
+                                gate.run("Parent PIN to set up sync") { syncSetup = true }
+                            }
+                        }
+                        item {
+                            Setting("Join sync from another screen", "Already syncing on another screen? Add this one to it", kidsLocked) {
+                                gate.run("Parent PIN to join sync") { joinSync = true }
+                            }
+                        }
+                    } else {
+                        val st = app.sync.status
+                        item {
+                            Info(
+                                "Sync",
+                                SyncStatusText.line(st.result, st.message, st.lastOk, System.currentTimeMillis()) + if (st.running) " · syncing…" else "",
+                            )
+                        }
+                        if (st.note.isNotEmpty()) item { Info("Last change", st.note) }
+                        item {
+                            Setting("Sync now", "", kidsLocked) { app.sync.runNow() }
+                        }
+                        item {
+                            val me = store.deviceId
+                            val now = System.currentTimeMillis()
+                            Info(
+                                "Screens",
+                                if (st.screens.isEmpty()) "This screen" else st.screens.joinToString("\n") {
+                                    "${it.name}${if (it.id == me) " (this screen)" else ""} · ${SyncStatusText.ago(now - it.seen)}"
+                                },
+                            )
+                        }
+                        if (st.result == SyncResult.WrongKey || st.result == SyncResult.Refused || st.result == SyncResult.NotFound) {
+                            item {
+                                Setting("Join again from another screen", "For a new key or a new token", kidsLocked) {
+                                    gate.run("Parent PIN to join sync") { joinSync = true }
+                                }
+                            }
+                        }
+                        item {
+                            Setting("Add a screen", "Another TV or phone joins this household", kidsLocked) {
+                                gate.run("Parent PIN to add a screen") { addScreen = true }
+                            }
+                        }
+                        if (st.screens.any { it.id != store.deviceId }) {
+                            item {
+                                Setting("Remove a screen", "Takes it off the list", kidsLocked) {
+                                    gate.run("Parent PIN to remove a screen") { removeScreen = true }
+                                }
+                            }
+                        }
+                        item {
+                            Setting("New household key", "Locks out a lost or sold screen", kidsLocked, danger = true) {
+                                gate.run("Parent PIN to make a new household key") { confirmNewKey = true }
+                            }
+                        }
+                        syncNote?.let { n -> item { Info("", n) } }
+                        item {
+                            Setting("Stop syncing on this screen", "Keeps everything here", kidsLocked, danger = true) {
+                                gate.run("Parent PIN to stop syncing") { confirmStopSync = true }
+                            }
+                        }
+                    }
+                    item {
+                        Setting("Sign out and remove playlist", "", kidsLocked, danger = true) {
+                            gate.run("Parent PIN to sign out") { confirmSignOut = true }
+                        }
+                    }
                 }
-            }
-        }
+                SettingsPage.APPEARANCE -> {
+                    item {
+                        Setting("Theme", if (s.neutralTheme) "Neutral black" else "Navy", false) {
+                            val next = !s.neutralTheme
+                            store.settings = s.copy(neutralTheme = next)
+                            Palette.neutral = next
+                        }
+                    }
 
-        item { Section("Profiles") }
-        item {
-            Setting("Switch profile", current?.name ?: "", false) {
-                val leave = {
-                    val approval = app.session.profileSwitchLock(store)
-                    app.session.profile = null
-                    app.ui = UiState()
-                    nav.openProfilePicker(approval)
+                    item {
+                        Setting(
+                            "Keyboard",
+                            when (s.keyboard) {
+                                "relay" -> "Relay keyboard"
+                                "system" -> "System keyboard"
+                                else -> "Auto (Relay on TVs, system on phones)"
+                            },
+                            false,
+                        ) {
+                            store.settings = s.copy(
+                                keyboard = when (s.keyboard) {
+                                    "auto" -> "relay"
+                                    "relay" -> "system"
+                                    else -> "auto"
+                                },
+                            )
+                        }
+                    }
+                    item {
+                        Setting(
+                            "Start screen",
+                            when (s.startScreen) {
+                                "live" -> "Live TV"
+                                "guide" -> "Live TV guide"
+                                else -> "Home"
+                            },
+                            false,
+                        ) {
+                            store.settings = s.copy(
+                                startScreen = when (s.startScreen) {
+                                    "home" -> "live"
+                                    "live" -> "guide"
+                                    else -> "home"
+                                },
+                            )
+                        }
+                    }
                 }
-                if (app.session.profileSwitchLock(store) != null) {
-                    gate.run("Parent PIN to leave the kids profile", leave)
-                } else {
-                    leave()
+                SettingsPage.BACKUP -> {
+                    item {
+                        Setting("Phone companion", "Sign in, back up or restore from your phone", kidsLocked) {
+                            gate.run("Parent PIN for the phone companion") { companion = true }
+                        }
+                    }
+                    item {
+                        Setting("Back up to a file", "Not including your login, PINs or API keys", false) {
+                            try {
+                                createDoc.launch("relay-backup.json")
+                            } catch (e: Exception) {
+                                backupNote = "No file picker on this device. Use Phone companion instead."
+                            }
+                        }
+                    }
+                    item {
+                        Setting("Restore from a file", "", kidsLocked) {
+                            gate.run("Parent PIN to restore a backup") {
+                                if (app.sync.enabled) {
+                                    confirmRestore = true
+                                } else {
+                                    try {
+                                        openDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                                    } catch (e: Exception) {
+                                        backupNote = "No file picker on this device. Use Phone companion instead."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    backupNote?.let { n -> item { Info("", n) } }
                 }
-            }
-        }
-        item { Setting("Add a profile", "", kidsLocked) { gate.run("Parent PIN to add a profile") { addingProfile = true } } }
-        store.profiles.filter { it.id != current?.id }.forEach { p ->
-            item {
-                Setting("Remove profile \"${p.name}\"", if (p.kids) "Kids" else "", kidsLocked, danger = true) {
-                    gate.run("Parent PIN to remove a profile") { deleting = p }
+                SettingsPage.ABOUT -> {
+                    item { Info("Version", "Relay ${BuildConfig.VERSION_NAME}") }
+                    item {
+                        Setting("Check for app updates", updateStatusText(), false) {
+                            Updater.dialogOpen = true
+                            if (Updater.pending == null && !Updater.busy) scope.launch { Updater.check(app.http) }
+                        }
+                    }
+                    item { Section("Diagnostics") }
+                    item {
+                        val until = s.logUntil
+                        val on = until > System.currentTimeMillis()
+                        Setting(
+                            "Save detailed logs",
+                            if (on) "On until ${timeFmt.format(Date(until))} · ${AppLog.diskBytes() / 1024} KB"
+                            else "Off · important lines are always kept (${AppLog.diskBytes() / 1024} KB)",
+                            false,
+                        ) {
+                            val next = if (on) 0L else System.currentTimeMillis() + AppLog.SAVE_WINDOW_MS
+                            AppLog.saveUntil = next
+                            store.settings = s.copy(logUntil = next)
+                            AppLog.i("App", if (next > 0) "Detailed logging on for 24h" else "Detailed logging off")
+                        }
+                    }
+                    item { Setting("View recent activity", "${AppLog.recent().size} lines", false) { viewingLog = true } }
+                    item { Setting("Library and language report", "What Relay recognised in your playlist", false) { reportOpen = true } }
+                    item {
+                        val crash = AppLog.lastCrash()
+                        val how = if (rememberIsTv()) "On a TV: Backup & phone → Phone companion → Download logs" else ""
+                        Setting("Share logs", listOfNotNull(crash?.let { "Includes crash from ${timeFmt.format(Date(it))}" }, how.ifEmpty { null }).joinToString(" · "), false) {
+                            logNote = LogShare.share(ctx)
+                        }
+                    }
+                    item {
+                        Setting("Clear logs", "", false) {
+                            AppLog.clear()
+                            logNote = "Logs cleared."
+                        }
+                    }
+                    logNote?.let { n -> item { Info("", n) } }
+                    item {
+                        Info(
+                            "Log folder",
+                            (AppLog.directory?.absolutePath ?: "unavailable") + "  (max ~1 MB; detail lines auto-off after 24 h)",
+                        )
+                    }
                 }
-            }
-        }
-        store.profiles.forEach { p ->
-            item {
-                Setting("PIN for ${p.name}", if (p.pin.isNullOrEmpty()) "None" else "Set", kidsLocked) {
-                    gate.run("Parent PIN to change a profile PIN") { pinFor = p }
+                SettingsPage.ADVANCED -> {
+                    item {
+                        Setting("Live stream format", if (s.liveExt == "ts") "MPEG-TS (most compatible)" else "HLS (m3u8)", false) {
+                            store.settings = s.copy(liveExt = if (s.liveExt == "ts") "m3u8" else "ts")
+                        }
+                    }
+                    item { Setting("Player user agent", s.userAgent, kidsLocked) { edit = Edit.UA } }
+                    item {
+                        Setting("Match TV refresh rate to video", if (s.matchFrameRate) "On (TVs only)" else "Off", false) {
+                            store.settings = s.copy(matchFrameRate = !s.matchFrameRate)
+                        }
+                    }
+                    item {
+                        Setting("Show stream info when playback starts", if (s.showStreamInfo) "On, 5 seconds" else "Off", false) {
+                            store.settings = s.copy(showStreamInfo = !s.showStreamInfo)
+                        }
+                    }
+                    item { Setting("Lip-sync adjustment", lipSyncLabel(s.audioDelayMs), false) { lipSync = true } }
                 }
-            }
-        }
-        store.profiles.filter { it.kids }.forEach { p ->
-            item {
-                // On the kids profile itself this needs a parent PIN to exist, or a child could change it.
-                Setting(
-                    "Viewing time for ${p.name}",
-                    KidsLimits.describe(p.dailyLimitMin, p.bedtime, p.wakeTime),
-                    kidsLocked && !store.hasParentPin,
-                ) { gate.run("Parent PIN for viewing time") { limitsFor = p } }
-            }
-        }
-        item {
-            Setting("Parent PIN", if (store.hasParentPin) "Set · change or remove" else "Not set", kidsLocked) {
-                gate.run("Current parent PIN") { parentPinDialog = true }
-            }
-        }
-
-        item { Section("Diagnostics") }
-        item {
-            val until = s.logUntil
-            val on = until > System.currentTimeMillis()
-            Setting(
-                "Save detailed logs",
-                if (on) "On until ${timeFmt.format(Date(until))} · ${AppLog.diskBytes() / 1024} KB"
-                else "Off · important lines are always kept (${AppLog.diskBytes() / 1024} KB)",
-                false,
-            ) {
-                val next = if (on) 0L else System.currentTimeMillis() + AppLog.SAVE_WINDOW_MS
-                AppLog.saveUntil = next
-                store.settings = s.copy(logUntil = next)
-                AppLog.i("App", if (next > 0) "Detailed logging on for 24h" else "Detailed logging off")
-            }
-        }
-        item { Setting("View recent activity", "${AppLog.recent().size} lines", false) { viewingLog = true } }
-        item { Setting("Library and language report", "What Relay recognised in your playlist", false) { reportOpen = true } }
-        item {
-            val crash = AppLog.lastCrash()
-            val how = if (rememberIsTv()) "On a TV: Backup & phone → Phone companion → Download logs" else ""
-            Setting("Share logs", listOfNotNull(crash?.let { "Includes crash from ${timeFmt.format(Date(it))}" }, how.ifEmpty { null }).joinToString(" · "), false) {
-                logNote = LogShare.share(ctx)
-            }
-        }
-        item {
-            Setting("Clear logs", "", false) {
-                AppLog.clear()
-                logNote = "Logs cleared."
-            }
-        }
-        logNote?.let { n -> item { Info("", n) } }
-        item {
-            Info(
-                "Log folder",
-                (AppLog.directory?.absolutePath ?: "unavailable") + "  (max ~1 MB; detail lines auto-off after 24 h)",
-            )
-        }
-
-        item { Section("About") }
-        item { Info("Version", "Relay ${BuildConfig.VERSION_NAME}") }
-        item {
-            Setting("Check for app updates", updateStatusText(), false) {
-                Updater.dialogOpen = true
-                if (Updater.pending == null && !Updater.busy) scope.launch { Updater.check(app.http) }
-            }
-        }
-        item {
-            Setting("Sign out and remove playlist", "", kidsLocked, danger = true) {
-                gate.run("Parent PIN to sign out") { confirmSignOut = true }
             }
         }
     }

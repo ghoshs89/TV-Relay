@@ -4,10 +4,14 @@ import android.net.Uri
 import android.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -75,7 +79,7 @@ class XtreamApi(
                     val t0 = System.nanoTime()
                     stage = HostHealth.CONNECTING
                     httpCode = 0
-                    val result = client.newCall(req).execute().use { r ->
+                    val result = client.newCall(req).readResponse { r ->
                         stage = HostHealth.STATUS
                         httpCode = r.code
                         if (!r.isSuccessful) throw IOException("HTTP ${r.code} from ${r.request.url.host}")
@@ -91,6 +95,7 @@ class XtreamApi(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    currentCoroutineContext().ensureActive()
                     AppLog.w("Api", "${params["action"] ?: "login"} failed on $h", e)
                     // Only what says something about the whole server puts it at the back of the queue.
                     if (HostHealth.isServerFailure(params["action"], stage, httpCode)) health.failed(h, e)
@@ -98,6 +103,13 @@ class XtreamApi(
                 }
             }
             throw last ?: IOException("No server answered")
+        }
+
+    /** Register cancellation before entering OkHttp and keep it active until the body is closed. */
+    private suspend fun <T> Call.readResponse(read: (Response) -> T): T =
+        suspendCancellableCoroutine { pending ->
+            pending.invokeOnCancellation { cancel() }
+            if (pending.isActive) pending.resumeWith(runCatching { execute().use(read) })
         }
 
     suspend fun getJson(params: Map<String, String>): JsonElement =
@@ -110,29 +122,37 @@ class XtreamApi(
      * Streams a (possibly huge) list response straight to disk. [progress] gets the bytes so far
      * and the server's Content-Length when it sends one (many Xtream servers don't).
      */
-    suspend fun download(action: String, dest: File, progress: (Long, Long?) -> Unit = { _, _ -> }): Downloaded =
-        withHosts(mapOf("action" to action)) { r ->
-            val tmp = File(dest.parentFile, dest.name + ".tmp")
-            val body = r.body!!
-            val length = body.contentLength().takeIf { it > 0 }
-            var total = 0L
-            progress(0, length)
-            body.byteStream().use { input ->
-                tmp.outputStream().use { out ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        out.write(buf, 0, n)
-                        total += n
-                        progress(total, length)
+    suspend fun download(action: String, dest: File, progress: (Long, Long?) -> Unit = { _, _ -> }): Downloaded {
+        val caller = currentCoroutineContext()
+        return withHosts(mapOf("action" to action)) { r ->
+            val tmp = File.createTempFile("xtream-", ".tmp", dest.absoluteFile.parentFile)
+            try {
+                val body = r.body ?: throw IOException("Empty $action response")
+                val length = body.contentLength().takeIf { it > 0 }
+                var total = 0L
+                progress(0, length)
+                body.byteStream().use { input ->
+                    tmp.outputStream().use { out ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                        caller.ensureActive()
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            total += n
+                            progress(total, length)
+                        }
                     }
                 }
+                caller.ensureActive()
+                // Rename over the previous file only after the whole download has succeeded.
+                if (!tmp.renameTo(dest)) throw IOException("Couldn't save $action")
+                Downloaded(total, r.request.url.host, length)
+            } finally {
+                tmp.delete()
             }
-            if (dest.exists()) dest.delete()
-            if (!tmp.renameTo(dest)) throw IOException("Couldn't save $action")
-            Downloaded(total, r.request.url.host, length)
         }
+    }
 
     suspend fun authenticate(): AccountInfo {
         val root = getJson(emptyMap())

@@ -310,7 +310,9 @@ object SyncDiff {
         val out = HashMap<String, BaseRec>(merged.size)
         for ((k, r) in merged) {
             if (r.gone) {
-                out[k] = BaseRec(r.at, r.dev, null)
+                // A device intentionally advertises its own screen again after another screen forgets it.
+                if (k !in after || k.startsWith("screen:")) out[k] = BaseRec(r.at, r.dev, null)
+                else old[k]?.let { out[k] = it }
                 continue
             }
             val now = after[k]

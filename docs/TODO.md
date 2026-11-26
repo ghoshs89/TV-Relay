@@ -8,7 +8,6 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 | # | What | Notes |
 |---|---|---|
-| A | **Move household sync to its own private repository, old token first** | A screen on an older build was still writing `relay-sync.bin` into this public repository on 26 Nov, so it holds a token that can write to the repository that builds and ships the app. In this order: 1. take a backup on the screen with the most complete data (Settings → Backup & phone); 2. on GitHub, delete the old sync token (the one that can write to `ghoshs89/TV-Relay`); 3. on each screen, **Stop syncing on this screen**, then update Relay; 4. turn sync on with `ghoshs89/Relay-TV_Sync` and a new token, and join the other screens; 5. say so, and `relay-sync.bin` is removed (to-do 1). Keep this repository **public**: builds carry no update token, so making it private stops updates on every screen. |
 | D | **Old update token, if not done yet** | Every screen is past 1.0.110, so delete the old update token on GitHub and the `RELAY_UPDATE_TOKEN` secret. |
 | B | **Device checks, on the TV and on the phone** | The lists under "Check on a device". Seen working on your TV and phone so far: **Close Relay?** on Back (1.0.114), **Play on TV** for a channel from the phone (1.0.115, 21 Nov). Still to look at: the phone player full screen and touch sizes (1.0.110), the catch-up and series additions to Play on TV (1.0.116), the trailer QR code and the summary (1.0.117), and the plan 4 start-up timings for the measurements table in HISTORY.md. |
 | C | Delete the scratch branches on GitHub | `p2`, `p2base`, `p2r`, `p2s`, `p3base`, `p4base`, `p4base-big`, `pB`, `pC`, `pE1`, `pE2`, `pFA`, `pFB`, `pFC`, `plan3`, `plan4`, `plan4-big`, `plan4-exec`. |
@@ -17,8 +16,8 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | Remove `relay-sync.bin` and its `paths-ignore` line | Only after A, step 5. Changing `build.yml` makes a release, so ship it with other work. |
-| 14 | Left out of the safety release (Gemini and ChatGPT reviews, 26 Nov) | Real or plausible, but each is larger than one release should carry: network calls that can be cancelled when a screen closes (C-05); a lock around the sync runner and rebasing deletions (H-05); falling back from HLS to `.ts` when a channel offers both (H-03, first part); a commitment step in pairing before the six digits (H-07); stricter parsing of the provider's text (H-08); file reads still on the screen thread (H-10); kids filtering of Home rows built before a profile switch (M-01); limits on the size of an XMLTV guide (M-03); a slower hash for PINs (M-05). |
+| 14 | Left out of the safety release (Gemini and ChatGPT reviews, 26 Nov) | Real or plausible, but each is larger than one release should carry: serializing the sync runner (H-05); a commitment step in pairing before the six digits (H-07); stricter parsing of the provider's text (H-08); file reads still on the screen thread (H-10); kids filtering of Home rows built before a profile switch (M-01); limits on the size of an XMLTV guide (M-03); a slower hash for PINs (M-05). |
+| 15 | Decide on library grouping | The [browsing study](BROWSING.md) compares the two menu designs for TV and landscape phone. |
 | 2 | Guide grid: draw only the programmes on screen (plan 5, U4) | Each row builds every programme in an 11 hour window. Needs a benchmark run before and after; the guide stretches now exist. |
 | 3 | Player recovery (plan 5, B1 and B2) | Add an automatic retry for a film after a network drop and re-tune direct live streams after coming back to the app. |
 | 4 | **Finish splitting the player code** | Done so far (1.0.30): kids limit timing, audio and subtitle choices, failure panel, pause bar and its arithmetic, reminder banner, number entry and the picture-in-picture ratio are separate classes with tests. `PlayerActivity.kt` is about 1,200 lines. Not done: live channel switching and recovery (`LiveSession`), the pause buffer controller (`TimeshiftController`) and view construction (`PlayerViews`). After the player checks in B. |
@@ -34,17 +33,27 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 ## Check on a device
 
+For the playback and Settings release, try the following on a TV with a remote and on a phone in landscape.
+
+| Check | What to look for |
+|---|---|
+| Pause titles | Pause a movie, the next episode, a catch-up programme, and rewound live TV. The title stays after controls fade and clears on resume. A long title wraps above the picture. |
+| Settings | Open a category, open and dismiss a dialog, then press Back. The previously opened category has focus. Confirm subtitle preferences, parental PIN prompts, and backup entry points. |
+| Household sync | Delete one favourite and one resume entry while a second screen changes different entries. Sync twice, then deliberately add a removed favourite back. |
+| Live format | Open a channel that returns an HLS playlist from a `.ts` address. Switch to an MPEG-TS channel and check that pause and rewind still work. |
+
+
 The safety release (1.0.126):
 
 | Item | What to look for |
 |---|---|
-| Keys-only phone page | Settings → Library → TMDB API key → **Send from my phone** (parent PIN first when one is set). The phone page shows only the keys form; a key still saves. Opening the page's address with `/restore` or `/backup.json` on the end says the page can't do that. |
-| Other phone pages | The sign-in screen's page shows only sign-in; **Turn on sync** shows only sync; Settings → Phone companion still shows everything. |
+| Keys-only phone page | Settings → Library & guide → TMDB API key → **Send from my phone** (parent PIN first when one is set). The phone page shows only the keys form; a key still saves. Opening the page's address with `/restore` or `/backup.json` on the end says the page can't do that. |
+| Other phone pages | The sign-in screen's page shows only sign-in; **Turn on sync** shows only sync; Settings → Backup & phone → Phone companion still shows everything. |
 | Play on TV with pause & rewind on | With **Pause & rewind** on and a channel playing on the TV, send another channel from the phone. On the TV, the new channel can still be paused and rewound a minute later. |
 | Picture-in-picture on a phone | Play a channel, press Home: the picture keeps playing in a small window. |
 | Settings after joining | A screen that joins sync keeps the household's API keys, guide address and languages, even if its subtitle size was changed first. |
 
-For the reliability release, verify parent PIN switching and cancellation on a TV remote, guide focus during a half-hour rollover, and picture-in-picture and live pause-and-rewind when backgrounding on a phone. If you use household sync, verify the migration separately using the two-screen check above.
+For the reliability release, verify parent PIN switching and cancellation on a TV remote, guide focus during a half-hour rollover, and picture-in-picture and live pause-and-rewind when backgrounding on a phone. The household migration to a separate private repository has been confirmed.
 
 Trailers and the summary (1.0.117):
 
@@ -77,8 +86,8 @@ Plan 6 (1.0.112), on a TV and a phone you use with a VPN:
 
 | Step | What to look for |
 |---|---|
-| 1 | Phone page → paste the provider's whole message → Send to TV. Settings → Account lists four servers: two "Without VPN", two "With VPN". |
-| 2 | VPN off: tune a channel. Settings → Account shows a "Without VPN" server in use and the VPN line says Off. |
+| 1 | Phone page → paste the provider's whole message → Send to TV. Settings → Account & sync lists four servers: two "Without VPN", two "With VPN". |
+| 2 | VPN off: tune a channel. Settings → Account & sync shows a "Without VPN" server in use and the VPN line says Off. |
 | 3 | VPN on: tune another channel. It starts within about 5 seconds; a "With VPN" server is in use and the VPN line says On. |
 | 4 | If either step is slow, send the log: its header lists every server with its mark and state. |
 
@@ -89,9 +98,9 @@ Plan 7 (first build that contains it), on a phone and a TV:
 | Closing Relay | On Home press Back: **Close Relay?** appears with **Stay in Relay** selected. Press Back again: the question goes away and Relay stays. Press Back twice quickly several times: Relay never closes. Choose **Close Relay** with OK (or a tap): it closes. Try it on each tab, on the profile picker and on the sign-in screen. |
 | Detail pages | On a film or series page, Back still returns to the list, with no question. |
 | Leaving the player | Press Back once in a film and in a live channel: a large centred prompt reads *Press Back again to leave the player*. A second press within about two seconds leaves; waiting lets it disappear. |
-| Updates without a token | Settings → Account shows the update state with no "token" message; with a newer release published it offers the update and installs it. |
+| Updates without a token | Settings → About & diagnostics shows the update state with no "token" message; with a newer release published it offers the update and installs it. |
 
-Plan 5 (first build that contains it), on the **phone**. Turn on Settings → Diagnostics → **Save detailed logs** first, and send the log afterwards (**Share logs** works on phones):
+Plan 5 (first build that contains it), on the **phone**. Turn on Settings → About & diagnostics → **Save detailed logs** first, and send the log afterwards (**Share logs** works on phones):
 
 | Item | What to look for |
 |---|---|
@@ -121,7 +130,7 @@ Plan 4 (first build that contains it; see Done). Run this routine once after ins
 
 | Step | What to do and look for |
 |---|---|
-| 1 | Settings → Diagnostics → **Save detailed logs** on. |
+| 1 | Settings → About & diagnostics → **Save detailed logs** on. |
 | 2 | Install the update (the first start after it takes the long way once, about a minute, and writes the saved copy a few seconds after the lists are ready). Then unplug the TV for 10 seconds, so the next start is a real cold one. Open Relay and wait until channels show; this start should take seconds, not a minute. |
 | 3 | Open Live TV → All channels and scroll for 20 seconds. Open the guide. Open Movies, then Series. Search for a channel name. Tune three channels. Nothing should stutter more than before. |
 | 4 | Next day, when the library is more than 6 hours old, open Relay from cold again and leave it on Home for 2 minutes. This catches the refresh: it starts about 20 seconds after launch and should leave the first minute of browsing smooth. |
@@ -133,11 +142,11 @@ Plan 3 (first build that contains it; see Done):
 
 | Item | What to look for |
 |---|---|
-| Keys from the phone (F) | Settings → Library → TMDB API key (or Rotten Tomatoes scores) → **Send from my phone**. Scan, paste a good key and a bad one. The phone and the TV both say whether each was accepted; the TV window closes after a good key; scores and artwork appear on a movie page. |
+| Keys from the phone (F) | Settings → Library & guide → TMDB API key (or Rotten Tomatoes scores) → **Send from my phone**. Scan, paste a good key and a bad one. The phone and the TV both say whether each was accepted; the TV window closes after a good key; scores and artwork appear on a movie page. |
 | Trailers (G) | Since 1.0.117, on a TV **Trailer** and **Find a trailer** show a QR code instead of opening YouTube (see the row at the top of this list). On a phone they open YouTube and Back returns to the same page; on a phone without YouTube the QR code appears. No button on a kids profile. |
 | Nothing looks different after the storage change (H1) | Remove a Continue watching card, add and remove a favourite, change a setting, restart Relay: everything is as you left it. Kids viewing time still counts and still stops at the limit. |
-| Turn on sync (H2) | Make the private repository and token (README, *Sync between screens*). Settings → Sync between screens → Turn on sync, scan, paste. The status says *In sync*; change a favourite and a commit appears in the repository within about a minute. Sync stays off until you do this. |
-| Add a second screen (H3) | On the new TV: Settings → Join sync from another screen (or the sign-in page's *I already use Relay on another screen*). On the first: Add a screen. Check: the new TV is listed within a few seconds (does discovery work on your Wi-Fi?), both show the same six digits, Join signs the new TV in by itself and shows the same Continue watching, favourites, keys and languages. |
+| Turn on sync (H2) | Make the private repository and token (README, *Sync between screens*). Settings → Account & sync → Turn on sync, scan, paste. The status says *In sync*; change a favourite and a commit appears in the repository within about a minute. Sync stays off until you do this. |
+| Add a second screen (H3) | On the new TV: Settings → Account & sync → Join sync from another screen (or the sign-in page's *I already use Relay on another screen*). On the first: Add a screen. Check: the new TV is listed within a few seconds (does discovery work on your Wi-Fi?), both show the same six digits, Join signs the new TV in by itself and shows the same Continue watching, favourites, keys and languages. |
 | Hand-over | Stop a film on one screen, open it on the other: it resumes near the same place. Remove a Continue watching card on one; it doesn't come back from the other. |
 | Offline | Switch Wi-Fi off on one screen, change things on both, switch it back on: both sets of changes survive. |
 | Lost screen | On a screen, **New household key**; another screen then shows that its key no longer opens the file and offers **Join again from another screen**. |
@@ -153,7 +162,7 @@ Plans 1 and 2:
 | Zapping (1.0.38) | Up and Down in a live channel show a picture sooner than before. If channels now stutter or stall right after tuning, the smaller start buffer (1 s for live) is too small for the provider; the numbers are in `player/BufferPlan.kt`. |
 | Category changes (1.0.38) | Switching category in Movies or Series keeps the old grid dimmed until the new one is ready instead of flashing "Loading…". |
 | Posters (1.0.39) | Scrolling a large category stays smooth, and images no longer fade in while scrolling. Colour depth was not reduced, so quality should be unchanged. |
-| Jump sizes, Clear all, Sleep timer, Are you still watching? (1.0.41, 1.0.42) | Settings → Playback has the new rows; Clear all on Continue watching asks first; the sleep warning appears a minute before the end and any key adds time; the question appears after three episodes in a row. |
+| Jump sizes, Clear all, Sleep timer, Are you still watching? (1.0.41, 1.0.42) | Settings → Playback & subtitles has the new rows; Clear all on Continue watching asks first; the sleep warning appears a minute before the end and any key adds time; the question appears after three episodes in a row. |
 
 Older checks:
 
@@ -173,13 +182,14 @@ Older checks:
 
 | Release | What |
 |---|---|
+| Playback and Settings release | Shows the current title on pause, groups Settings by task, preserves concurrent sync edits and deletions, cancels interrupted provider requests, and plays HLS returned by `.ts` addresses. Removed the former household sync file from the app repository after migration. |
 | 1.0.126 | Safety release from the Gemini review: a joining screen no longer overwrites the household's shared settings; each phone page serves only what its screen opened it for, and only under the TV's own address; one folder per pause-buffer recording and safer trimming; picture-in-picture kept current on phones; the release workflow split into build, device-check and publish, with the signing key and write access kept apart and every action pinned |
 | 1.0.117 | On a TV, **Trailer** and **Find a trailer** show a QR code to watch the trailer on your phone (phones still open YouTube). Long summaries on film and series pages can be reached with the remote and opened in full; leftovers such as "… Read all" from the provider's text are removed |
 | 1.0.116 | **Play on TV** also takes catch-up shows and programmes watched with Start over (at the same minute), and series pages get a Play on TV button for the next episode; hold an episode card or a programme in a channel's Catch-up list to send that one |
 | 1.0.115 | **Play on TV**: a phone hands what it is playing (a live channel, a film at the same minute, an episode with the next ones queued) to a TV of the same sync household that has Relay open; the TV plays it from its own library under its own profile, and the phone stops. Nothing but the item and position travels, sealed with a key from the household sync key |
-| 1.0.113 | Three fixes from the 12 Nov review and TV log: a screen that joins sync no longer adds a second profile of the same name (its own "Me" becomes the household's, with its favourites and history); a failed request about one channel or title no longer makes Relay treat the whole server as down for 10 minutes; the provider's guide is downloaded once at start-up, not twice. Profiles already doubled are not merged: delete the spare one in Settings → Profiles. |
+| 1.0.113 | Three fixes from the 12 Nov review and TV log: a screen that joins sync no longer adds a second profile of the same name (its own "Me" becomes the household's, with its favourites and history); a failed request about one channel or title no longer makes Relay treat the whole server as down for 10 minutes; the provider's guide is downloaded once at start-up, not twice. Profiles already doubled are not merged: delete the spare one in Settings → Profiles & parental controls. |
 | 1.0.114 | Plan 7: Back asks **Close Relay?** before the app closes (Stay is selected; Back again keeps Relay open); the player says in large type that a second Back leaves the player; updates no longer need a token now the repository is public, and new builds carry none; README section on sharing the APK with someone else. |
-| 1.0.112 | Plan 6: every one of the provider's servers can be marked for use with or without a VPN (read from a pasted message, set on the phone page, or changed in Settings → Account); Relay tries the servers that suit the connection first and notices a VPN going on or off; a server that fails is tried last for 10 minutes and the next server is tried after 5 seconds instead of 15; marking a server never reloads the library. The benchmark job now runs only when started by hand, to save Actions minutes. |
+| 1.0.112 | Plan 6: every one of the provider's servers can be marked for use with or without a VPN (read from a pasted message, set on the phone page, or changed in Settings → Account & sync); Relay tries the servers that suit the connection first and notices a VPN going on or off; a server that fails is tried last for 10 minutes and the next server is tried after 5 seconds instead of 15; marking a server never reloads the library. The benchmark job now runs only when started by hand, to save Actions minutes. |
 | 1.0.110 | Plan 5, in part: a device tier so recent phones use shorter waits and wider limits while TVs keep theirs; the player fills the screen on phones, keeps clear of the camera cut-out and pauses when headphones disconnect; touch-size buttons; frame counting that knows the screen's refresh rate; the A to Z strip, Home language rows and learned languages off the screen thread; quicker repeat searches; guide, Search and touch stretches in the benchmark. |
 | 1.0.108 | Plan 4: Relay keeps a ready-to-use copy of the prepared library, so a restart or an update shows channels in seconds instead of about a minute (the first start after an update that changed how names are read still takes the long way once); channel text work cleans each name once; refreshes reuse what they already know about unchanged items and wait 20 seconds after start-up; the screen-freeze watcher no longer reports the app being frozen by Android as a stall; the TV log read and the measurements table filled (TODO rows 2 and 3). Summary in [HISTORY.md](HISTORY.md) |
 | 1.0.91 | Plan 3: API keys sent from the phone, Trailer and Find a trailer buttons, optional sync between screens (profiles, favourites, history, kids' time, shared settings; encrypted file in your own private GitHub repository; pairing by matching six digits). Summary in [HISTORY.md](HISTORY.md) |

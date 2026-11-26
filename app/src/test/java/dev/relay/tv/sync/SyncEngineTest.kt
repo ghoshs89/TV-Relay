@@ -57,6 +57,7 @@ private class FakeLocal(override val deviceId: String, val name: String, var acc
     val data = LinkedHashMap<String, JsonElement>()
     val changed = HashMap<String, Long>()
     val backups = ArrayList<String>()
+    private var screenSeen = 0L
 
     /** What the viewer does while a sync is applying: these items are changed after the sync read the state. */
     var raceOnApply: Map<String, JsonElement> = emptyMap()
@@ -75,8 +76,12 @@ private class FakeLocal(override val deviceId: String, val name: String, var acc
 
     override fun accountTag() = account
 
-    override fun items(screenSeen: Long): Map<String, JsonElement> =
-        LinkedHashMap(data).also { it["screen:$deviceId"] = JsonObject(mapOf("name" to JsonPrimitive(name), "seen" to JsonPrimitive(screenSeen))) }
+    override fun items(screenSeen: Long): Map<String, JsonElement> {
+        this.screenSeen = screenSeen
+        return LinkedHashMap(data).also {
+            it["screen:$deviceId"] = JsonObject(mapOf("name" to JsonPrimitive(name), "seen" to JsonPrimitive(screenSeen)))
+        }
+    }
 
     override fun changedAt(key: String, v: JsonElement?): Long? = changed[key]
 
@@ -86,11 +91,11 @@ private class FakeLocal(override val deviceId: String, val name: String, var acc
         val before = HashMap(data)
         data.clear()
         for ((k, r) in merged) if (!r.gone && !k.startsWith("screen:")) data[k] = r.v!!
-        val intended = LinkedHashMap(data)
+        val intended = items(screenSeen)
         for ((k, v) in raceOnApply) data[k] = v
         raceOnApply = emptyMap()
         val n = data.keys.count { data[it] != before[it] } + before.keys.count { it !in data }
-        return Applied(LinkedHashMap(data), intended, dev.relay.tv.data.SyncApplied(n, false, false))
+        return Applied(items(screenSeen), intended, dev.relay.tv.data.SyncApplied(n, false, false))
     }
 
     override fun backup(reason: String) {
@@ -173,6 +178,34 @@ class SyncEngineTest {
         assertEquals(SyncResult.UpToDate, a.sync().result)
         assertEquals(SyncResult.UpToDate, b.sync().result)
         assertEquals(writes, transport.writes)
+    }
+
+    @Test fun deletingAnItemAndEditingAnotherConvergeAndTheItemCanBeAddedAgain() {
+        val tv = Screen("tv")
+        val phone = Screen("phone")
+        for (prefix in listOf("fav:p:movie", "hist:p:movie")) {
+            val removed = "$prefix:1"
+            val edited = "$prefix:2"
+            tv.local.set(removed, "A", tick())
+            tv.local.set(edited, "B", tick())
+            tv.sync()
+            phone.sync()
+            tv.local.remove(removed, tick())
+            tv.sync()
+            phone.local.raceOnApply = mapOf(edited to JsonPrimitive("B updated"))
+            phone.sync()
+            phone.sync()
+            tv.sync()
+
+            for (screen in listOf(tv, phone)) {
+                assertNull(screen.local.value(removed))
+                assertEquals("B updated", screen.local.value(edited))
+            }
+            phone.local.set(removed, "A added again", tick())
+            phone.sync()
+            tv.sync()
+            assertEquals("A added again", tv.local.value(removed))
+        }
     }
 
     @Test fun laterChangeWinsOnBothScreens() {

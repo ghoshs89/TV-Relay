@@ -258,6 +258,18 @@ class SyncDiffTest {
     // ---------- rebaseChecked ----------
 
     @Test
+    fun aSkippedRemoteDeletionKeepsTheOriginalBaseUntilTheEntryIsActuallyAbsent() {
+        val deleted = mapOf("a" to SyncRec(20, "tv", null))
+        val local = mapOf("a" to p("A"))
+        val original = mapOf("a" to BaseRec(10, "phone", SyncDiff.hash(p("A"))))
+        val base = SyncDiff.rebaseChecked(deleted, local, emptyMap(), original)
+        assertEquals(original, base)
+        val next = SyncDiff.export(local, base, "phone", SyncClock(20), 30, { _, _ -> 10L })
+        assertEquals(10L, next.getValue("a").at)
+        assertEquals(BaseRec(20, "tv"), SyncDiff.rebaseChecked(deleted, emptyMap(), emptyMap(), base)["a"])
+    }
+
+    @Test
     fun rebaseCheckedAgreesOnlyWhatArrivedAsIntended() {
         val merged = mapOf(
             "a" to SyncRec(10, "x", p("A")),

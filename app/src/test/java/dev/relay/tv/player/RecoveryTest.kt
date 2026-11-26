@@ -90,10 +90,11 @@ class RecoveryTest {
 
     @Test
     fun hlsNeverUsesThePauseBuffer() {
-        assertFalse(TimeshiftSupport.supports(listOf("http://a/live/u/p/1.m3u8")))
-        assertFalse(TimeshiftSupport.supports(listOf("http://a/live/u/p/1.ts", "http://b/live/u/p/1.m3u8?token=x")))
-        assertFalse(TimeshiftSupport.supports(emptyList()))
-        assertTrue(TimeshiftSupport.supports(listOf("http://a/live/u/p/1.ts", "http://b/live/u/p/1.ts")))
+        assertTrue(TimeshiftSupport.isHls("http://a/live/u/p/1.m3u8"))
+        assertTrue(TimeshiftSupport.isHls("http://b/live/u/p/1.M3U8?token=x"))
+        assertTrue(TimeshiftSupport.isHls("http://a/live/u/p/1.m3u"))
+        assertFalse(TimeshiftSupport.isHls("http://a/live/u/p/1.ts"))
+        assertFalse(TimeshiftSupport.isHls("http://a/live/u/p/1.ts?format=.m3u8"))
     }
 
     @Test

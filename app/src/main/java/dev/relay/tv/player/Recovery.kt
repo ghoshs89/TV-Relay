@@ -113,8 +113,7 @@ class StallWatchdog(private val limitMs: Long, private val clock: () -> Long) {
 
 /** The pause buffer records raw MPEG-TS; HLS playlists must play directly. */
 object TimeshiftSupport {
-    fun supports(urls: List<String>): Boolean =
-        urls.isNotEmpty() && urls.none { isHls(it) }
+    const val PLAYLIST_PREFIX_BYTES = 19L
 
     fun isHls(url: String): Boolean {
         val path = url.substringBefore('?').lowercase()
