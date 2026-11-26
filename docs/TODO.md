@@ -34,7 +34,7 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 ## Check on a device
 
-The safety release (first build that contains it; see Done):
+The safety release (1.0.126):
 
 | Item | What to look for |
 |---|---|
@@ -173,6 +173,7 @@ Older checks:
 
 | Release | What |
 |---|---|
+| 1.0.126 | Safety release from the Gemini review: a joining screen no longer overwrites the household's shared settings; each phone page serves only what its screen opened it for, and only under the TV's own address; one folder per pause-buffer recording and safer trimming; picture-in-picture kept current on phones; the release workflow split into build, device-check and publish, with the signing key and write access kept apart and every action pinned |
 | 1.0.117 | On a TV, **Trailer** and **Find a trailer** show a QR code to watch the trailer on your phone (phones still open YouTube). Long summaries on film and series pages can be reached with the remote and opened in full; leftovers such as "… Read all" from the provider's text are removed |
 | 1.0.116 | **Play on TV** also takes catch-up shows and programmes watched with Start over (at the same minute), and series pages get a Play on TV button for the next episode; hold an episode card or a programme in a channel's Catch-up list to send that one |
 | 1.0.115 | **Play on TV**: a phone hands what it is playing (a live channel, a film at the same minute, an episode with the next ones queued) to a TV of the same sync household that has Relay open; the TV plays it from its own library under its own profile, and the phone stops. Nothing but the item and position travels, sealed with a key from the household sync key |
