@@ -285,6 +285,10 @@ class Store(ctx: Context) {
         val ids = newProfiles.map { it.id }.toSet()
         val local = settings
         val newSettings = b.settings.copy(tmdbKey = local.tmdbKey, ratingsKey = local.ratingsKey, logUntil = local.logUntil)
+        // A restore is a change made now: every shared setting it brings in is stamped so it spreads,
+        // while the API keys (kept from this screen) keep their own stamps.
+        val t = System.currentTimeMillis()
+        val newStamps = SettingsSplit.restored(read<Map<String, Long>>("settings_at", emptyMap()), t, RESTORE_KEEPS)
 
         val edit = prefs.edit()
         prefs.all.keys
@@ -296,6 +300,7 @@ class Store(ctx: Context) {
         val j = Jsons.json
         put("profiles", j.encodeToString(newProfiles))
         put("settings", j.encodeToString(newSettings))
+        put("settings_at", j.encodeToString(newStamps))
         put("chcustom", j.encodeToString(b.channels))
         put("pincats", j.encodeToString(b.pinnedCategories))
         put("livesort", j.encodeToString(b.liveSort))
@@ -308,7 +313,6 @@ class Store(ctx: Context) {
         if (!edit.commit()) throw java.io.IOException("Couldn't save the restored data")
         cache.clear()
         // A restore is a change made now, so with sync on it spreads to the other screens.
-        val t = System.currentTimeMillis()
         listOf("profiles", "settings", "chcustom", "pincats", "livesort", "reminders").forEach { touched[it] = t }
         ids.forEach { touched["fav_$it"] = t; touched["hist_$it"] = t }
         b.seriesTracks.keys.forEach { touched["trk_$it"] = t }
@@ -334,6 +338,9 @@ class Store(ctx: Context) {
         /** Keys a restore replaces as a whole; anything else (login, parent PIN) is left alone. */
         private val REPLACED = setOf("profiles", "settings", "settings_at", "chcustom", "pincats", "livesort", "reminders")
         private val REPLACED_PREFIXES = listOf("fav_", "hist_", "trk_", "lastcat_")
+
+        /** Shared settings a restore leaves as this screen had them. */
+        private val RESTORE_KEEPS = setOf("tmdbKey", "ratingsKey")
     }
 
     // ---------- Sync ----------
@@ -443,7 +450,7 @@ class Store(ctx: Context) {
             recKey.startsWith("hist:") -> num("updated") ?: touched["hist_${owner("hist:")}"]
             recKey.startsWith("fav:") -> num("at") ?: touched["fav_${owner("fav:")}"]
             recKey.startsWith("favorder:") -> touched["fav_${owner("favorder:")}"]
-            recKey.startsWith("set:") -> read<Map<String, Long>>("settings_at", emptyMap())[recKey.removePrefix("set:")] ?: touched["settings"]
+            recKey.startsWith("set:") -> SettingsSplit.changedAt(read<Map<String, Long>>("settings_at", emptyMap()), recKey.removePrefix("set:"))
             recKey.startsWith("profile:") || recKey == "order:profiles" -> touched["profiles"]
             recKey.startsWith("trk:") -> touched["trk_${recKey.removePrefix("trk:")}"]
             recKey.startsWith("rem:") -> touched["reminders"]

@@ -98,7 +98,7 @@ fun JoinSyncDialog(onDismiss: () -> Unit, onJoined: () -> Unit) {
     }
 
     DisposableEffect(Unit) {
-        val server = CompanionServer(onLogin = {}, pair = host)
+        val server = CompanionServer(onLogin = {}, pair = host, scope = dev.relay.tv.companion.CompanionScope.JOIN)
         url = try {
             server.start()
         } catch (e: Exception) {

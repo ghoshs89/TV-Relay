@@ -15,6 +15,7 @@ Plans 1 to 4 are finished and their full text is in the repository's history (`g
 | 7 | **Close Relay?** on Back; a clear "leave the player" prompt; updates without a token now the repository is public; README section on sharing the APK | 1.0.114 | Moving sync out of the public repository (needs the owner's screens) |
 | Play on TV | A phone of the household hands a channel, film or episode to a TV that has Relay open (1.0.115); then catch-up, Start over and series pages (1.0.116). Sealed with a key from the household sync key; the TV plays from its own library under its own profile | 1.0.115, 1.0.116 | Google Cast, parked (see TODO.md) |
 | Trailers and summaries | Trailers as a QR code on TVs; long summaries reachable with the remote and readable in full; "Read all" leftovers removed | 1.0.117 | |
+| Safety release | From the Gemini review and ChatGPT's notes on it (26 Nov): a joining screen's untouched settings no longer overwrite the household's; each phone page serves only what its screen opened it for, and only under the TV's own address; one folder per pause-buffer recording, and trimming that never leaves a rewind in a deleted piece; picture-in-picture settings kept current; the play list let go when the player closes; the release workflow split so the signing key and write access never meet the emulator, with every action pinned | fill in after publishing | Nine larger findings, to-do 14 |
 
 ## Android reliability release
 
@@ -91,6 +92,7 @@ Plan 4 also found the channel stage on the JSON path 3 to 35% slower than `main`
 | 3 | A new token on one screen spreads to the others | Each screen keeps its own token; **Replace the token** on the phone page or **Join again from another screen** | A screen with an expired token can't read the file that would carry the new one |
 | 3 | Backup format 3 | Unchanged (format 2); sync keeps its own safety copies | Nothing new needed to be in the backup |
 | 4 | Release only if the saved copy is 4 times faster on the default benchmark library | Released on the owner's say after the numbers above | The gate was a poor test at that size: 0.8 s of every start is process start-up |
+| Safety release | Fix the review's findings (critical and high) in one release | Fixed the ones confirmed in the code; rated the claims about request cancelling, pairing timing, PIN hashing and the CI emulator lower and left them for later (to-do 14); revoking the old sync token moved to straight after a backup, not after the move | Several findings were real but larger, or not shown by the code; the token can write to the app repository today, so it can't wait for the move |
 
 ## 6. Known gaps in what has been checked
 

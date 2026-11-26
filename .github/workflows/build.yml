@@ -22,23 +22,32 @@ env:
   # Builds fail if the APK is signed with anything else.
   RELAY_CERT_SHA256: 165d1842e00291d7adc2dcab4f76604bc6372ac3cdf151ced8486ff00c2a6b82
 
+# Each job gets only what it needs. Only "publish" can write to the repository, and it runs no code
+# from the repository: it checks the APK that "build" made and attaches it to a release. The signing
+# key exists only inside "build", and is deleted as soon as the APK is signed.
 permissions:
-  contents: write   # publish each build as a GitHub Release for the in-app updater
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.apk.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: '17'
 
       # Uses the committed Gradle wrapper; this action also verifies the wrapper's checksum.
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Unit tests
         run: |
@@ -67,7 +76,7 @@ jobs:
 
       - name: Keep test and lint reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: reports-1.0.${{ github.run_number }}
           path: |
@@ -106,6 +115,12 @@ jobs:
           RELAY_KEYSTORE_PASSWORD: ${{ secrets.RELAY_KEYSTORE_PASSWORD }}
         run: ./gradlew :app:assembleRelease --stacktrace --no-daemon
 
+      - name: Delete the signing key
+        if: always()
+        run: |
+          if [ -n "${RELAY_KEYSTORE_PATH:-}" ]; then rm -f "$RELAY_KEYSTORE_PATH"; fi
+          echo "Keystore removed from the runner."
+
       - name: Verify APK signature
         run: |
           set -e
@@ -126,10 +141,52 @@ jobs:
           fi
           echo "No benchmark code in the release APK."
 
-      - name: Rename APK
+      - name: Rename APK and record its SHA-256
+        id: apk
         run: |
           mkdir -p out
           cp app/build/outputs/apk/release/*.apk "out/Relay-1.0.${{ github.run_number }}.apk"
+          SUM=$(sha256sum "out/Relay-1.0.${{ github.run_number }}.apk" | cut -d' ' -f1)
+          echo "sha256=$SUM" >> "$GITHUB_OUTPUT"
+          echo "APK SHA-256: $SUM"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Relay-1.0.${{ github.run_number }}
+          path: out/*.apk
+          retention-days: 30
+
+  # Installs the APK that "build" made on an emulator: playback, profiles, the guide, and an upgrade
+  # over a signed earlier release. No signing secrets and no write access.
+  device-check:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Relay-1.0.${{ github.run_number }}
+          path: out
+
+      - name: Check this is the APK that was built
+        run: |
+          SUM=$(sha256sum "out/Relay-1.0.${{ github.run_number }}.apk" | cut -d' ' -f1)
+          if [ "$SUM" != "${{ needs.build.outputs.sha256 }}" ]; then echo "::error::APK changed between jobs."; exit 1; fi
+          echo "APK SHA-256 matches the build: $SUM"
+
+      # The device check also builds and runs the instrumented tests (debug build, no release key).
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Enable the emulator's hardware acceleration
         run: |
@@ -148,7 +205,7 @@ jobs:
         run: gh release download v1.0.117 --pattern 'Relay-1.0.117.apk' --dir upgrade-baseline
 
       - name: Check playback, profiles, guide and signed upgrade on an emulator
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 30
           arch: x86_64
@@ -157,14 +214,38 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash .github/reliability-test.sh out/Relay-1.0.${{ github.run_number }}.apk upgrade-baseline/Relay-1.0.117.apk
 
-      - uses: actions/upload-artifact@v4
+  # The only job that can write to the repository. Runs on main after both checks passed, takes the
+  # APK "build" made, checks it is byte for byte that APK and signed with the Relay key, and publishes it.
+  publish:
+    needs: [build, device-check]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # publish the build as a GitHub Release for the in-app updater
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: Relay-1.0.${{ github.run_number }}
-          path: out/*.apk
-          retention-days: 30
+          path: out
+
+      - name: Check the APK before publishing
+        run: |
+          set -e
+          APK="out/Relay-1.0.${{ github.run_number }}.apk"
+          SUM=$(sha256sum "$APK" | cut -d' ' -f1)
+          if [ "$SUM" != "${{ needs.build.outputs.sha256 }}" ]; then echo "::error::APK changed between jobs."; exit 1; fi
+          SIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+          if ! "$SIGNER" verify --print-certs "$APK" | grep -qi "SHA-256 digest: $RELAY_CERT_SHA256"; then
+            echo "::error::APK is not signed with the Relay release key."; exit 1
+          fi
+          echo "APK matches the build ($SUM) and is signed with the Relay key."
 
       - name: Publish release for in-app updates
-        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -191,15 +272,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Build the benchmark APK
         run: ./gradlew :app:assembleBenchmark --stacktrace --no-daemon
@@ -228,7 +313,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run the benchmark on an emulator
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 30
           arch: x86_64
@@ -239,7 +324,7 @@ jobs:
 
       - name: Keep the benchmark logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bench-1.0.${{ github.run_number }}
           path: |

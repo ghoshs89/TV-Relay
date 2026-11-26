@@ -49,6 +49,27 @@ object SettingsSplit {
         return if (c.isEmpty()) stamps else stamps + c.associateWith { now }
     }
 
+    /**
+     * When a shared field was last changed on this screen, for sync: its own stamp and nothing else.
+     * A field never changed here has none, so an untouched default loses to the household's value
+     * instead of being treated as a change made now.
+     */
+    fun changedAt(stamps: Map<String, Long>, field: String): Long? = stamps[field]
+
+    /**
+     * The stamps after a backup restore. A restore is a change made [now], so every shared field it
+     * brings in is stamped; the [kept] fields (the API keys, which a restore leaves as they were) keep
+     * the stamps they had.
+     */
+    fun restored(old: Map<String, Long>, now: Long, kept: Set<String>): Map<String, Long> {
+        val out = LinkedHashMap<String, Long>()
+        for (f in SHARED) {
+            val t = if (f in kept) old[f] else now
+            if (t != null) out[f] = t
+        }
+        return out
+    }
+
     /** [local] with the given shared fields replaced; per-screen fields and unknown names are left alone. */
     fun withShared(local: Settings, values: Map<String, JsonElement>): Settings {
         val picked = values.filterKeys { it in SHARED }

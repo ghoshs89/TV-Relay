@@ -8,21 +8,17 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 | # | What | Notes |
 |---|---|---|
-| A | **Move household sync to its own private repository** | The app now pauses sync when a screen is configured with the release repository. Follow the [migration steps](../README.md#sync-between-screens) on all TVs and phones. Verify a favourite and a resume position on two screens, then revoke the old token. Keep the old encrypted file and its workflow exclusion until migration is verified. |
+| A | **Move household sync to its own private repository, old token first** | A screen on an older build was still writing `relay-sync.bin` into this public repository on 26 Nov, so it holds a token that can write to the repository that builds and ships the app. In this order: 1. take a backup on the screen with the most complete data (Settings → Backup & phone); 2. on GitHub, delete the old sync token (the one that can write to `ghoshs89/TV-Relay`); 3. on each screen, **Stop syncing on this screen**, then update Relay; 4. turn sync on with `ghoshs89/Relay-TV_Sync` and a new token, and join the other screens; 5. say so, and `relay-sync.bin` is removed (to-do 1). Keep this repository **public**: builds carry no update token, so making it private stops updates on every screen. |
+| D | **Old update token, if not done yet** | Every screen is past 1.0.110, so delete the old update token on GitHub and the `RELAY_UPDATE_TOKEN` secret. |
 | B | **Device checks, on the TV and on the phone** | The lists under "Check on a device". Seen working on your TV and phone so far: **Close Relay?** on Back (1.0.114), **Play on TV** for a channel from the phone (1.0.115, 21 Nov). Still to look at: the phone player full screen and touch sizes (1.0.110), the catch-up and series additions to Play on TV (1.0.116), the trailer QR code and the summary (1.0.117), and the plan 4 start-up timings for the measurements table in HISTORY.md. |
 | C | Delete the scratch branches on GitHub | `p2`, `p2base`, `p2r`, `p2s`, `p3base`, `p4base`, `p4base-big`, `pB`, `pC`, `pE1`, `pE2`, `pFA`, `pFB`, `pFC`, `plan3`, `plan4`, `plan4-big`, `plan4-exec`. |
-
-## After installing the release that follows 1.0.110, in this order
-
-1. Install it on **every** screen. Screens on 1.0.110 or older update with a token baked into them; they would stop updating if it were deleted first.
-2. Only then delete the update token on GitHub and the `RELAY_UPDATE_TOKEN` secret.
-3. Then do A above.
 
 ## To do
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | Remove `relay-sync.bin` and its `paths-ignore` line | Only after A. Changing `build.yml` makes a release, so ship it with other work. |
+| 1 | Remove `relay-sync.bin` and its `paths-ignore` line | Only after A, step 5. Changing `build.yml` makes a release, so ship it with other work. |
+| 14 | Left out of the safety release (Gemini and ChatGPT reviews, 26 Nov) | Real or plausible, but each is larger than one release should carry: network calls that can be cancelled when a screen closes (C-05); a lock around the sync runner and rebasing deletions (H-05); falling back from HLS to `.ts` when a channel offers both (H-03, first part); a commitment step in pairing before the six digits (H-07); stricter parsing of the provider's text (H-08); file reads still on the screen thread (H-10); kids filtering of Home rows built before a profile switch (M-01); limits on the size of an XMLTV guide (M-03); a slower hash for PINs (M-05). |
 | 2 | Guide grid: draw only the programmes on screen (plan 5, U4) | Each row builds every programme in an 11 hour window. Needs a benchmark run before and after; the guide stretches now exist. |
 | 3 | Player recovery (plan 5, B1 and B2) | Add an automatic retry for a film after a network drop and re-tune direct live streams after coming back to the app. |
 | 4 | **Finish splitting the player code** | Done so far (1.0.30): kids limit timing, audio and subtitle choices, failure panel, pause bar and its arithmetic, reminder banner, number entry and the picture-in-picture ratio are separate classes with tests. `PlayerActivity.kt` is about 1,200 lines. Not done: live channel switching and recovery (`LiveSession`), the pause buffer controller (`TimeshiftController`) and view construction (`PlayerViews`). After the player checks in B. |
@@ -37,6 +33,16 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 | 12 | Sync, later polish | Pairing link shown as a QR code on a TV; a hint under a Continue watching card that came from another screen; an extra pull when a detail page opens; WebDAV if you would rather keep the data at home. |
 
 ## Check on a device
+
+The safety release (first build that contains it; see Done):
+
+| Item | What to look for |
+|---|---|
+| Keys-only phone page | Settings → Library → TMDB API key → **Send from my phone** (parent PIN first when one is set). The phone page shows only the keys form; a key still saves. Opening the page's address with `/restore` or `/backup.json` on the end says the page can't do that. |
+| Other phone pages | The sign-in screen's page shows only sign-in; **Turn on sync** shows only sync; Settings → Phone companion still shows everything. |
+| Play on TV with pause & rewind on | With **Pause & rewind** on and a channel playing on the TV, send another channel from the phone. On the TV, the new channel can still be paused and rewound a minute later. |
+| Picture-in-picture on a phone | Play a channel, press Home: the picture keeps playing in a small window. |
+| Settings after joining | A screen that joins sync keeps the household's API keys, guide address and languages, even if its subtitle size was changed first. |
 
 For the reliability release, verify parent PIN switching and cancellation on a TV remote, guide focus during a half-hour rollover, and picture-in-picture and live pause-and-rewind when backgrounding on a phone. If you use household sync, verify the migration separately using the two-screen check above.
 

@@ -129,4 +129,95 @@ class TimeshiftBufferTest {
         assertNotNull(e)
         assertTrue(e is IOException)
     }
+
+    /** Feeds a steady stream so a recording keeps writing. */
+    private fun streaming() = serve {
+        MockResponse().setResponseCode(200).setBody(Buffer().write(ByteArray(512 * 1024) { 0x47 }))
+            .throttleBody(64 * 1024, 20, java.util.concurrent.TimeUnit.MILLISECONDS)
+    }
+
+    private fun recorder(dir: java.io.File) = TimeshiftBuffer(
+        dir, OkHttpClient(), listOf(a.url("/live/1.ts").toString()), "test", 15,
+        clock = { System.currentTimeMillis() }, retryDelayMs = 10, firstDataTimeoutMs = 2_000,
+    )
+
+    private fun awaitBytes(t: TimeshiftBuffer, n: Long) {
+        val end = System.currentTimeMillis() + 10_000
+        while (t.written < n && System.currentTimeMillis() < end) Thread.sleep(10)
+        assertTrue("only ${t.written} bytes recorded", t.written >= n)
+    }
+
+    @Test
+    fun eachRecordingGetsAFolderOfItsOwn() {
+        val root = tmp.newFolder()
+        val one = TimeshiftBuffer.sessionDir(root)
+        val two = TimeshiftBuffer.sessionDir(root)
+        assertTrue(one != two)
+        assertEquals(one.parentFile, two.parentFile)
+    }
+
+    @Test
+    fun closingAnOlderRecordingLeavesANewerOneIntact() {
+        streaming()
+        val root = tmp.newFolder()
+        val older = recorder(TimeshiftBuffer.sessionDir(root)).also { it.start() }
+        awaitBytes(older, 64 * 1024)
+        val newerDir = TimeshiftBuffer.sessionDir(root)
+        val newer = recorder(newerDir).also { it.start() }
+        buffer = newer
+        awaitBytes(newer, 64 * 1024)
+
+        older.close()
+        Thread.sleep(300)
+
+        assertTrue(newerDir.isDirectory)
+        assertTrue(newer.segFile(0).isFile)
+        assertTrue(newer.waitFor(0))
+        java.io.RandomAccessFile(newer.segFile(0), "r").use { assertEquals(0x47, it.read()) }
+    }
+
+    @Test
+    fun closingARecordingDeletesItsFolder() {
+        streaming()
+        val dir = TimeshiftBuffer.sessionDir(tmp.newFolder())
+        val t = recorder(dir).also { it.start() }
+        awaitBytes(t, 64 * 1024)
+        t.close()
+        val end = System.currentTimeMillis() + 5_000
+        while (dir.exists() && System.currentTimeMillis() < end) Thread.sleep(20)
+        assertTrue(!dir.exists())
+    }
+
+    @Test
+    fun leftoversFromACrashAreRemovedAtStart() {
+        val cache = tmp.newFolder()
+        val old = TimeshiftBuffer.sessionDir(cache).apply { mkdirs() }
+        java.io.File(old, "s0.ts").writeBytes(ByteArray(10))
+        java.io.File(old.parentFile, "s3.ts").writeBytes(ByteArray(10))
+        TimeshiftBuffer.cleanLeftovers(cache)
+        val end = System.currentTimeMillis() + 5_000
+        while ((old.parentFile!!.listFiles()?.size ?: 0) > 0 && System.currentTimeMillis() < end) Thread.sleep(20)
+        assertEquals(0, old.parentFile!!.listFiles()?.size ?: 0)
+    }
+
+    @Test
+    fun trimmingKeepsTheOldestPointOnASegmentThatIsStillThere() {
+        serve {
+            MockResponse().setBody(Buffer().write(ByteArray(28 * 1024 * 1024) { 0x47 }))
+                .throttleBody(2L * 1024 * 1024, 200, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
+        // A zero-minute buffer keeps only the minimum (three segments) once the bitrate is known.
+        val t = TimeshiftBuffer(
+            tmp.newFolder(), OkHttpClient(), listOf(a.url("/live/1.ts").toString()), "test", 0,
+            clock = { System.currentTimeMillis() }, retryDelayMs = 10, firstDataTimeoutMs = 2_000,
+        )
+        buffer = t
+        t.start()
+        awaitBytes(t, 26L * 1024 * 1024)
+        val first = t.firstAvailable
+        assertTrue("nothing trimmed", first > 0)
+        assertEquals(0L, first % TimeshiftBuffer.SEG)
+        assertTrue(t.segFile(first / TimeshiftBuffer.SEG).isFile)
+        for (i in 0 until first / TimeshiftBuffer.SEG) assertTrue("s$i.ts still there", !t.segFile(i).exists())
+    }
 }

@@ -188,7 +188,19 @@ A restore validates the whole file before replacing your data. A damaged backup,
 
 Treat backup files as personal: they include your viewing history, and an external guide address can contain your provider login if the provider builds it that way.
 
-The phone companion (Settings → Backup & phone, or the sign-in screen) is a page a phone on the same Wi-Fi opens by scanning a QR code. It can sign the TV in, **send API keys** (they are checked before they are saved, and a saved key is never shown on the page), turn on **sync** or replace its token, download a backup and restore one, and **edit your library** with the phone's keyboard: hide, show or pin categories and whole countries, reorder or remove favourite channels, and rename channels. It exists only while that screen is open, and its address includes a random code.
+The phone companion (Settings → Backup & phone) is a page a phone on the same Wi-Fi opens by scanning a QR code. It can sign the TV in, **send API keys** (they are checked before they are saved, and a saved key is never shown on the page), turn on **sync** or replace its token, download a backup and restore one, and **edit your library** with the phone's keyboard: hide, show or pin categories and whole countries, reorder or remove favourite channels, and rename channels. It exists only while that screen is open, and its address includes a random code.
+
+Other screens open the same page for one job only, and it refuses anything else:
+
+| Opened from | The page offers |
+|---|---|
+| Settings → Backup & phone → **Phone companion** (parent PIN when one is set) | Everything above |
+| The sign-in screen | Sign-in only |
+| **Send from my phone** on a key row (parent PIN when one is set) | API keys only |
+| **Turn on sync** | Sync set-up only |
+| **Join sync from another screen** | The pairing link only |
+
+The page also answers only requests addressed to the TV's own address, so a web page on another device can't reach it under a different name.
 
 </details>
 
@@ -221,13 +233,13 @@ Relay does not run a server for this. The data lives in **one encrypted file in 
 <details>
 <summary><b>Move sync to a separate private repository</b></summary>
 
-If Relay shows **Sync paused** because it was set up with the app repository, your saved profiles, favourites and history are still on this screen.
+If Relay shows **Sync paused** because it was set up with the app repository, your saved profiles, favourites and history are still on this screen. A screen on an older Relay may still be writing to the app repository with that token, so the old token goes first:
 
 1. Export a backup from the screen with the latest viewing history and favourites.
-2. On each screen, go to **Settings → Sync between screens → Stop syncing on this screen**.
-3. Create a separate private sync repository and a fresh token scoped only to that repository. Turn sync on using the backed-up screen as the first screen.
-4. Join the other screens. Check that a favourite and a movie resume position reach a second screen.
-5. Revoke the old sync token once all your screens have moved.
+2. On GitHub, delete the old sync token straight away (the one that can write to the app repository). Screens stop syncing; nothing on them is lost.
+3. On each screen, go to **Settings → Sync between screens → Stop syncing on this screen**, and update Relay.
+4. Create a separate private sync repository and a fresh token scoped only to that repository. Turn sync on using the backed-up screen as the first screen.
+5. Join the other screens. Check that a favourite and a movie resume position reach a second screen.
 
 </details>
 
@@ -375,7 +387,7 @@ Every build checks that the APK is signed with this exact key and fails otherwis
 <details id="update-access">
 <summary><b>Update access for public and private repositories</b></summary>
 
-Public releases support automatic updates without a token. With a private repository, signed-in users with access can download the APK from Releases and install it over the existing app. To enable automatic updates in a trusted private build, CI must pass a repository-scoped read-only `RELAY_UPDATE_TOKEN` to the *Build release APK* step. The token is embedded in that APK, so distribute that build only to people who may read the repository. Build and distribute a fresh token-free APK when switching back to public, and revoke the private updater token after the household moves to the new build.
+Keep the app repository **public**: builds since 1.0.114 carry no update token, so making it private would stop automatic updates on every screen until a build with a token is installed. Public releases support automatic updates without a token. With a private repository, signed-in users with access can download the APK from Releases and install it over the existing app. To enable automatic updates in a trusted private build, CI must pass a repository-scoped read-only `RELAY_UPDATE_TOKEN` to the *Build release APK* step. The token is embedded in that APK, so distribute that build only to people who may read the repository. Build and distribute a fresh token-free APK when switching back to public, and revoke the private updater token after the household moves to the new build.
 
 1. GitHub → your avatar → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
 2. Name `Relay updater`, the longest expiry offered, and Repository access: **Only select repositories → TV-Relay**.
@@ -389,7 +401,17 @@ When the token nears expiry, replace the secret and let one build install. If it
 <details>
 <summary><b>Builds and releases</b></summary>
 
-Every push to `main` that changes the app builds it in GitHub Actions and publishes it as release `v1.0.N`. Changes that touch only documentation or tools (`README.md`, `docs/`, `tools/`) don't make a release. You can also start a build from the Actions tab with **Run workflow**.
+Every push to `main` that changes the app builds it in GitHub Actions and publishes it as release `v1.0.N`. Changes that touch only documentation or tools (`README.md`, `docs/`, `tools/`) don't make a release. You can also start a build from the Actions tab with **Run workflow**; such a run never publishes.
+
+The workflow has three jobs, each with only what it needs:
+
+| Job | Can write to the repository | Has the signing key | Does |
+|---|---|---|---|
+| **build** | No | Only until the APK is signed, then deleted | Unit tests, lint, the signed APK, its signature check and SHA-256 |
+| **device-check** | No | No | Installs that exact APK on an emulator (below) |
+| **publish** (main only) | Yes | No | Checks the APK is byte for byte the one built and signed with the Relay key, then makes the release |
+
+So the emulator and the test scripts never run where the signing key or a write token is. Every action the workflow uses is pinned to an exact commit, with its version in a comment beside it; update both together.
 
 Before anything is published, the build runs the unit tests and lint. A failing test, or a lint issue that would crash on a device (such as an Android call newer than the TV supports), stops the build. The emulator runs the profile, sync, playback and guide regressions against a synthetic provider. It also checks that the signed, shrunk APK starts from a fresh install and upgrades v1.0.117 with its saved profile, favourite, history and resume position intact. Test and lint reports are attached to each run as `reports-1.0.N`.
 

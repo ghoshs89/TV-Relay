@@ -52,6 +52,7 @@ import dev.relay.tv.ui.Type
 fun rememberCompanion(
     onKeys: (KeysResult) -> Unit = {},
     onSync: (Boolean, String) -> Unit = { _, _ -> },
+    scope: CompanionScope = CompanionScope.FULL,
     onLogin: (LoginForm) -> Unit,
 ): String? {
     val latest by rememberUpdatedState(onLogin)
@@ -59,7 +60,9 @@ fun rememberCompanion(
     val latestSync by rememberUpdatedState(onSync)
     var url by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) {
-        val server = CompanionServer(onLogin = { latest(it) }, onKeys = { latestKeys(it) }, onSync = { ok, text -> latestSync(ok, text) })
+        val server = CompanionServer(
+            onLogin = { latest(it) }, onKeys = { latestKeys(it) }, onSync = { ok, text -> latestSync(ok, text) }, scope = scope,
+        )
         url = try {
             server.start()
         } catch (e: Exception) {
@@ -171,8 +174,10 @@ fun CompanionDialog(
     onKeys: ((KeysResult) -> Unit)? = null,
     /** Called after sync was turned on (or its token replaced) from the phone. */
     onSync: ((Boolean, String) -> Unit)? = null,
+    /** What the page offers; the full page only from Settings → Phone companion. */
+    scope: CompanionScope = CompanionScope.FULL,
 ) {
-    val scope = rememberCoroutineScope()
+    val tasks = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
     val close = remember { FocusRequester() }
     InitialFocus(close)
@@ -182,13 +187,13 @@ fun CompanionDialog(
     }, onSync = { ok, text ->
         status = text
         onSync?.invoke(ok, text)
-    }) { form ->
+    }, scope = scope) { form ->
         val acc = Accounts.fromForm(form, RelayApp.instance.store.account?.name ?: "My IPTV")
         if (acc == null) {
             status = "The phone sent incomplete details: server, username and password are needed."
         } else {
             status = "Signing in…"
-            scope.launch {
+            tasks.launch {
                 val err = Accounts.signIn(acc)
                 status = err ?: "Signed in. Loading your channels…"
                 if (err == null) onSignedIn()

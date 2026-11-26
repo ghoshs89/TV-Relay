@@ -2,33 +2,107 @@ package dev.relay.tv.companion
 
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.net.InetAddress
 import java.net.Socket
 
 /** The few pieces of plain HTTP that Relay's small home-network servers share (the phone page and Play on TV). */
 object LanHttp {
-    /** A parsed request: method, path without its query, and the body. */
-    class Request(val method: String, val path: String, val body: ByteArray)
+    /** A parsed request: method, path without its query, the Host header (null when missing), and the body. */
+    class Request(val method: String, val path: String, val body: ByteArray, val host: String? = null)
 
-    /**
-     * Reads one request from [input]. Null when it is malformed. A body over [maxBody] is answered with
-     * 413 here and also gives null.
-     */
-    fun read(sock: Socket, input: InputStream, maxBody: Int): Request? {
+    /** The request line and the headers Relay reads. A length that is missing or not a number counts as 0. */
+    class Head(val method: String, val path: String, val host: String?, val length: Int)
+
+    /** Reads the request line and headers from [input]; null when they are malformed. */
+    fun readHead(input: InputStream): Head? {
         val requestLine = readLine(input) ?: return null
         val parts = requestLine.split(" ")
-        val method = parts.getOrNull(0) ?: return null
+        val method = parts.getOrNull(0)?.takeIf { it.isNotEmpty() } ?: return null
         val path = parts.getOrNull(1)?.substringBefore('?') ?: return null
         var length = 0
+        var host: String? = null
         while (true) {
             val h = readLine(input) ?: break
             if (h.isEmpty()) break
-            if (h.startsWith("content-length:", ignoreCase = true)) length = h.substringAfter(':').trim().toIntOrNull() ?: 0
+            val name = h.substringBefore(':').trim()
+            val value = h.substringAfter(':', "").trim()
+            when {
+                name.equals("content-length", ignoreCase = true) -> length = value.toIntOrNull() ?: 0
+                name.equals("host", ignoreCase = true) -> host = value
+            }
         }
-        if (length < 0 || length > maxBody) {
+        return Head(method, path, host, length)
+    }
+
+    /**
+     * Reads one request from [input]. Null when it is malformed. A body over [maxBody] (or a negative
+     * length) is answered with 413 here and also gives null. A request addressed to any name other
+     * than this device's own address and port (see [hostMatches]) is answered with 403 and gives null.
+     */
+    fun read(sock: Socket, input: InputStream, maxBody: Int): Request? {
+        val head = readHead(input) ?: return null
+        if (head.length < 0 || head.length > maxBody) {
             respond(sock, 413, "text/plain", "Too large".toByteArray())
             return null
         }
-        return Request(method, path, readBytes(input, length))
+        if (!hostMatches(head.host, sock.localAddress, sock.localPort)) {
+            respond(sock, 403, "text/plain", "Wrong address".toByteArray())
+            return null
+        }
+        return Request(head.method, head.path, readBytes(input, head.length), head.host)
+    }
+
+    /**
+     * True when the Host header names this device by its own address and the port the request came in
+     * on. A web page elsewhere that points a name of its own at this device (DNS rebinding) sends that
+     * name, so it is refused. Names are never looked up; only address literals can match.
+     */
+    fun hostMatches(header: String?, local: InetAddress, port: Int): Boolean {
+        val h = header?.trim()?.lowercase() ?: return false
+        val (addr, p) = when {
+            h.startsWith("[") -> {
+                val end = h.indexOf(']')
+                if (end < 0) return false
+                h.substring(1, end) to h.substring(end + 1).removePrefix(":")
+            }
+            h.count { it == ':' } == 1 -> h.substringBefore(':') to h.substringAfter(':')
+            else -> return false
+        }
+        if (p.toIntOrNull() != port) return false
+        val bytes = literal(addr) ?: return false
+        return bytes.contentEquals(plain(local.address))
+    }
+
+    /** The bytes of an IPv4 or IPv6 address literal (zone dropped), or null for anything else, which is never looked up. */
+    internal fun literal(s: String): ByteArray? {
+        val a = s.substringBefore('%')
+        if (a.isEmpty()) return null
+        if (':' !in a) {
+            val parts = a.split('.')
+            if (parts.size != 4) return null
+            val out = ByteArray(4)
+            for ((i, part) in parts.withIndex()) {
+                if (part.isEmpty() || part.length > 3 || !part.all { it in '0'..'9' }) return null
+                val n = part.toInt()
+                if (n > 255) return null
+                out[i] = n.toByte()
+            }
+            return out
+        }
+        if (!a.all { it in '0'..'9' || it in 'a'..'f' || it == ':' || it == '.' }) return null
+        return try {
+            plain(InetAddress.getByName(a).address)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** An IPv4 address carried as IPv6 (::ffff:a.b.c.d) as its four bytes; anything else unchanged. */
+    private fun plain(b: ByteArray): ByteArray {
+        if (b.size != 16) return b
+        for (i in 0 until 10) if (b[i] != 0.toByte()) return b
+        if (b[10] != 0xff.toByte() || b[11] != 0xff.toByte()) return b
+        return b.copyOfRange(12, 16)
     }
 
     fun respond(sock: Socket, code: Int, type: String, bytes: ByteArray, extra: String = "") {

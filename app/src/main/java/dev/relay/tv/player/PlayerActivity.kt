@@ -73,6 +73,9 @@ class PlayerActivity : ComponentActivity() {
 
     private val app get() = RelayApp.instance
     private lateinit var req: PlayRequest
+
+    /** The request this player was opened with, so closing can release it (it can hold a whole channel list). */
+    private var openedWith: PlayRequest? = null
     private lateinit var player: ExoPlayer
     private lateinit var view: PlayerView
     private lateinit var overlay: TextView
@@ -255,6 +258,7 @@ class PlayerActivity : ComponentActivity() {
             return
         }
         req = r
+        openedWith = r
         limits = KidsLimitTracker(
             enabled = app.store.profiles.firstOrNull { it.id == r.profileId }?.kids == true,
             addUsage = { app.store.addUsage(req.profileId, it) },
@@ -749,7 +753,7 @@ class PlayerActivity : ComponentActivity() {
         // The pause buffer records MPEG-TS; HLS channels play directly.
         if (s.timeshift && item.key !in tsDisabled && TimeshiftSupport.supports(urlsFor(item))) {
             val ts = TimeshiftBuffer(
-                java.io.File(cacheDir, "timeshift"), app.http, urlsFor(item),
+                TimeshiftBuffer.sessionDir(cacheDir), app.http, urlsFor(item),
                 s.userAgent.ifBlank { "RelayTV/1.0" }, s.timeshiftMinutes,
             )
             timeshift = ts
@@ -896,6 +900,11 @@ class PlayerActivity : ComponentActivity() {
                 }
             }
         }
+
+        // Auto picture-in-picture follows whether something is playing and the picture's shape.
+        override fun onIsPlayingChanged(isPlaying: Boolean) = refreshPipParams()
+
+        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) = refreshPipParams()
 
         override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
             trackPrefs.onSelectionChanged()
@@ -1207,7 +1216,12 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun refreshPipParams() {
-        if (pipSupported && Build.VERSION.SDK_INT >= 31) pipParams()?.let { setPictureInPictureParams(it) }
+        if (!pipSupported || Build.VERSION.SDK_INT < 31 || isFinishing || isDestroyed) return
+        try {
+            pipParams()?.let { setPictureInPictureParams(it) }
+        } catch (e: IllegalStateException) {
+            AppLog.w("Player", "Couldn't update picture-in-picture", e)
+        }
     }
 
     // ---------- Progress ----------
@@ -1301,6 +1315,9 @@ class PlayerActivity : ComponentActivity() {
             player.removeListener(listener)
             player.release()
         }
+        // Let the play list go, unless a newer request (Play on TV, a reminder) is already waiting.
+        if (isFinishing && openedWith != null && app.pendingPlay === openedWith) app.pendingPlay = null
+        openedWith = null
         super.onDestroy()
     }
 
