@@ -128,7 +128,7 @@ fun LoginScreen(onDone: () -> Unit, onCancel: (() -> Unit)?) {
     // Phone companion: details sent from a phone fill the form, then sign in.
     var wide by remember { mutableStateOf(false) }
     val companionUrl = if (wide) {
-        rememberCompanion { form ->
+        rememberCompanion(scope = dev.relay.tv.companion.CompanionScope.LOGIN) { form ->
             val acc = Accounts.fromForm(form, name.ifBlank { "My IPTV" })
             if (acc == null) {
                 err = "Your phone sent incomplete details: server, username and password are needed."

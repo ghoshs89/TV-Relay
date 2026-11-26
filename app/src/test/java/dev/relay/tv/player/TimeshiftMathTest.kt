@@ -2,6 +2,7 @@ package dev.relay.tv.player
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimeshiftMathTest {
@@ -39,7 +40,18 @@ class TimeshiftMathTest {
     @Test
     fun seekingBackStopsAtTheOldestByteStillKept() {
         val t = TimeshiftMath.seekTarget(10_000_000L, -600, rate, 100_000_000L, 4_000_000L)
-        assertEquals(4_000_000L - 4_000_000L % 188, t)
+        // The first whole packet at or after the oldest byte, never one that starts in a deleted piece.
+        assertEquals(4_000_000L - 4_000_000L % 188 + 188, t)
+    }
+
+    @Test
+    fun theEarliestRewindIsPacketAlignedAndNeverBeforeTheOldestByte() {
+        for (first in listOf(0L, 188L * 1000, TimeshiftBuffer.SEG, TimeshiftBuffer.SEG * 7, 4_000_001L)) {
+            val t = TimeshiftMath.seekTarget(first + 5_000_000L, -3600, rate, first + 90_000_000L, first)
+            assertEquals(0L, t % TimeshiftMath.TS_PACKET)
+            assertTrue("$t before $first", t >= first)
+            assertTrue(t < first + TimeshiftMath.TS_PACKET)
+        }
     }
 
     @Test

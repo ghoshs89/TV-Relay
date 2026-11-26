@@ -11,7 +11,6 @@ import dev.relay.tv.data.KeysIntake
 import dev.relay.tv.data.KeysResult
 import kotlinx.coroutines.runBlocking
 import java.io.BufferedInputStream
-import java.io.InputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.ServerSocket
@@ -53,7 +52,9 @@ interface PairHost {
 /**
  * Tiny LAN web page so a phone can sign in, download a backup, or restore one.
  * Runs only while a screen that shows its QR code is open. Every path starts with a random
- * one-time code shown only on the TV, so other devices on the network can't use it.
+ * one-time code shown only on the TV, so other devices on the network can't use it. The [scope]
+ * limits the page to what the screen that opened it is for (see [CompanionScope]), and only requests
+ * addressed to this TV's own address are answered.
  */
 class CompanionServer(
     private val onLogin: (LoginForm) -> Unit,
@@ -63,6 +64,8 @@ class CompanionServer(
     private val onSync: (ok: Boolean, text: String) -> Unit = { _, _ -> },
     /** Set while this screen is waiting to join sync; opens the `/pair/` paths and a "Join sync" box on the page. */
     private val pair: PairHost? = null,
+    /** What this page may do; anything else is refused. */
+    private val scope: CompanionScope = CompanionScope.FULL,
 ) {
     private val token: String = randomToken()
     private var socket: ServerSocket? = null
@@ -92,7 +95,12 @@ class CompanionServer(
                 } catch (_: Exception) {
                     break
                 }
-                pool.execute { serve(client) }
+                try {
+                    pool.execute { serve(client) }
+                } catch (_: Exception) {
+                    // The page is closing: turn the phone away instead of crashing.
+                    try { client.close() } catch (_: Exception) {}
+                }
             }
         }, "relay-companion-accept").apply { isDaemon = true }.start()
         AppLog.i("Companion", "Phone page open on port ${server.localPort}")
@@ -115,23 +123,8 @@ class CompanionServer(
         try {
             s.soTimeout = 15_000
             s.use { sock ->
-                val input = BufferedInputStream(sock.getInputStream())
-                val requestLine = readLine(input) ?: return
-                val parts = requestLine.split(" ")
-                val method = parts.getOrNull(0) ?: return
-                val path = parts.getOrNull(1)?.substringBefore('?') ?: return
-                var length = 0
-                while (true) {
-                    val h = readLine(input) ?: break
-                    if (h.isEmpty()) break
-                    if (h.startsWith("content-length:", ignoreCase = true)) length = h.substringAfter(':').trim().toIntOrNull() ?: 0
-                }
-                if (length > MAX_BODY) {
-                    respond(sock, 413, "text/plain", "Too large".toByteArray())
-                    return
-                }
-                val body = readBytes(input, length)
-                route(sock, method, path, body)
+                val req = LanHttp.read(sock, BufferedInputStream(sock.getInputStream()), MAX_BODY) ?: return
+                route(sock, req.method, req.path, req.body)
             }
         } catch (e: Exception) {
             AppLog.w("Companion", "Request failed", e)
@@ -145,7 +138,7 @@ class CompanionServer(
      */
     private fun handlePair(sock: Socket, method: String, path: String, body: ByteArray) {
         val host = pair
-        if (host == null || method != "POST") {
+        if (host == null || !scope.pairs || method != "POST") {
             respond(sock, 404, "text/plain", "Not found".toByteArray())
             return
         }
@@ -174,6 +167,11 @@ class CompanionServer(
             return
         }
         val action = path.removePrefix("/$token").trim('/')
+        if (!scope.allows(method, action)) {
+            AppLog.i("Companion", "Refused a request this page is not for")
+            respond(sock, 403, "text/plain", "This page can't do that. Open the phone companion from Settings on the TV.".toByteArray())
+            return
+        }
         when {
             method == "GET" && action.isEmpty() -> {
                 val (tmdbSet, ratingsSet) = onMain {
@@ -337,10 +335,6 @@ class CompanionServer(
     private fun respond(sock: Socket, code: Int, type: String, bytes: ByteArray, extra: String = "") =
         LanHttp.respond(sock, code, type, bytes, extra)
 
-    private fun readLine(input: InputStream): String? = LanHttp.readLine(input)
-
-    private fun readBytes(input: InputStream, n: Int): ByteArray = LanHttp.readBytes(input, n)
-
     private fun parseForm(body: String): Map<String, String> =
         body.split('&').mapNotNull { pair ->
             val i = pair.indexOf('=')
@@ -393,7 +387,15 @@ class CompanionServer(
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Relay on your TV</title><style>$CSS</style></head><body><main>
         <h1>Relay <span>on your TV</span></h1>
+        ${if (scope.showsLogin) loginSection() else ""}
+        ${if (scope.showsKeys) keysSection(tmdbSet, ratingsSet) else ""}
+        ${if (joining && scope.showsJoin) joinSection() else ""}
+        ${if (scope.showsSync) syncSection(syncRepo) else ""}
+        ${if (scope.showsRest) restSections() else ""}
+        </main></body></html>
+    """.trimIndent()
 
+    private fun loginSection() = """
         <section><h2>Sign in</h2>
         <p class="hint">Paste your provider's whole message and leave the rest empty, or fill the fields.</p>
         <form method="post" action="/$token/login">
@@ -407,7 +409,9 @@ class CompanionServer(
           <label>Password<input name="pass" type="password" autocomplete="off"></label>
           <button type="submit">Send to TV</button>
         </form></section>
+    """
 
+    private fun keysSection(tmdbSet: Boolean, ratingsSet: Boolean) = """
         <section><h2>Keys for scores and artwork</h2>
         <p class="hint">Optional. A TMDB key adds artwork, cast and trailers; an MDBList key adds Rotten Tomatoes scores. Paste one or both. A key is checked before it is saved, and a box left empty keeps what the TV has. Saved keys are never shown here.</p>
         <form method="post" action="/$token/keys">
@@ -421,11 +425,9 @@ class CompanionServer(
           <a href="https://mdblist.com/preferences/" target="_blank" rel="noopener">Where do I get this?</a><br>
           <button type="submit">Save keys</button>
         </form></section>
+    """
 
-        ${if (joining) joinSection() else ""}
-
-        ${syncSection(syncRepo)}
-
+    private fun restSections() = """
         <section><h2>Edit your library</h2>
         <p class="hint">Hide, show or pin categories and whole countries, reorder or remove favourite channels and rename channels, with your phone's keyboard.</p>
         <a class="button" href="/$token/library">Open the editor</a></section>
@@ -457,8 +459,7 @@ class CompanionServer(
           r.readAsText(f);
         };
         </script>
-        </main></body></html>
-    """.trimIndent()
+    """
 
     companion object {
         private const val PREFERRED_PORT = 8787

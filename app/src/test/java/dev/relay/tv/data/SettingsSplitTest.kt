@@ -85,4 +85,76 @@ class SettingsSplitTest {
         assertTrue(!SyncDiff.settingDefault("set:audioLang", JsonPrimitive("hi")))
         assertTrue(!SyncDiff.settingDefault("fav:p:live:1", JsonPrimitive("en")))
     }
+
+    @Test
+    fun aSharedSettingsChangeTimeIsOnlyItsOwnStamp() {
+        val stamps = mapOf("audioLang" to 500L)
+        assertEquals(500L, SettingsSplit.changedAt(stamps, "audioLang"))
+        assertEquals(null, SettingsSplit.changedAt(stamps, "tmdbKey"))
+    }
+
+    @Test
+    fun aRestoreStampsEverySharedSettingButKeepsTheApiKeysStamps() {
+        val r = SettingsSplit.restored(mapOf("tmdbKey" to 7L, "audioLang" to 3L), 900L, setOf("tmdbKey", "ratingsKey"))
+        assertEquals(7L, r["tmdbKey"])
+        assertEquals(null, r["ratingsKey"])
+        assertEquals(900L, r["audioLang"])
+        assertEquals(SettingsSplit.SHARED - "ratingsKey", r.keys)
+    }
+
+    /**
+     * A fresh screen changes only its subtitle size (a per-screen setting) and joins a household.
+     * Its untouched shared defaults must not replace the household's keys, guide and choices.
+     */
+    @Test
+    fun aJoiningScreenWithOnlyAPerScreenChangeKeepsTheHouseholdsSettings() {
+        val household = Settings(
+            tmdbKey = "household-key", xmltvUrl = "http://guide.example/xml", hideAdult = true,
+            langOrder = listOf("hi", "en"),
+        )
+        val householdDoc = SyncDoc(recs = sharedRecs(household, at = 1_000L, dev = "tv1"))
+
+        val fresh = Settings(subSize = 3)
+        val stamps = SettingsSplit.stamp(Settings(), fresh, emptyMap(), 5_000L)
+        val mine = SyncDiff.export(
+            sharedItems(fresh), emptyMap(), "tv2", SyncClock(), 6_000L,
+            changedAt = { k, _ -> SettingsSplit.changedAt(stamps, k.removePrefix("set:")) },
+            isDefault = SyncDiff::settingDefault,
+        )
+        val merged = SyncMerge.merge(householdDoc, SyncDoc(recs = mine), 6_000L, "2026-11-26")
+        val after = SettingsSplit.withShared(fresh, merged.recs.mapValues { it.value.v!! }.mapKeys { it.key.removePrefix("set:") })
+
+        assertEquals("household-key", after.tmdbKey)
+        assertEquals("http://guide.example/xml", after.xmltvUrl)
+        assertTrue(after.hideAdult)
+        assertEquals(listOf("hi", "en"), after.langOrder)
+        assertEquals(3, after.subSize)
+    }
+
+    @Test
+    fun aSharedSettingReallyChangedOnTheJoiningScreenStillWins() {
+        val household = Settings(tmdbKey = "household-key", audioLang = "hi")
+        val householdDoc = SyncDoc(recs = sharedRecs(household, at = 1_000L, dev = "tv1"))
+
+        val mineSettings = Settings(audioLang = "ta")
+        val stamps = SettingsSplit.stamp(Settings(), mineSettings, emptyMap(), 5_000L)
+        val mine = SyncDiff.export(
+            sharedItems(mineSettings), emptyMap(), "tv2", SyncClock(), 6_000L,
+            changedAt = { k, _ -> SettingsSplit.changedAt(stamps, k.removePrefix("set:")) },
+            isDefault = SyncDiff::settingDefault,
+        )
+        val merged = SyncMerge.merge(householdDoc, SyncDoc(recs = mine), 6_000L, "2026-11-26")
+        val after = SettingsSplit.withShared(mineSettings, merged.recs.mapValues { it.value.v!! }.mapKeys { it.key.removePrefix("set:") })
+
+        assertEquals("ta", after.audioLang)
+        assertEquals("household-key", after.tmdbKey)
+    }
+
+    private fun sharedItems(s: Settings): Map<String, kotlinx.serialization.json.JsonElement> {
+        val o = SettingsSplit.toObject(s)
+        return SettingsSplit.SHARED.mapNotNull { f -> o[f]?.let { "set:$f" to it } }.toMap()
+    }
+
+    private fun sharedRecs(s: Settings, at: Long, dev: String): Map<String, SyncRec> =
+        sharedItems(s).mapValues { SyncRec(at, dev, it.value) }
 }

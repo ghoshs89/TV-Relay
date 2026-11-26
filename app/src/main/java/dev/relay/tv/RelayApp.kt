@@ -75,6 +75,7 @@ class RelayApp : Application(), ImageLoaderFactory {
         }
         AppLog.saveUntil = store.settings.logUntil
         AppLog.init(this)
+        dev.relay.tv.player.TimeshiftBuffer.cleanLeftovers(cacheDir)
         dev.relay.tv.data.DeviceTier.current = deviceTier()
         api = XtreamApi(http) { store.settings.userAgent.ifBlank { "RelayTV/1.0" } }
         api.account = store.account

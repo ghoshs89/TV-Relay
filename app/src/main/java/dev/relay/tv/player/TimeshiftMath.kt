@@ -17,12 +17,15 @@ object TimeshiftMath {
 
     /**
      * Where to start playing after skipping [deltaSec] seconds (negative is back): never past
-     * two seconds short of the live edge, never before the oldest byte still kept.
+     * two seconds short of the live edge, never before the oldest byte still kept. The answer is on a
+     * packet boundary; at the oldest end it is the first whole packet still kept, not one that starts
+     * in a piece already deleted.
      */
     fun seekTarget(playingByte: Long, deltaSec: Int, bytesPerSecond: Double, written: Long, firstAvailable: Long): Long {
         val liveEdge = written - (2 * bytesPerSecond).toLong()
         val target = (playingByte + (deltaSec * bytesPerSecond).toLong()).coerceAtMost(liveEdge).coerceAtLeast(firstAvailable)
-        return target - target % TS_PACKET
+        val aligned = target - target % TS_PACKET
+        return if (aligned < firstAvailable) aligned + TS_PACKET else aligned
     }
 
     /** The text over the video, or null when there is nothing to show (playing and within 3 s of live). */

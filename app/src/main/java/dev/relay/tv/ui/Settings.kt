@@ -717,6 +717,7 @@ fun SettingsTab() {
             subtitle = "Your phone must be on the same Wi-Fi. Open the page, find \"Sync between screens\", paste your private GitHub " +
                 "repository and its token, and press Turn on sync. This window closes when sync is on.",
             onSync = { ok, _ -> if (ok) syncSetup = false },
+            scope = dev.relay.tv.companion.CompanionScope.SYNC,
         )
     }
     if (joinSync) {
@@ -785,7 +786,7 @@ fun SettingsTab() {
     keyChoice?.let { which ->
         KeySourceDialog(
             title = if (which == Edit.TMDB) "TMDB API key" else "MDBList API key",
-            onPhone = { keyChoice = null; keysFromPhone = which },
+            onPhone = { keyChoice = null; gate.run("Parent PIN to send keys from a phone") { keysFromPhone = which } },
             onType = { keyChoice = null; edit = which },
             onDismiss = { keyChoice = null },
         )
@@ -798,6 +799,7 @@ fun SettingsTab() {
             subtitle = "Your phone must be on the same Wi-Fi. Open the page, paste the key under \"Keys for scores and artwork\" " +
                 "and press Save keys. The key is checked before it is saved, and this window closes when it arrives.",
             onKeys = { keysFromPhone = null },
+            scope = dev.relay.tv.companion.CompanionScope.KEYS,
         )
     }
     if (lipSync) {

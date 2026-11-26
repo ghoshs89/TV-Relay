@@ -24,7 +24,9 @@ import java.util.concurrent.TimeUnit
  * Pause and rewind for live TV. One connection records the channel into rotating segment files;
  * the player reads from those files, so pausing simply stops reading while recording continues.
  * Disk use is capped (buffer length, free space and a hard limit) and everything is deleted when
- * the channel changes or the player closes.
+ * the channel changes or the player closes. Each recording has its own folder ([sessionDir]) and
+ * deletes only that, so a player closing while the next one starts (Play on TV, a reminder) can't
+ * delete the new recording.
  */
 class TimeshiftBuffer(
     private val dir: File,
@@ -68,20 +70,34 @@ class TimeshiftBuffer(
         Thread({ run() }, "relay-timeshift").apply { isDaemon = true }.start()
     }
 
+    /**
+     * Stops recording and deletes this recording's folder, away from the caller's thread (up to
+     * 1.5 GB of files). The recorder thread closes its own file when it stops.
+     */
     fun close() {
         closed = true
         call?.cancel()
         synchronized(lock) { lock.notifyAll() }
-        try {
-            out?.close()
-        } catch (_: Exception) {
-        }
-        dir.deleteRecursively()
+        Thread({ dir.deleteRecursively() }, "relay-timeshift-clean").apply { isDaemon = true }.start()
     }
 
     fun segFile(i: Long) = File(dir, "s$i.ts")
 
     private fun run() {
+        try {
+            record()
+        } finally {
+            try {
+                out?.close()
+            } catch (_: Exception) {
+            }
+            out = null
+            // A segment opened just as the buffer closed would otherwise be left behind.
+            if (closed) dir.deleteRecursively()
+        }
+    }
+
+    private fun record() {
         val policy = RecorderPolicy(urls.size, clock)
         val buf = ByteArray(64 * 1024)
         while (!closed) {
@@ -172,12 +188,15 @@ class TimeshiftBuffer(
         val bySpace = (dir.usableSpace / 4).coerceAtLeast(SEG * 4)
         val cap = minOf(byTime, bySpace, HARD_CAP).coerceAtLeast(SEG * 3)
         val keepFrom = ((written - cap).coerceAtLeast(0) / SEG)
-        var i = firstAvailable / SEG
+        val from = firstAvailable / SEG
+        if (keepFrom <= from) return
+        // Move the oldest point first, so a reader never picks a segment that is about to go.
+        firstAvailable = keepFrom * SEG
+        var i = from
         while (i < keepFrom) {
             segFile(i).delete()
             i++
         }
-        if (keepFrom * SEG > firstAvailable) firstAvailable = keepFrom * SEG
     }
 
     /** Blocks until data exists at [pos]. False when the buffer is closed. */
@@ -200,8 +219,26 @@ class TimeshiftBuffer(
         const val SEG = 4L * 1024 * 1024
         const val HARD_CAP = 1536L * 1024 * 1024
         const val SCHEME = "relayts"
+        private const val ROOT = "timeshift"
 
         fun uriAt(offset: Long): Uri = Uri.parse("$SCHEME://live?o=$offset")
+
+        /** A new folder of its own for one recording, under [cacheDir]. */
+        fun sessionDir(cacheDir: File): File =
+            File(File(cacheDir, ROOT), "r" + System.currentTimeMillis().toString(36) + "-" + java.util.UUID.randomUUID().toString().take(8))
+
+        /**
+         * Removes recordings left by a crash. What is there is listed now, before any player can start
+         * one, and deleted on a background thread, so a recording started meanwhile is never touched.
+         */
+        fun cleanLeftovers(cacheDir: File) {
+            val stale = File(cacheDir, ROOT).listFiles()?.toList().orEmpty()
+            if (stale.isEmpty()) return
+            Thread({
+                stale.forEach { it.deleteRecursively() }
+                AppLog.i("Timeshift", "Removed ${stale.size} leftover pause buffer item(s)")
+            }, "relay-timeshift-clean").apply { isDaemon = true }.start()
+        }
     }
 }
 
@@ -233,10 +270,21 @@ class TimeshiftDataSource(private val buffer: () -> TimeshiftBuffer?) : BaseData
         if (!b.waitFor(pos)) return C.RESULT_END_OF_INPUT
         // Fell behind the oldest kept data: skip forward (the TS reader resyncs).
         if (pos < b.firstAvailable) pos = b.firstAvailable
-        val seg = pos / TimeshiftBuffer.SEG
+        var seg = pos / TimeshiftBuffer.SEG
         if (seg != rafSeg) {
             raf?.close()
-            raf = RandomAccessFile(b.segFile(seg), "r")
+            raf = null
+            rafSeg = -1
+            val file = try {
+                RandomAccessFile(b.segFile(seg), "r")
+            } catch (e: java.io.FileNotFoundException) {
+                // Trimmed between the check above and opening it: skip to the oldest kept data once.
+                if (pos >= b.firstAvailable) throw e
+                pos = b.firstAvailable
+                seg = pos / TimeshiftBuffer.SEG
+                RandomAccessFile(b.segFile(seg), "r")
+            }
+            raf = file
             rafSeg = seg
         }
         val inSeg = pos % TimeshiftBuffer.SEG
