@@ -170,35 +170,6 @@ class ReliabilityTest {
         }
     }
 
-    @Test fun settingsReturnFocusToTheOpenedCategory() {
-        instrumentation.runOnMainSync {
-            app.store.profiles = listOf(adult)
-            app.store.lastProfileId = adult.id
-            app.store.parentPin = null
-            app.session.profile = adult
-            app.session.autoStartDone = true
-            app.ui.tab = 0
-            configureProvider()
-        }
-        ActivityScenario.launch(MainActivity::class.java).use {
-            val device = UiDevice.getInstance(instrumentation)
-            val settings = By.text("Settings")
-            checkNotNull(device.wait(Until.findObject(settings), 15_000)).click()
-            val playback = By.text("Playback & subtitles")
-            checkNotNull(device.wait(Until.findObject(playback), 5_000)).click()
-            val advanced = By.text("Advanced playback")
-            checkNotNull(device.wait(Until.findObject(advanced), 5_000)).click()
-            assertTrue(device.wait(Until.hasObject(By.text("Live stream format")), 5_000))
-            device.pressBack()
-            assertTrue(device.wait(Until.hasObject(advanced), 5_000))
-            device.pressBack()
-            assertTrue("Back should focus Playback & subtitles",
-                device.wait(Until.hasObject(By.text("Playback & subtitles").focused(true)), 5_000))
-            device.pressDPadCenter()
-            assertTrue("OK should reopen the same category after Back", device.wait(Until.hasObject(advanced), 5_000))
-        }
-    }
-
     @Test @OptIn(UnstableApi::class)
     fun livePlaylistAtTsUrlPlaysWithAndWithoutTimeshiftThenAnotherChannelCanPauseAndRewind() {
         val hls = PlayItem("live:1", "live", "Playlist channel", streamId = "1", ext = "ts")

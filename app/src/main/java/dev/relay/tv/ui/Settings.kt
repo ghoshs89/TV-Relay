@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import dev.relay.tv.companion.CompanionDialog
 import dev.relay.tv.data.ChannelGroup
@@ -182,7 +183,10 @@ fun SettingsTab() {
         val inputMode = LocalInputModeManager.current
         val isTv = rememberIsTv()
         var targetFocused by remember { mutableStateOf(false) }
-        val observeTarget = Modifier.onFocusChanged { targetFocused = it.isFocused }
+        // Return focus to the opener even when the viewer tapped it before using a remote.
+        val observeTarget = Modifier
+            .focusProperties { canFocus = true }
+            .onFocusChanged { targetFocused = it.isFocused }
         LaunchedEffect(restore) {
             val target = if (page == null) restore?.let { it.ordinal + 1 } else if (restore == null) 0 else 1
             if (target == null) return@LaunchedEffect
