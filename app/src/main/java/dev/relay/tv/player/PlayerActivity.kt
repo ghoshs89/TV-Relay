@@ -926,7 +926,8 @@ class PlayerActivity : ComponentActivity() {
     private fun updatePauseTitle() {
         if (!::pauseTitle.isInitialized) return
         val item = currentItem()
-        if (item == null || player.playWhenReady || player.playbackState in listOf(Player.STATE_IDLE, Player.STATE_ENDED)) {
+        val state = player.playbackState
+        if (item == null || player.playWhenReady || state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
             pausedItemKey = null
             pauseGuideJob?.cancel()
             pauseTitle.visibility = View.GONE
@@ -1090,6 +1091,7 @@ class PlayerActivity : ComponentActivity() {
         if (playlist != null && playlistSources.add(playlist)) {
             AppLog.i("Player", "Playing detected HLS directly from ${hostOf(playlist)}")
             playLive(liveIndex, playlist)
+            if (recorderPlaylist != null) showOverlay("Pause and rewind aren't available on this HLS stream")
             return
         }
         AppLog.e("Player", "${e.errorCodeName} on ${item.kind} '${item.title}' via ${hostOf(urlsFor(item).getOrNull(hostAttempt))}", e)

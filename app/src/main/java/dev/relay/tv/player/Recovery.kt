@@ -115,9 +115,6 @@ class StallWatchdog(private val limitMs: Long, private val clock: () -> Long) {
 object TimeshiftSupport {
     const val PLAYLIST_PREFIX_BYTES = 19L
 
-    fun supports(urls: List<String>): Boolean =
-        urls.isNotEmpty() && urls.none { isHls(it) }
-
     fun isHls(url: String): Boolean {
         val path = url.substringBefore('?').lowercase()
         return path.endsWith(".m3u8") || path.endsWith(".m3u")

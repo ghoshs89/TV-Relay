@@ -160,12 +160,17 @@ class Handler(BaseHTTPRequestHandler):
             n = 10 if action == "get_short_epg" else 48
             first = now - (0 if action == "get_short_epg" else 24 * 1800)
             sid = q.get("stream_id", "0")
+            programmes = [(first + i * 1800, first + (i + 1) * 1800, f"Programme {sid}-{i}") for i in range(n)]
+            if self.hls_dir and sid == "2" and action == "get_short_epg":
+                boundary = int(time.time()) - 5
+                programmes = [(boundary - 1800, boundary, "Earlier programme"),
+                              (boundary, boundary + 1800, "Current programme")]
             body = {"epg_listings": [{
-                "start_timestamp": str(first + i * 1800), "stop_timestamp": str(first + (i + 1) * 1800),
-                "title": base64.b64encode(f"Programme {sid}-{i}".encode()).decode(),
+                "start_timestamp": str(start), "stop_timestamp": str(end),
+                "title": base64.b64encode(title.encode()).decode(),
                 "description": base64.b64encode(b"A made-up programme for testing.").decode(),
                 "has_archive": 1,
-            } for i in range(n)]}
+            } for start, end, title in programmes]}
         elif action == "get_vod_info":
             body = {"info": {"plot": "A made-up film.", "genre": "Drama", "duration_secs": 5400, "rating": "7.0"},
                     "movie_data": {"container_extension": "mp4"}}

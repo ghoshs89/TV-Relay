@@ -33,6 +33,8 @@ import dev.relay.tv.ui.FocusMemory
 import dev.relay.tv.ui.GuideGrid
 import dev.relay.tv.ui.LocalFocusMemory
 import dev.relay.tv.ui.RelayTheme
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -220,16 +222,21 @@ class ReliabilityTest {
                     awaitPlayer(scenario, "MPEG-TS channel should use the pause buffer") {
                         it.isPlaying && it.currentMediaItem?.localConfiguration?.uri?.scheme == "relayts"
                     }
-                    Thread.sleep(2_300)
+                    Thread.sleep(10_500)
+                    runBlocking { withTimeout(5_000) { app.catalog.shortEpgOrNull(2, fresh = true) } }
                     device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_PAUSE)
                     awaitPlayer(scenario, "The MPEG-TS channel should pause") { !it.playWhenReady }
                     assertTrue(device.wait(Until.hasObject(By.textContains("Paused ·")), 5_000))
-                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
-                    awaitPlayer(scenario, "Seeking in the buffer should resume playback") { it.isPlaying }
+                    assertTrue(device.wait(Until.hasObject(By.textStartsWith("Current programme")), 5_000))
                     device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_REWIND)
                     awaitPlayer(scenario, "The same channel should resume after rewinding") {
                         it.isPlaying && it.currentMediaItem?.mediaId == ts.key
                     }
+                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_PAUSE)
+                    assertTrue("Rewound frames should show the earlier programme",
+                        device.wait(Until.hasObject(By.textStartsWith("Earlier programme")), 5_000))
+                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
+                    awaitPlayer(scenario, "Seeking in the buffer should resume playback") { it.isPlaying }
                 }
             }
         }

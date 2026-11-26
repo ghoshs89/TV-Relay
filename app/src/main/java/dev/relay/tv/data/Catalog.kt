@@ -1143,13 +1143,19 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     fun nowPlaying(id: Int): String? {
         minute // read so callers recompose each minute
         val nowSec = System.currentTimeMillis() / 1000
-        return programmeAt(id, nowSec)?.title
+        return epgCache[id]?.second?.firstOrNull { nowSec in it.start until it.end }?.title
     }
 
     /** Programme covering a particular frame of live or rewound TV, using guide data already loaded. */
-    fun programmeAt(id: Int, timeSec: Long): EpgEntry? =
-        epgCache[id]?.second?.firstOrNull { timeSec in it.start until it.end }
-            ?: shift(guide?.entries(id).orEmpty()).firstOrNull { timeSec in it.start until it.end }
+    fun programmeAt(id: Int, timeSec: Long): EpgEntry? {
+        fun covers(entry: EpgEntry) = timeSec in entry.start until entry.end
+        epgCache[id]?.second?.firstOrNull(::covers)?.let { return it }
+        gridCache[id]?.second?.firstOrNull(::covers)?.let { return it }
+        val offset = settings().epgOffsetMin * 60L
+        val rawTime = timeSec - offset
+        return guide?.entries(id)?.firstOrNull { rawTime in it.rawStart until it.rawEnd }
+            ?.let { it.copy(start = it.rawStart + offset, end = it.rawEnd + offset) }
+    }
 
     companion object {
         private val LABEL = mapOf("get_live_streams" to "channels", "get_vod_streams" to "movies", "get_series" to "series")
