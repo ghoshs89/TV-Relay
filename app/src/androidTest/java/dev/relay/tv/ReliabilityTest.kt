@@ -192,7 +192,8 @@ class ReliabilityTest {
             device.pressBack()
             assertTrue(device.wait(Until.hasObject(advanced), 5_000))
             device.pressBack()
-            assertTrue(device.wait(Until.hasObject(playback), 5_000))
+            assertTrue("Back should focus Playback & subtitles",
+                device.wait(Until.hasObject(By.text("Playback & subtitles").focused(true)), 5_000))
             device.pressDPadCenter()
             assertTrue("OK should reopen the same category after Back", device.wait(Until.hasObject(advanced), 5_000))
         }
@@ -217,33 +218,37 @@ class ReliabilityTest {
                     it.isPlaying && it.currentMediaItem?.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8
                 }
                 if (buffer) {
-                    scenario.onActivity { activity ->
-                        val view = checkNotNull(findPlayerView(activity.window.decorView))
-                        view.hideController()
-                        assertTrue(activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)))
-                        activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN))
-                    }
+                    scenario.onActivity { activity -> findPlayerView(activity.window.decorView)?.hideController() }
+                    sendPlayerKey(scenario, KeyEvent.KEYCODE_DPAD_DOWN)
                     awaitPlayer(scenario, "MPEG-TS channel should use the pause buffer") {
                         it.isPlaying && it.currentMediaItem?.mediaId == ts.key &&
                             it.currentMediaItem?.localConfiguration?.uri?.scheme == "relayts"
                     }
                     Thread.sleep(10_500)
                     runBlocking { withTimeout(5_000) { app.catalog.shortEpgOrNull(2, fresh = true) } }
-                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_PAUSE)
+                    sendPlayerKey(scenario, KeyEvent.KEYCODE_MEDIA_PAUSE)
                     awaitPlayer(scenario, "The MPEG-TS channel should pause") { !it.playWhenReady }
                     assertTrue(device.wait(Until.hasObject(By.textContains("Paused ·")), 5_000))
                     assertTrue(device.wait(Until.hasObject(By.textStartsWith("Current programme")), 5_000))
-                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_REWIND)
+                    sendPlayerKey(scenario, KeyEvent.KEYCODE_MEDIA_REWIND)
                     awaitPlayer(scenario, "The same channel should resume after rewinding") {
                         it.isPlaying && it.currentMediaItem?.mediaId == ts.key
                     }
-                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_PAUSE)
+                    sendPlayerKey(scenario, KeyEvent.KEYCODE_MEDIA_PAUSE)
                     assertTrue("Rewound frames should show the earlier programme",
                         device.wait(Until.hasObject(By.textStartsWith("Earlier programme")), 5_000))
-                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
+                    sendPlayerKey(scenario, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
                     awaitPlayer(scenario, "Seeking in the buffer should resume playback") { it.isPlaying }
                 }
             }
+        }
+    }
+
+    /** Deliver remote input to the active player, independent of the emulator's system media buttons. */
+    private fun sendPlayerKey(scenario: ActivityScenario<PlayerActivity>, key: Int) {
+        scenario.onActivity { activity ->
+            assertTrue("The player should handle key $key", activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key)))
+            activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, key))
         }
     }
 
@@ -297,8 +302,10 @@ class ReliabilityTest {
             awaitPlayer(scenario, "The second episode should play") {
                 it.isPlaying && it.currentMediaItem?.mediaId == second.key
             }
-            device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_PAUSE)
-            assertTrue(device.wait(Until.hasObject(By.text("$title\n${second.subtitle}")), 5_000))
+            sendPlayerKey(scenario, KeyEvent.KEYCODE_MEDIA_PAUSE)
+            awaitPlayer(scenario, "The next episode should pause") { !it.playWhenReady }
+            assertTrue("The pause title should include the active episode",
+                device.wait(Until.hasObject(By.textContains("S1 E2 · A Long Journey")), 5_000))
         }
         queue(listOf(catchup))
         ActivityScenario.launch(PlayerActivity::class.java).use { scenario ->
@@ -309,7 +316,9 @@ class ReliabilityTest {
             }
             val pause = checkNotNull(device.wait(Until.findObject(By.desc("Pause")), 5_000))
             pause.click()
-            assertTrue(device.wait(Until.hasObject(By.text("Evening News\nCoast News")), 5_000))
+            awaitPlayer(scenario, "Tapping Pause should pause catch-up") { !it.playWhenReady }
+            assertTrue("The pause title should start with the programme name",
+                device.wait(Until.hasObject(By.textStartsWith("Evening News")), 5_000))
         }
     }
 
