@@ -12,3 +12,6 @@ captures/
 *.jks
 *.keystore
 signing.properties
+
+# Household sync is stored in a separate repository
+/relay-sync.bin

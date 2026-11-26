@@ -383,6 +383,19 @@ class Store(ctx: Context) {
         }
     }
 
+    /** Apply the remote change to each item that the viewer left untouched during this run. */
+    private fun <T, K> mergeSyncList(before: List<T>, remote: List<T>, current: List<T>, key: (T) -> K): List<T> {
+        if (before == current) return remote
+        if (before == remote) return current
+        val was = before.associateBy(key)
+        val now = current.associateBy(key)
+        val incoming = remote.associateBy(key)
+        val common = was.keys.intersect(now.keys)
+        val localOrderChanged = was.keys.filter { it in common } != now.keys.filter { it in common }
+        val order = if (localOrderChanged) now.keys + incoming.keys else incoming.keys + now.keys
+        return order.mapNotNull { id -> if (now[id] != was[id]) now[id] else incoming[id] }
+    }
+
     private fun applyUnquiet(snapshot: SyncData, target: SyncData): SyncApplied {
         val cur = syncSnapshot()
         var changes = 0
@@ -406,11 +419,21 @@ class Store(ctx: Context) {
         }
         val targetIds = target.profiles.map { it.id }.toSet()
         for (pid in ids.intersect(targetIds)) {
-            go(snapshot.favs[pid].orEmpty(), target.favs[pid].orEmpty(), cur.favs[pid].orEmpty()) {
-                write("fav_$pid", target.favs[pid].orEmpty())
+            val favs = cur.favs[pid].orEmpty()
+            val mergedFavs = mergeSyncList(snapshot.favs[pid].orEmpty(), target.favs[pid].orEmpty(), favs) {
+                it.kind to it.id
             }
-            go(snapshot.history[pid].orEmpty(), target.history[pid].orEmpty(), cur.history[pid].orEmpty()) {
-                write("hist_$pid", target.history[pid].orEmpty(), history = true)
+            if (mergedFavs != favs) {
+                write("fav_$pid", mergedFavs)
+                changes++
+            }
+            val history = cur.history[pid].orEmpty()
+            val mergedHistory = mergeSyncList(snapshot.history[pid].orEmpty(), target.history[pid].orEmpty(), history, WatchEntry::key)
+                .sortedWith(compareByDescending<WatchEntry> { it.updated }.thenBy { it.key })
+                .take(SyncMerge.HISTORY_CAP)
+            if (mergedHistory != history) {
+                write("hist_$pid", mergedHistory, history = true)
+                changes++
             }
             go(snapshot.useOthers[pid].orEmpty(), target.useOthers[pid].orEmpty(), cur.useOthers[pid].orEmpty()) {
                 write("usx_$pid", target.useOthers[pid].orEmpty())

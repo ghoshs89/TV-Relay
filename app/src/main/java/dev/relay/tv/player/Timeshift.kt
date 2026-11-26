@@ -53,8 +53,10 @@ class TimeshiftBuffer(
     @Volatile private var closed = false
     @Volatile var failure: String? = null
         private set
+    @Volatile var playlistUrl: String? = null
+        private set
     @Volatile private var call: Call? = null
-    private var startedAt = 0L
+    @Volatile private var startedAt = 0L
     private var out: FileOutputStream? = null
     private var outSeg = -1L
 
@@ -110,15 +112,16 @@ class TimeshiftBuffer(
                 call = c
                 c.execute().use { r ->
                     if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
+                    val head = r.peekBody(TimeshiftSupport.PLAYLIST_PREFIX_BYTES).bytes()
+                    if (TimeshiftSupport.looksLikePlaylist(head, head.size)) {
+                        playlistUrl = url
+                        giveUp("The server sent a playlist, not MPEG-TS")
+                        return
+                    }
                     val input = r.body?.byteStream() ?: throw IOException("Empty stream")
                     while (!closed) {
                         val n = input.read(buf)
                         if (n < 0) break
-                        if (bytes == 0L && TimeshiftSupport.looksLikePlaylist(buf, n)) {
-                            // An HLS playlist, not a transport stream: this channel must play directly.
-                            giveUp("The server sent a playlist, not MPEG-TS")
-                            return
-                        }
                         append(buf, n)
                         bytes += n
                     }

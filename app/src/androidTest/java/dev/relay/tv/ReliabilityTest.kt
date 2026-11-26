@@ -1,6 +1,7 @@
 package dev.relay.tv
 
 import android.os.ParcelFileDescriptor
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.setContent
@@ -9,6 +10,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.annotation.OptIn
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import androidx.test.core.app.ActivityScenario
@@ -138,6 +140,119 @@ class ReliabilityTest {
         }
     }
 
+    @Test fun syncAppliesDeletesEvenWhenOtherItemsInBothListsChange() {
+        instrumentation.runOnMainSync {
+            val store = app.store
+            val profile = Profile("concurrent-sync", "Demo")
+            store.profiles = listOf(profile)
+            val a = FavItem("movie", 1, "A")
+            val b = FavItem("movie", 2, "B")
+            val first = WatchEntry("movie:1", "movie", "A", streamId = "1", ext = "mp4", position = 10, updated = 1)
+            val second = first.copy(key = "movie:2", title = "B", streamId = "2", updated = 2)
+            store.setFavs(profile.id, listOf(a, b))
+            store.record(profile.id, first)
+            store.record(profile.id, second)
+            val before = store.syncSnapshot()
+            val remote = before.copy(
+                favs = mapOf(profile.id to listOf(b)),
+                history = mapOf(profile.id to listOf(second)),
+            )
+            val edited = second.copy(position = 20, updated = 3)
+            val favEdited = b.copy(name = "B renamed")
+            store.record(profile.id, edited)
+            store.setFavs(profile.id, listOf(a, favEdited))
+
+            store.syncApply(before, remote)
+            assertEquals(listOf(favEdited), store.favs(profile.id))
+            assertEquals(listOf(edited), store.history(profile.id))
+        }
+    }
+
+    @Test fun settingsReturnFocusToTheOpenedCategory() {
+        instrumentation.runOnMainSync {
+            app.store.profiles = listOf(adult)
+            app.store.lastProfileId = adult.id
+            app.store.parentPin = null
+            app.session.profile = adult
+            app.session.autoStartDone = true
+            app.ui.tab = 0
+            configureProvider()
+        }
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val device = UiDevice.getInstance(instrumentation)
+            val settings = By.text("Settings")
+            checkNotNull(device.wait(Until.findObject(settings), 15_000)).click()
+            val playback = By.text("Playback & subtitles")
+            checkNotNull(device.wait(Until.findObject(playback), 5_000)).click()
+            val advanced = By.text("Advanced playback")
+            checkNotNull(device.wait(Until.findObject(advanced), 5_000)).click()
+            assertTrue(device.wait(Until.hasObject(By.text("Live stream format")), 5_000))
+            device.pressBack()
+            assertTrue(device.wait(Until.hasObject(advanced), 5_000))
+            device.pressBack()
+            assertTrue(device.wait(Until.hasObject(playback), 5_000))
+            device.pressDPadCenter()
+            assertTrue("OK should reopen the same category after Back", device.wait(Until.hasObject(advanced), 5_000))
+        }
+    }
+
+    @Test @OptIn(UnstableApi::class)
+    fun livePlaylistAtTsUrlPlaysWithAndWithoutTimeshiftThenAnotherChannelCanPauseAndRewind() {
+        val hls = PlayItem("live:1", "live", "Playlist channel", streamId = "1", ext = "ts")
+        val ts = PlayItem("live:2", "live", "Transport stream channel", streamId = "2", ext = "ts")
+        val device = UiDevice.getInstance(instrumentation)
+        for (buffer in listOf(false, true)) {
+            instrumentation.runOnMainSync {
+                app.store.profiles = listOf(adult)
+                app.store.parentPin = null
+                app.session.profile = adult
+                configureProvider()
+                app.store.settings = app.store.settings.copy(timeshift = buffer, liveExt = "ts")
+                app.pendingPlay = PlayRequest(adult.id, listOf(hls, ts), 0, live = true)
+            }
+            ActivityScenario.launch(PlayerActivity::class.java).use { scenario ->
+                awaitPlayer(scenario, "HLS should play with timeshift=$buffer") {
+                    it.isPlaying && it.currentMediaItem?.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8
+                }
+                if (buffer) {
+                    scenario.onActivity { findPlayerView(it.window.decorView)?.hideController() }
+                    device.pressDPadDown()
+                    awaitPlayer(scenario, "MPEG-TS channel should use the pause buffer") {
+                        it.isPlaying && it.currentMediaItem?.localConfiguration?.uri?.scheme == "relayts"
+                    }
+                    Thread.sleep(2_300)
+                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_PAUSE)
+                    awaitPlayer(scenario, "The MPEG-TS channel should pause") { !it.playWhenReady }
+                    assertTrue(device.wait(Until.hasObject(By.textContains("Paused ·")), 5_000))
+                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
+                    awaitPlayer(scenario, "Seeking in the buffer should resume playback") { it.isPlaying }
+                    device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_REWIND)
+                    awaitPlayer(scenario, "The same channel should resume after rewinding") {
+                        it.isPlaying && it.currentMediaItem?.mediaId == ts.key
+                    }
+                }
+            }
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun awaitPlayer(
+        scenario: ActivityScenario<PlayerActivity>,
+        message: String,
+        condition: (androidx.media3.common.Player) -> Boolean,
+    ) {
+        repeat(100) {
+            var matched = false
+            scenario.onActivity { activity ->
+                val player = checkNotNull(findPlayerView(activity.window.decorView)?.player)
+                matched = condition(player)
+            }
+            if (matched) return
+            Thread.sleep(200)
+        }
+        throw AssertionError(message)
+    }
+
     @Test fun movieKeepsPlayingOrPausedAcrossStopAndStart() {
         // ActivityScenario backgrounds the player with a user-leave hint. Disable PiP on this
         // emulator for this test so the playing case reaches onStop as well as onPause.
@@ -181,14 +296,19 @@ class ReliabilityTest {
                 player(it).pause()
                 pausedAt = player(it).currentPosition
             }
+            val device = UiDevice.getInstance(instrumentation)
+            scenario.onActivity { findPlayerView(it.window.decorView)?.hideController() }
+            assertTrue(device.wait(Until.hasObject(By.text("Test movie")), 5_000))
             scenario.moveToState(Lifecycle.State.CREATED)
             scenario.moveToState(Lifecycle.State.RESUMED)
+            assertTrue(device.wait(Until.hasObject(By.text("Test movie")), 5_000))
             scenario.onActivity {
                 assertFalse(player(it).playWhenReady)
                 val positionDifference = abs(pausedAt - player(it).currentPosition)
                 assertTrue("Paused movie moved by ${positionDifference}ms", positionDifference <= 250)
                 player(it).play()
             }
+            assertTrue(device.wait(Until.gone(By.text("Test movie")), 5_000))
             scenario.moveToState(Lifecycle.State.CREATED)
             scenario.moveToState(Lifecycle.State.RESUMED)
             scenario.onActivity { assertTrue(player(it).playWhenReady) }

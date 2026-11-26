@@ -206,11 +206,11 @@ class SyncEngine(
         }
 
         val applied = if (pull) local.apply(merged.recs) else null
-        // Items the apply did not report on (this screen's own entry, say) are as they were.
+        // These are full snapshots. Missing entries must stay missing after a deletion.
         val base = SyncDiff.rebaseChecked(
             merged.recs,
-            if (applied == null) items else items + applied.after,
-            if (applied == null) items else items + applied.intended,
+            applied?.after ?: items,
+            applied?.intended ?: items,
             st.base,
         )
         state.save(

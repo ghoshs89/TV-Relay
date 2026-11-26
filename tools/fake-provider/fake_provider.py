@@ -16,6 +16,7 @@ import struct
 import threading
 import time
 import zlib
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -105,6 +106,7 @@ class Handler(BaseHTTPRequestHandler):
     data = {}
     blobs = {}
     ts_path = None
+    hls_dir = None
     ts_rate = 250_000  # bytes per second the stream is paced at
 
     def log_message(self, *a):
@@ -130,6 +132,14 @@ class Handler(BaseHTTPRequestHandler):
                 if key not in self.blobs:
                     self.blobs[key] = png(128, 80, n) if kind == "logo" else png(300, 450, n)
                 self.send_bytes(self.blobs[key], "image/png")
+            elif self.hls_dir and u.path == "/live/bench/bench/1.ts":
+                self.send_bytes((self.hls_dir / "index.m3u8").read_bytes(), "application/vnd.apple.mpegurl")
+            elif self.hls_dir and u.path.startswith("/live/bench/bench/segment") and u.path.endswith(".ts"):
+                segment = self.hls_dir / Path(u.path).name
+                if segment.is_file():
+                    self.send_bytes(segment.read_bytes(), "video/mp2t")
+                else:
+                    self.send_error(404)
             elif u.path.split("/")[1] in ("live", "movie", "series", "timeshift"):
                 self.stream()
             else:
@@ -190,6 +200,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8099)
     ap.add_argument("--ts", help="MPEG-TS file played as every live channel")
+    ap.add_argument("--hls-dir", type=Path, help="Serve this HLS fixture from live channel 1 with a .ts URL")
     ap.add_argument("--ts-rate", type=int, default=250_000, help="bytes per second to send the stream at")
     ap.add_argument("--channels", type=int, default=12_000)
     ap.add_argument("--movies", type=int, default=40_000)
@@ -197,6 +208,7 @@ def main():
     a = ap.parse_args()
     Handler.data = build(a.channels, a.movies, a.series)
     Handler.ts_path = a.ts
+    Handler.hls_dir = a.hls_dir
     Handler.ts_rate = a.ts_rate
     srv = ThreadingHTTPServer(("0.0.0.0", a.port), Handler)
     srv.daemon_threads = True

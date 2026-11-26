@@ -7,7 +7,9 @@ tmp=$(mktemp -d)
 ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=320x180:rate=24 \
   -f lavfi -i sine=frequency=440 -t 55 -c:v libx264 -preset ultrafast \
   -pix_fmt yuv420p -c:a aac -f mpegts "$tmp/test.ts"
-python3 tools/fake-provider/fake_provider.py --port 8099 --ts "$tmp/test.ts" \
+ffmpeg -hide_banner -loglevel error -i "$tmp/test.ts" -map 0 -c copy -t 24 \
+  -hls_time 2 -hls_playlist_type vod -hls_segment_filename "$tmp/segment%02d.ts" "$tmp/index.m3u8"
+python3 tools/fake-provider/fake_provider.py --port 8099 --ts "$tmp/test.ts" --hls-dir "$tmp" \
   --channels 20 --movies 20 --series 10 > "$tmp/provider.log" 2>&1 &
 provider=$!
 trap 'kill "$provider" 2>/dev/null || true' EXIT
@@ -24,7 +26,7 @@ fi
 bash .github/smoke-test.sh "$apk"
 adb uninstall dev.relay.tv
 
-# Upgrade the published 1.0.117 APK in place. The fixture uses that version's preference keys
+# Upgrade the published 1.0.126 APK in place. The fixture uses that version's preference keys
 # and a synthetic provider. Only the disposable CI emulator has root.
 adb install "$baseline"
 adb shell am start -W -n dev.relay.tv/.MainActivity
@@ -42,7 +44,7 @@ data = {
     "account": {"name": "Upgrade test", "hosts": ["http://10.0.2.2:8099"],
                 "username": "bench", "password": "bench"},
     "profiles": [{"id": "fixture", "name": "Upgrade profile"}],
-    "settings": {"setupDone": True},
+    "settings": {"setupDone": True, "subSize": 3, "autoNext": False},
     "fav_fixture": [{"kind": "movie", "id": 100001, "name": "Upgrade favourite"}],
     "hist_fixture": [{"key": "movie:100001", "kind": "movie", "title": "Upgrade movie",
                       "streamId": "100001", "ext": "mp4", "position": 60000,
@@ -68,8 +70,8 @@ import sys
 import xml.etree.ElementTree as ET
 
 before, after = (dict((node.attrib["name"], node.text) for node in ET.parse(p).getroot()) for p in sys.argv[1:])
-for key in ("profiles", "fav_fixture", "hist_fixture"):
+for key in ("profiles", "fav_fixture", "hist_fixture", "settings"):
     assert json.loads(before[key]) == json.loads(after[key]), f"Upgrade changed {key}"
 assert before["last_profile"] == after["last_profile"]
-print("Signed upgrade preserved the profile, favourite, watch entry and resume position.")
+print("Signed upgrade preserved the profile, favourite, watch entry, resume position and settings.")
 PY

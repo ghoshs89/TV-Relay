@@ -3,19 +3,22 @@ name: Build APK
 on:
   push:
     branches: [ main ]
-    # Changes to docs or tools alone don't build or publish a release, and neither do the
-    # sync file's own commits when sync is pointed at this repository.
+    # Changes to docs or tools alone do not build or publish a release.
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - 'tools/**'
-      - 'relay-sync.bin'
   workflow_dispatch:
     inputs:
       bench:
         description: 'Also run the benchmark (about 12 more minutes)'
         type: boolean
         default: false
+      screenshots:
+        description: 'Capture the README gallery on Android TV and phone emulators'
+        type: boolean
+        default: false
+
 
 env:
   # SHA-256 of the release signing certificate (public, safe to commit).
@@ -202,7 +205,7 @@ jobs:
       - name: Download the signed upgrade baseline
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download v1.0.117 --pattern 'Relay-1.0.117.apk' --dir upgrade-baseline
+        run: gh release download v1.0.126 --pattern 'Relay-1.0.126.apk' --dir upgrade-baseline
 
       - name: Check playback, profiles, guide and signed upgrade on an emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
@@ -212,7 +215,53 @@ jobs:
           target: default
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash .github/reliability-test.sh out/Relay-1.0.${{ github.run_number }}.apk upgrade-baseline/Relay-1.0.117.apk
+          script: bash .github/reliability-test.sh out/Relay-1.0.${{ github.run_number }}.apk upgrade-baseline/Relay-1.0.126.apk
+
+  screenshots:
+    if: github.event_name == 'workflow_dispatch' && inputs.screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - layout: tv
+            target: android-tv
+            api: 34
+            arch: x86
+          - layout: phone
+            target: default
+            api: 30
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - name: Prepare the emulator and demo media tools
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          command -v ffmpeg || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; }
+      - name: Capture the README gallery
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: ${{ matrix.arch }}
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/documentation-screenshots.sh ${{ matrix.layout }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gallery-${{ matrix.layout }}
+          path: gallery-${{ matrix.layout }}/*.jpg
+          if-no-files-found: error
 
   # The only job that can write to the repository. Runs on main after both checks passed, takes the
   # APK "build" made, checks it is byte for byte that APK and signed with the Relay key, and publishes it.
