@@ -167,6 +167,8 @@ data class Settings(
     val askStillWatching: Boolean = true,
     /** Anonymous usage stats rollup toggle (see About & diagnostics for what is sent vs never sent). */
     val shareUsageStats: Boolean = true,
+    /** When true on this screen, in-app update checks include GitHub pre-releases. */
+    val includePrereleases: Boolean = false,
 )
 
 /** A programme the viewer wants to be told about when it starts. Times are as shown in the guide. */

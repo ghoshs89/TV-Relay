@@ -51,7 +51,7 @@ fun updateStatusText(): String = when (val s = Updater.state) {
     UpdateState.Checking -> "Checking…"
     UpdateState.UpToDate -> "Up to date"
     is UpdateState.Disabled -> "Not set up"
-    is UpdateState.Available -> "${s.info.versionName} available"
+    is UpdateState.Available -> "${s.info.versionName}${if (s.info.prerelease) " (pre-release)" else ""} available"
     is UpdateState.NeedsPermission -> "Needs permission"
     is UpdateState.Downloading -> "Downloading ${(s.progress * 100).toInt()}%"
     is UpdateState.Installing -> "Installing…"
@@ -76,7 +76,8 @@ fun UpdateDialog() {
     TvDialog(onDismiss = close, width = 620.dp, scrollContent = !hasNotes) {
         when (state) {
             is UpdateState.Available -> {
-                Title("Relay ${state.info.versionName} is ready")
+                val tag = if (state.info.prerelease) " (Pre-release)" else ""
+                Title("Relay ${state.info.versionName}$tag is ready")
                 Body("You have ${BuildConfig.VERSION_NAME}.")
                 if (hasNotes) {
                     key(state.info.versionCode) {
@@ -135,7 +136,7 @@ fun UpdateDialog() {
                         }, focusRequester = primary, primary = true)
                     } else {
                         PillButton("Check again", {
-                            app.appScope.launch { Updater.check(app.http) }
+                            app.appScope.launch { Updater.check(app.http, includePrereleases = app.store.settings.includePrereleases) }
                         }, focusRequester = primary, primary = true)
                     }
                     PillButton("Close", close)
@@ -158,7 +159,9 @@ fun UpdateDialog() {
                 Title("You're up to date")
                 Body("Relay ${BuildConfig.VERSION_NAME} is the latest build.")
                 Buttons {
-                    PillButton("Check again", { scope.launch { Updater.check(app.http) } }, focusRequester = primary, primary = true)
+                    PillButton("Check again", {
+                        scope.launch { Updater.check(app.http, includePrereleases = app.store.settings.includePrereleases) }
+                    }, focusRequester = primary, primary = true)
                     PillButton("Close", close)
                 }
             }
