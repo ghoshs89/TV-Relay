@@ -53,12 +53,12 @@ Relay signs in to an Xtream Codes account and plays what that account provides. 
 <table>
   <tr><td><b>Watch</b></td><td>Live TV with pause and rewind, catch-up, movies and series with resume, the current title while paused, next episode, and picture-in-picture on phones</td></tr>
   <tr><td><b>Your languages</b></td><td>English, Hindi and Bengali first by default, then South Indian and Bangladesh; every other language still there, lower down. Order, Home rows and audio follow each profile</td></tr>
-  <tr><td><b>Find</b></td><td>Timeline guide with now and next in every list, search that also finds programmes on TV, content-type chips (Sports, News, Movies, Kids, Documentary, Music and genres), categories by country and by language, hide or pin categories, favourites, channel groups and renames</td></tr>
+  <tr><td><b>Find</b></td><td>Timeline guide with now and next in every list, search that also finds programmes on TV, content-type chips (Sports, News, Movies, Kids, Documentary, Music, Entertainment and genres), categories by country and by language, hide or pin categories, favourites, channel groups and renames</td></tr>
   <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, daily viewing time and bedtime for kids, a parent PIN for anything that changes access</td></tr>
   <tr><td><b>Reliability</b></td><td>One entry per channel with automatic fallback to its other versions, backup servers (the ones meant for use with or without a VPN tried first to match), stalled streams reconnect on their own, failures explained in plain words, a library refresh that can't wipe your saved lists, and a ready-to-use copy of the library so channels appear within seconds after a restart</td></tr>
   <tr><td><b>Picture and sound</b></td><td>Refresh-rate matching, Dolby and DTS audio, lip-sync adjustment, subtitle style, stream info on start</td></tr>
   <tr><td><b>Several screens</b></td><td>Optional sync keeps profiles, favourites, watch history, kids' viewing time and shared settings the same on every TV and phone you own, through a private GitHub repository of your own, encrypted before it leaves the screen. <b>Play on TV</b> hands what the phone is playing (a channel, a film, an episode, catch-up or Start over) to a TV at home</td></tr>
-  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers (a QR code to watch on your phone when you're at the TV, YouTube on a phone), API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates</td></tr>
+  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers (a QR code to watch on your phone when you're at the TV, YouTube on a phone), API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates (stable and beta channels), and optional direct crash and diagnostic report uploads</td></tr>
 </table>
 
 ## Install
@@ -117,8 +117,8 @@ If your provider gives separate addresses for use with and without a VPN, enter 
 | OK or Left | Channel list over the video |
 | Right or Menu | Player controls: audio and subtitle tracks |
 | 0 to 9 | Go to a channel number |
-| Play/Pause | Pause live TV; Relay keeps recording behind the scenes |
-| Left / Right while paused or behind live | Back 10 s / forward 30 s; going forward past the end returns to live |
+| Play/Pause | Pause or resume live TV; Relay keeps recording behind the scenes (OK also resumes when paused) |
+| Left / Right while paused or behind live, Rewind / Fast-Forward | Back / forward by your jump intervals (10 s and 30 s to begin with); going forward past the end returns to live |
 | Back | Previous channel; then a large prompt says *Press Back again to leave the player*, and a second Back within about two seconds leaves it |
 | Hold OK (in the channel list) | Add or remove the channel from favourites |
 
@@ -155,13 +155,13 @@ Open **Settings** and choose a category. Back closes the open dialog or returns 
 
 | Category | What you can change |
 |---|---|
-| **Playback & subtitles** | Audio and subtitle languages, subtitle size and colour, autoplay, skip intervals, sleep timer, and pause and rewind for live TV. **Advanced playback** contains stream format, user agent, TV refresh-rate matching, stream information, and lip-sync. |
+| **Playback & subtitles** | Audio and subtitle languages, subtitle size and colour, autoplay, skip intervals, sleep timer, pause and rewind for live TV, and **Start on last channel**. **Advanced playback** contains stream format, user agent, TV refresh-rate matching, stream information, and lip-sync. |
 | **Library & guide** | Preferred languages, Home rows, pinned and hidden categories, channel groups, guide source and offset, programme reminders, and optional artwork and ratings keys. |
 | **Profiles & parental controls** | Switch or manage profiles, set PINs, hide adult categories, and set viewing limits and bedtime. An active kids profile reopens when Relay restarts. Use **Switch profile** and enter the parent PIN to leave it. |
 | **Account & sync** | Provider status, servers, refresh the playlist, sign-in, and household sync and screen management. |
 | **Appearance** | Theme, keyboard, and which screen opens at startup. |
 | **Backup & phone** | Phone companion and local file backup or restore. Relay asks for confirmation before a restore when sync is on. |
-| **About & diagnostics** | Version, **Check for app updates**, activity logs, and the library and language report. |
+| **About & diagnostics** | Version, **Check for app updates**, **Update channel** (stable only or include beta pre-releases), **Privacy & usage** (anonymous usage stats toggle), **Send diagnostic report**, activity logs, and the library and language report. |
 
 The [library browsing study](docs/BROWSING.md) compares two possible ways to group large Live TV, Movies and Series libraries.
 
@@ -284,7 +284,7 @@ If your Wi-Fi stops the screens from finding each other (some routers block this
 
 | Stays on each screen | Why |
 |---|---|
-| Lip-sync, refresh-rate matching, stream info, subtitle size, colour and background, theme, keyboard, pause buffer, start screen, sleep timer, live stream format, user agent | They depend on the TV and the room |
+| Lip-sync, refresh-rate matching, stream info, subtitle size, colour and background, theme, keyboard, pause buffer, start screen, start on last channel, sleep timer, live stream format, user agent, update channel, anonymous usage stats, detailed logs | They depend on the TV and the screen |
 | The playlist itself, images, logs, last channel, scroll positions | Each screen downloads and keeps its own |
 
 Two households never mix: the file is tied to the provider account, and a screen signed in to a different account refuses to merge and says so.
@@ -361,7 +361,7 @@ Settings → Library & guide → TMDB API key, then **Send from my phone** (or *
 
 **Logs & diagnostic reports:** Settings → About & diagnostics. Important lines (library loads with timings, downloads, errors, playback problems, and the screen freezing) are always saved, so they survive a force-close. **Save detailed logs** adds every detail line for 24 hours, then turns itself off; disk use is capped at about 1 MB. Usernames, passwords, tokens and API keys are removed from every line. Shared logs start with the device's memory and processor, the library size and the main settings.
 
-When a telemetry worker is configured in a build (`RELAY_TELEMETRY_URL`), **Send diagnostic report** uploads the scrubbed log bundle directly over HTTPS and returns a short 6-character code (such as `#K7P2M9`) — and if the app closed unexpectedly last time, a one-tap prompt offers to send the crash report on the next launch. Your provider login, tokens, API keys, and **provider server hostnames** are automatically stripped before anything leaves the screen. You can also turn **Share anonymous usage stats** on or off under **Privacy & usage**; when on, it counts only a random screen ID, Relay version, TV/phone model, daily watch minutes, and crash counts — never logins, server addresses, IP addresses, or which channels or titles you watch.
+When a telemetry worker is configured in a build (`RELAY_TELEMETRY_URL`), **Send diagnostic report** uploads the scrubbed log bundle (capped at 256 KB) directly over HTTPS and returns a short 6-character code (such as `#K7P2M9`) — and on non-kids profiles, if the app closed unexpectedly last time, a one-tap prompt offers to send the crash report on the next launch. Your provider login, tokens, API keys, and **provider and external guide server hostnames** are automatically stripped before anything leaves the screen. You can also turn **Share anonymous usage stats** on or off under **Privacy & usage**; when on, it counts only a random screen ID, Relay version, TV/phone model, daily watch minutes, and crash counts — never logins, server addresses, IP addresses, or which channels or titles you watch.
 
 To get the logs off a **TV**, open the phone companion (Settings → Backup & phone), scan the QR code and press **Download logs** on the phone. **Share logs** works directly on phones. With adb: `adb pull /sdcard/Android/data/dev.relay.tv/files/logs/`.
 
@@ -459,7 +459,8 @@ The launcher icon, themed icon, legacy icons and TV banner are all generated fro
 
 ```
 app/src/main/java/dev/relay/tv/
-  RelayApp.kt       app-wide singletons: HTTP client, store, API, catalog, ratings
+  RelayApp.kt       app-wide singletons: HTTP client, store, API, catalog,
+                    ratings, telemetry
   MainActivity.kt   navigation root and splash
   data/             Xtream client with server failover (order by VPN, skip
                     servers that just failed), catalog, local store,
@@ -516,6 +517,7 @@ flowchart TB
         API["data/XtreamApi<br/>provider calls, server order"]
         SYNC["sync/<br/>merge engine, pairing,<br/>Play on TV receiver"]
         UPD["update/<br/>in-app updater"]
+        TEL["telemetry/<br/>usage rollups &amp;<br/>diagnostic uploads"]
     end
 
     DISK[("App storage<br/>library lists and saved copy,<br/>settings, guide, logs, pause buffer")]
@@ -523,6 +525,7 @@ flowchart TB
     META(["TMDB, MDBList"])
     SYNCFILE(["Encrypted sync file<br/>in a GitHub repo"])
     REL(["GitHub Releases<br/>signed APKs"])
+    WORKER(["Cloudflare Worker<br/>optional stats &amp; reports"])
     SCREENS(["Other Relay screens"])
 
     PHONE -->|"sign-in, keys, sync, backup,<br/>library edits, logs"| COMP
@@ -535,10 +538,12 @@ flowchart TB
     WN --> STORE
     PLAYER -->|"stream URLs"| API
     PLAYER -->|"watch position"| STORE
+    PLAYER -.->|"play time"| TEL
     PLAYER ==>|"video and audio"| PROV
     CATALOG -->|"download, refresh"| API
     CATALOG --> DISK
     STORE --> DISK
+    STORE --> TEL
     API ==>|"lists, guide, login"| PROV
     RATINGS --> META
     SYNC <--> STORE
@@ -547,19 +552,21 @@ flowchart TB
     SCREENS -->|"Play on TV<br/>home Wi-Fi, sealed"| SYNC
     SYNC -->|"play on this TV"| PLAYER
     UPD -->|"check, download"| REL
+    TEL -.->|"opt-in / manual upload"| WORKER
     WN -->|"in-progress titles"| GTV
 ```
 
 | Part | What it does |
 |---|---|
-| `RelayApp` | Creates the shared pieces once per process: the HTTP client, `Store`, `XtreamApi`, `Catalog`, ratings, the VPN watch and the sync runner. |
+| `RelayApp` | Creates the shared pieces once per process: the HTTP client, `Store`, `XtreamApi`, `Catalog`, ratings, `TelemetryTracker`, the VPN watch and the sync runner. |
 | `data/Catalog` | Holds the whole library in memory and prepares it in stages (channels first, then movies and series), so Live TV is usable before everything is ready. |
 | `data/XtreamApi` | All calls to the provider, and the list of stream URLs for the player. |
 | `data/Store` | Everything personal: profiles, favourites, history, settings and the login. Sync, backups and the phone page all read and write it. |
 | `player/` | A separate activity around Media3, with bundled FFmpeg audio decoders, per-session pause-buffer recording and automatic HLS-over-`.ts` playback. |
 | `sync/` | Keeps screens the same through one encrypted file; also pairing a new screen, and Play on TV: on a TV with Relay open it listens on the home network for a phone of the same household. |
 | `companion/` | A scoped web server on the TV for the phone: sign-in, API keys, sync set-up, backup and restore, library editing and log download. Its plain HTTP helpers (`LanHttp`) are shared with the Play on TV receiver. |
-| `update/` | Compares the installed build number with the latest GitHub Release, verifies the downloaded package and signing key, and installs the APK. |
+| `telemetry/` | Sends opt-in daily usage rollups and user-triggered, scrubbed crash and diagnostic log uploads to the optional Cloudflare Worker (`tools/telemetry-worker/`). |
+| `update/` | Compares the installed build number with the latest GitHub Release (or pre-release, when opted in), verifies the downloaded package and signing key, and installs the APK. |
 | `tv/` | Puts movies and episodes in progress on the Google TV home screen; choosing one opens Relay at `relay://resume`. |
 
 ### Finding a server and playing a stream
@@ -639,7 +646,7 @@ flowchart TB
 
 ## Credits
 
-Development contributions from [OpenAI Codex](https://openai.com/codex/), [Google Gemini](https://gemini.google.com/) and [Anthropic Claude](https://claude.ai/).
+Built by [Soumalya Ghosh](https://github.com/ghoshs89) with contributions from [Aindrila Ghosh](https://github.com/aindrila-ghosh), alongside AI development assistance from [OpenAI ChatGPT](https://chatgpt.com/) ([Codex](https://openai.com/codex/)), [Google Gemini](https://gemini.google.com/) and [Anthropic Claude](https://claude.ai/).
 
 Built with Jetpack Compose, Media3 ExoPlayer, the Jellyfin FFmpeg audio decoder for Dolby and DTS (GPL-3.0), OkHttp, Coil and kotlinx.serialization. The wordmark uses Space Grotesk (SIL Open Font License).
 
