@@ -81,7 +81,7 @@ object Updater {
             else -> null
         }
 
-    private fun setState(next: UpdateState) {
+    private fun updateState(next: UpdateState) {
         Snapshot.withMutableSnapshot { state = next }
     }
 
@@ -106,7 +106,7 @@ object Updater {
     fun dismissInstalling() {
         val current = state
         if (current is UpdateState.Installing) {
-            setState(UpdateState.Available(current.info))
+            updateState(UpdateState.Available(current.info))
         }
         dialogOpen = false
     }
@@ -115,19 +115,19 @@ object Updater {
     suspend fun check(http: OkHttpClient, quiet: Boolean = false, includePrereleases: Boolean = false) {
         if (busy) return
         val previous = state
-        if (!quiet) setState(UpdateState.Checking)
+        if (!quiet) updateState(UpdateState.Checking)
         val next = try {
             val info = latest(http, includePrereleases)
             AppLog.i("Update", "Latest release ${info?.versionName ?: "none"}${if (info?.prerelease == true) " (pre-release)" else ""}, installed ${BuildConfig.VERSION_NAME}")
             if (info != null && info.versionCode > BuildConfig.VERSION_CODE) UpdateState.Available(info) else UpdateState.UpToDate
         } catch (e: CancellationException) {
-            if (!quiet) setState(previous)
+            if (!quiet) updateState(previous)
             throw e
         } catch (e: Exception) {
             AppLog.w("Update", "Check failed", e)
             if (quiet) previous else UpdateState.Failed(e.message ?: "Update check failed", null)
         }
-        setState(next)
+        updateState(next)
     }
 
     private suspend fun latest(http: OkHttpClient, includePrereleases: Boolean): UpdateInfo? = withContext(Dispatchers.IO) {
@@ -214,14 +214,14 @@ object Updater {
         if (busy) return
         val appCtx = ctx.applicationContext
         if (!canInstall(appCtx)) {
-            setState(UpdateState.NeedsPermission(info))
+            updateState(UpdateState.NeedsPermission(info))
             return
         }
         try {
-            setState(UpdateState.Downloading(info, 0f))
+            updateState(UpdateState.Downloading(info, 0f))
             val apk = download(appCtx, http, info)
             verify(appCtx, apk, info.versionCode)
-            setState(UpdateState.Installing(info))
+            updateState(UpdateState.Installing(info))
             withContext(Dispatchers.IO) {
                 try {
                     install(appCtx, apk)
@@ -231,12 +231,12 @@ object Updater {
             }
         } catch (e: CancellationException) {
             cleanStaging(appCtx)
-            if (state is UpdateState.Downloading) setState(UpdateState.Available(info))
+            if (state is UpdateState.Downloading) updateState(UpdateState.Available(info))
             throw e
         } catch (e: Exception) {
             cleanStaging(appCtx)
             AppLog.e("Update", "Update to ${info.versionName} failed", e)
-            setState(UpdateState.Failed(e.message ?: "Update failed", info))
+            updateState(UpdateState.Failed(e.message ?: "Update failed", info))
         }
     }
 
@@ -265,7 +265,7 @@ object Updater {
                             if (total > 0 && read - lastShown >= 512 * 1024) {
                                 lastShown = read
                                 val p = (read.toFloat() / total).coerceIn(0f, 1f)
-                                withContext(Dispatchers.Main) { setState(UpdateState.Downloading(info, p)) }
+                                withContext(Dispatchers.Main) { updateState(UpdateState.Downloading(info, p)) }
                             }
                         }
                     }

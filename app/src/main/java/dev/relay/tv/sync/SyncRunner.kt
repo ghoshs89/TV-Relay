@@ -49,7 +49,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
     var status by mutableStateOf(Status(lastOk = settings.stateStore.load().lastOk))
         private set
 
-    private fun setStatus(next: Status) {
+    private fun updateStatus(next: Status) {
         Snapshot.withMutableSnapshot { status = next }
     }
 
@@ -130,7 +130,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
             SyncSchedule.Decision.Run -> Unit
         }
         running = true
-        setStatus(Status(status.result, status.message, status.lastOk, running = true, screens = status.screens, note = status.note))
+        updateStatus(Status(status.result, status.message, status.lastOk, running = true, screens = status.screens, note = status.note))
         app.appScope.launch {
             val t0 = SystemClock.elapsedRealtime()
             val outcome = try {
@@ -140,12 +140,12 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
                 }
             } catch (ce: CancellationException) {
                 running = false
-                setStatus(Status(status.result, status.message, status.lastOk, running = false, screens = status.screens, note = status.note))
+                updateStatus(Status(status.result, status.message, status.lastOk, running = false, screens = status.screens, note = status.note))
                 throw ce
             }
             if (outcome == null) {
                 running = false
-                setStatus(Status())
+                updateStatus(Status())
             } else {
                 finish(outcome, SystemClock.elapsedRealtime() - t0)
             }
@@ -183,7 +183,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
             outcome.pulled.takeIf { it.isNotEmpty() }?.let { "Received $it" },
             outcome.pushed.takeIf { it.isNotEmpty() }?.let { "Sent $it" },
         ).joinToString(". ")
-        setStatus(
+        updateStatus(
             Status(
                 result = outcome.result, message = outcome.message,
                 lastOk = if (outcome.ok) t else status.lastOk,
@@ -315,7 +315,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
                 failures = 0
                 rerun = false
                 running = false
-                setStatus(Status())
+                updateStatus(Status())
                 app.playReceiver.refresh()
             }
             AppLog.i("Sync", "Sync stopped on this screen")

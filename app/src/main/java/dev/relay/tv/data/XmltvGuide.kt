@@ -47,7 +47,7 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
     /** Shown in Settings. */
     var status by mutableStateOf<String?>(null)
 
-    private fun setStatus(value: String?) {
+    private fun updateStatus(value: String?) {
         Snapshot.withMutableSnapshot { status = value }
     }
 
@@ -93,7 +93,7 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
             if (file.exists()) {
                 val loaded = Jsons.json.decodeFromString(Cache.serializer(), file.readText())
                 data = loaded
-                setStatus(summary(loaded))
+                updateStatus(summary(loaded))
             }
         } catch (e: Exception) {
             AppLog.w("Epg", "Saved external guide unreadable", e)
@@ -108,12 +108,12 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
             val dead = File(target.parentFile, "xmltv_${System.nanoTime()}.del")
             if (target.renameTo(dead)) Thread { dead.delete() }.start() else target.delete()
         }
-        setStatus(null)
+        updateStatus(null)
     }
 
     /** [key] is saved instead of the URL, so a URL with a login in it never reaches the disk. */
     suspend fun refresh(url: String, channels: List<Channel>, key: String = url) {
-        setStatus("Downloading…")
+        updateStatus("Downloading…")
         val started = System.currentTimeMillis()
         val cache = withContext(Dispatchers.IO) {
             val req = Request.Builder().url(url).header("User-Agent", "RelayTV/1.0").build()
@@ -126,7 +126,7 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
         withContext(Dispatchers.IO) { file.writeText(Jsons.json.encodeToString(Cache.serializer(), cache)) }
         data = cache
         loadAttempted = true
-        setStatus(summary(cache))
+        updateStatus(summary(cache))
         AppLog.i(
             "Epg",
             "External guide: ${cache.byChannel.size} channels matched in ${(System.currentTimeMillis() - started) / 1000}s, " +
