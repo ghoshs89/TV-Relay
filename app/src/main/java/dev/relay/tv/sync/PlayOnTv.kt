@@ -41,17 +41,20 @@ class PlayReceiver(private val app: RelayApp) : Application.ActivityLifecycleCal
     private var foreground = 0
     private var front: WeakReference<Activity>? = null
     private var socket: ServerSocket? = null
+    private var advertisedTag: String? = null
     private var stopAnnouncing: (() -> Unit)? = null
     private var pool = Executors.newFixedThreadPool(2) { r -> Thread(r, "relay-play").apply { isDaemon = true } }
 
     /** Starts or stops the receiver to match whether it should run now. Main thread. */
     fun refresh() {
         val key = app.sync.settings.config?.key
-        val want = foreground > 0 && key != null && app.isTv() && app.store.account != null
-        if (want && socket == null) start(key!!) else if (!want && socket != null) stop()
+        val tag = key?.let(PlayKeys::tag)
+        val want = foreground > 0 && key != null && tag != null && app.isTv() && app.store.account != null
+        if (want && socket != null && tag != advertisedTag) stop()
+        if (want && socket == null) start(tag!!) else if (!want && socket != null) stop()
     }
 
-    private fun start(key: ByteArray) {
+    private fun start(tag: String) {
         val server = try {
             ServerSocket(0)
         } catch (e: Exception) {
@@ -59,6 +62,7 @@ class PlayReceiver(private val app: RelayApp) : Application.ActivityLifecycleCal
             return
         }
         socket = server
+        advertisedTag = tag
         if (pool.isShutdown) pool = Executors.newFixedThreadPool(2) { r -> Thread(r, "relay-play").apply { isDaemon = true } }
         val workers = pool
         Thread({
@@ -77,7 +81,7 @@ class PlayReceiver(private val app: RelayApp) : Application.ActivityLifecycleCal
         }, "relay-play-accept").apply { isDaemon = true }.start()
         stopAnnouncing = PairDiscovery.advertiseAs(
             app, TYPE, app.sync.screenName(), server.localPort,
-            mapOf(ATTR_TAG to PlayKeys.tag(key), ATTR_VERSION to PlayCommand.VERSION.toString()),
+            mapOf(ATTR_TAG to tag, ATTR_VERSION to PlayCommand.VERSION.toString()),
             "PlayOnTv", "Ready for Play on TV from a phone",
         )
     }
@@ -85,6 +89,7 @@ class PlayReceiver(private val app: RelayApp) : Application.ActivityLifecycleCal
     private fun stop() {
         stopAnnouncing?.invoke()
         stopAnnouncing = null
+        advertisedTag = null
         try {
             socket?.close()
         } catch (_: Exception) {
@@ -130,18 +135,19 @@ class PlayReceiver(private val app: RelayApp) : Application.ActivityLifecycleCal
     /** Main thread: decide, then start playing. */
     private fun play(c: PlayCommand): Pair<Int, String> {
         val name = app.sync.screenName()
-        val ctx = front?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }
+        front?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }
             ?: return 409 to "Relay isn't open on $name."
         val decision = PlayDecider.decide(c, lookups(), name)
         AppLog.i("PlayOnTv", "Request from ${c.from.take(4)}: ${c.kind} '${c.title}' → ${decision::class.simpleName}")
         if (decision is PlayDecision.Refuse) return 409 to decision.reason
-        // A film already playing here keeps its place before the new item takes over.
+        // A film already playing here keeps its place before the new item takes over; use Application context
+        // so starting the next item never touches the finishing PlayerActivity.
         PlayerActivity.current?.get()?.finishForHandover()
         when (decision) {
-            is PlayDecision.Live -> Playback.live(ctx, decision.channels, decision.index)
-            is PlayDecision.Film -> Playback.movie(ctx, decision.movie, decision.movie.ext, decision.positionMs)
-            is PlayDecision.Episode -> app.appScope.launch { Playback.resumeEpisode(ctx, decision.entry, decision.positionMs) }
-            is PlayDecision.Catchup -> Playback.catchup(ctx, decision.channel, decision.programme, decision.positionMs)
+            is PlayDecision.Live -> Playback.live(app, decision.channels, decision.index)
+            is PlayDecision.Film -> Playback.movie(app, decision.movie, decision.movie.ext, decision.positionMs)
+            is PlayDecision.Episode -> app.appScope.launch { Playback.resumeEpisode(app, decision.entry, decision.positionMs) }
+            is PlayDecision.Catchup -> Playback.catchup(app, decision.channel, decision.programme, decision.positionMs)
             is PlayDecision.Refuse -> Unit
         }
         return 200 to "Playing on $name"

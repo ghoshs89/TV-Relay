@@ -64,6 +64,23 @@ class LanHttpTest {
         assertTrue(LanHttp.hostMatches("[fe80::1%wlan0]:9000", v6, 9000))
         assertTrue(LanHttp.hostMatches("[FE80:0:0:0:0:0:0:1]:9000", v6, 9000))
         assertFalse(LanHttp.hostMatches("[fe80::2]:9000", v6, 9000))
+        assertFalse(LanHttp.hostMatches("[fe80::1]9000", v6, 9000))
         assertTrue(LanHttp.hostMatches("[::ffff:192.168.1.20]:8787", tv, 8787))
+    }
+
+    @Test
+    fun excessiveHeadersAreRejectedAndCrossOriginPostsAreRefused() {
+        val tooMany = buildString {
+            append("GET / HTTP/1.1\r\n")
+            repeat(LanHttp.MAX_HEADERS + 1) { append("X-Extra-$it: 1\r\n") }
+            append("\r\n")
+        }
+        assertNull(head(tooMany))
+
+        assertTrue(LanHttp.originAllowed(null, tv, 8787))
+        assertTrue(LanHttp.originAllowed("http://192.168.1.20:8787", tv, 8787))
+        assertFalse(LanHttp.originAllowed("null", tv, 8787))
+        assertFalse(LanHttp.originAllowed("https://evil.example", tv, 8787))
+        assertFalse(LanHttp.originAllowed("http://192.168.1.20:9999", tv, 8787))
     }
 }

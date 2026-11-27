@@ -1,5 +1,7 @@
 package dev.relay.tv.update
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+
 /**
  * What the updater sends to GitHub. Pure, so the rules can be tested.
  *
@@ -8,8 +10,24 @@ package dev.relay.tv.update
  * stop updates for no reason. A build made with a token (for a private copy of the repository) still sends it.
  */
 object UpdateRequest {
-    /** The Authorization header value, or null when there is no token to send. */
-    fun authHeader(token: String): String? = token.trim().takeIf { it.isNotEmpty() }?.let { "Bearer $it" }
+    private val TRUSTED_HOSTS = setOf(
+        "api.github.com",
+        "github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+    )
+
+    /** The Authorization header value, or null when there is no token to send or the host isn't GitHub's API. */
+    fun authHeader(token: String, host: String = "api.github.com"): String? {
+        if (!host.equals("api.github.com", ignoreCase = true)) return null
+        return token.trim().takeIf { it.isNotEmpty() }?.let { "Bearer $it" }
+    }
+
+    /** True only for HTTPS addresses on GitHub's release and asset hosts. */
+    fun isTrustedUrl(url: String?): Boolean {
+        val parsed = url?.toHttpUrlOrNull() ?: return false
+        return parsed.isHttps && parsed.host.lowercase() in TRUSTED_HOSTS
+    }
 
     /**
      * Where to download the APK from. With a token the API address is used (the only one a private repository

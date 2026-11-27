@@ -38,6 +38,8 @@ data class LiveQuery(
     /** Favourite channel ids; only filled when the sort or the list needs them. */
     val favIds: List<Int>,
     val preferred: Map<String, Int>,
+    /** Content type ("sports", "news"...), or null when any type is shown. */
+    val kind: String? = null,
 )
 
 class LiveResult(
@@ -72,6 +74,7 @@ interface LiveData {
     fun byId(id: Int): Channel?
     fun inCategory(cat: String): List<Channel>
     fun lang(id: Int): String?
+    fun kind(ch: Channel): String? = null
     fun sortKey(ch: Channel): String
     fun isHd(ch: Channel): Boolean
     fun hasGuide(ch: Channel): Boolean
@@ -105,15 +108,16 @@ fun buildLiveList(data: LiveData, q: LiveQuery, check: () -> Unit = {}): LiveRes
     val maxRank = q.langOrder.size + 1
 
     val base: List<Channel> = when (val s = q.selection) {
-        is LiveSelection.Favourites -> s.ids.mapNotNull { data.byId(it) }
-        is LiveSelection.History -> s.ids.mapNotNull { data.byId(it) }
+        is LiveSelection.Favourites -> s.ids.mapNotNull { data.byId(it) }.filter { it.categoryId !in q.blockedCats }
+        is LiveSelection.History -> s.ids.mapNotNull { data.byId(it) }.filter { it.categoryId !in q.blockedCats }
         LiveSelection.All -> rankSorted(data.channels.filterChecked(check) { shown(it) }, maxRank, check) { rank.rank(data.lang(it.id)) }
         is LiveSelection.Language -> data.channels.filterChecked(check) { data.lang(it.id) == s.key && shown(it) }
         is LiveSelection.Group -> s.ids.mapNotNull { data.byId(it) }.filter { it.categoryId !in q.blockedCats }
-        is LiveSelection.Category -> data.inCategory(s.id)
+        is LiveSelection.Category -> if (s.id in q.blockedCats) emptyList() else data.inCategory(s.id)
     }
 
     var list: List<Channel> = base
+    if (q.kind != null) list = list.filterChecked(check) { data.kind(it) == q.kind }
     val f = q.filters
     if (LiveFilters.CATCHUP in f) list = list.filterChecked(check) { it.hasArchive }
     if (LiveFilters.HD in f) list = list.filterChecked(check) { data.isHd(it) }

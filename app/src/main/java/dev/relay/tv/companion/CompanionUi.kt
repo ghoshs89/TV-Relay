@@ -150,6 +150,10 @@ object Accounts {
             app.store.activeHost = app.api.host
             if (changed) app.catalog.clear()
             null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            app.api.account = prevAcc
+            app.api.host = prevHost
+            throw e
         } catch (e: Exception) {
             AppLog.w("Login", "Sign-in failed", e)
             app.api.account = prevAcc

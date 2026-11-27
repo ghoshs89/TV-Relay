@@ -53,8 +53,15 @@ class UiState {
     var liveRestored = false
     var liveCountry by mutableStateOf<String?>(null)
     var liveFilters by mutableStateOf(emptySet<String>())
+    var liveKind by mutableStateOf<String?>(null)
     var liveFind by mutableStateOf("")
     var liveGrid by mutableStateOf(false)
+
+    // Movies and Series quick filters
+    var movieLangFilter by mutableStateOf<String?>(null)
+    var movieKindFilter by mutableStateOf<String?>(null)
+    var seriesLangFilter by mutableStateOf<String?>(null)
+    var seriesKindFilter by mutableStateOf<String?>(null)
 
     val liveCatList = LazyListState()
     val liveChList = LazyListState()

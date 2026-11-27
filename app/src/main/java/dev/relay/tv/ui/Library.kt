@@ -2,6 +2,7 @@ package dev.relay.tv.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,25 +12,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.Category
-import dev.relay.tv.data.ProviderNames
+import dev.relay.tv.data.ContentKinds
 import dev.relay.tv.data.Langs
+import dev.relay.tv.data.ProviderNames
 import dev.relay.tv.data.TitleParts
 import dev.relay.tv.data.TitleQuery
 import dev.relay.tv.data.TitleSelection
@@ -49,11 +52,26 @@ fun MoviesTab() {
     val s = store.settings
     val rank = app.session.langRank(s)
     val featured = app.session.langFeatured(s)
+    val langOrder = app.session.langOrder(s)
     val cats = remember(catalog.vodCats, restrict, version, catalog.langVersion) {
         arrangeCats(catalog.vodCats, "vod", s.pinnedVod, s.hiddenCats, restrict, featured) { rank.rank(catalog.vodCatLang(it)) }
     }
+    val availableKinds = remember(catalog.vodCats, restrict, s.hiddenCats, catalog.libraryVersion) {
+        val visible = catalog.vodCats.filter { !(restrict && it.adult) && "vod:${it.id}" !in s.hiddenCats }
+        val present = visible.mapNotNull { catalog.vodCatKindOf(it.id) }.toSet()
+        ContentKinds.TITLE_ORDER.filter { it in present }
+    }
+    val mixedView = ui.movieCat == UiState.RECENT || ui.movieCat == UiState.TOP || ui.movieCat == UiState.ALL
+    val kindAllowed = ui.movieCat.startsWith("__")
+    val activeLang = ui.movieLangFilter?.takeIf { mixedView }
+    val activeKind = ui.movieKindFilter?.takeIf { kindAllowed && it in availableKinds }
     val list = rememberTitleList(
-        "Movies", titleQuery(ui.movieCat, "movie", "vod", if (ui.movieCat == UiState.FAV) store.favs(pid) else null, restrict, catalog.adultCats, s.hiddenCats, app.session.langOrder(s)),
+        "Movies",
+        titleQuery(
+            ui.movieCat, "movie", "vod",
+            if (ui.movieCat == UiState.FAV) store.favs(pid) else null,
+            restrict, catalog.adultCats, s.hiddenCats, langOrder, activeLang, activeKind,
+        ),
         titleGeneration(catalog), ui.movieLists, catalog.movieSource,
     )
     Browser(
@@ -68,10 +86,17 @@ fun MoviesTab() {
         stale = list.stale,
         empty = when {
             catalog.loading && catalog.movies.isEmpty() -> "Loading movies…"
+            activeLang != null || activeKind != null -> "No movies match these filters."
             ui.movieCat == UiState.FAV -> "Movies you add to My list show up here."
             else -> "Nothing here."
         },
         pinnedIds = remember(s.pinnedVod) { s.pinnedVod.toSet() },
+        langChips = if (mixedView) Langs.viewOrder(langOrder) else emptyList(),
+        activeLang = activeLang,
+        onLangSelect = { ui.movieLangFilter = if (activeLang == it) null else it },
+        kindChips = if (kindAllowed) availableKinds else emptyList(),
+        activeKind = activeKind,
+        onKindSelect = { ui.movieKindFilter = if (activeKind == it) null else it },
     ) { m ->
         val rt = posterScore("m", m.id)
         val tp = remember(m.name, m.year) { TitleParts.parse(m.name, m.year) }
@@ -98,11 +123,26 @@ fun SeriesTab() {
     val s = store.settings
     val rank = app.session.langRank(s)
     val featured = app.session.langFeatured(s)
+    val langOrder = app.session.langOrder(s)
     val cats = remember(catalog.seriesCats, restrict, version, catalog.langVersion) {
         arrangeCats(catalog.seriesCats, "series", s.pinnedSeries, s.hiddenCats, restrict, featured) { rank.rank(catalog.seriesCatLang(it)) }
     }
+    val availableKinds = remember(catalog.seriesCats, restrict, s.hiddenCats, catalog.libraryVersion) {
+        val visible = catalog.seriesCats.filter { !(restrict && it.adult) && "series:${it.id}" !in s.hiddenCats }
+        val present = visible.mapNotNull { catalog.seriesCatKindOf(it.id) }.toSet()
+        ContentKinds.TITLE_ORDER.filter { it in present }
+    }
+    val mixedView = ui.seriesCat == UiState.RECENT || ui.seriesCat == UiState.TOP || ui.seriesCat == UiState.ALL
+    val kindAllowed = ui.seriesCat.startsWith("__")
+    val activeLang = ui.seriesLangFilter?.takeIf { mixedView }
+    val activeKind = ui.seriesKindFilter?.takeIf { kindAllowed && it in availableKinds }
     val list = rememberTitleList(
-        "Series", titleQuery(ui.seriesCat, "series", "series", if (ui.seriesCat == UiState.FAV) store.favs(pid) else null, restrict, catalog.adultCats, s.hiddenCats, app.session.langOrder(s)),
+        "Series",
+        titleQuery(
+            ui.seriesCat, "series", "series",
+            if (ui.seriesCat == UiState.FAV) store.favs(pid) else null,
+            restrict, catalog.adultCats, s.hiddenCats, langOrder, activeLang, activeKind,
+        ),
         titleGeneration(catalog), ui.seriesLists, catalog.seriesSource,
     )
     Browser(
@@ -117,10 +157,17 @@ fun SeriesTab() {
         stale = list.stale,
         empty = when {
             catalog.loading && catalog.series.isEmpty() -> "Loading series…"
+            activeLang != null || activeKind != null -> "No series match these filters."
             ui.seriesCat == UiState.FAV -> "Series you add to My list show up here."
             else -> "Nothing here."
         },
         pinnedIds = remember(s.pinnedSeries) { s.pinnedSeries.toSet() },
+        langChips = if (mixedView) Langs.viewOrder(langOrder) else emptyList(),
+        activeLang = activeLang,
+        onLangSelect = { ui.seriesLangFilter = if (activeLang == it) null else it },
+        kindChips = if (kindAllowed) availableKinds else emptyList(),
+        activeKind = activeKind,
+        onKindSelect = { ui.seriesKindFilter = if (activeKind == it) null else it },
     ) { s ->
         val rt = posterScore("s", s.id)
         val tp = remember(s.name, s.year) { TitleParts.parse(s.name, s.year) }
@@ -153,6 +200,8 @@ private fun titleQuery(
     adultCats: Set<String>,
     hiddenCats: Set<String>,
     langOrder: List<String>,
+    langFilter: String? = null,
+    kindFilter: String? = null,
 ): TitleQuery {
     val selection = when {
         cat == UiState.RECENT -> TitleSelection.Recent
@@ -169,6 +218,8 @@ private fun titleQuery(
         blockedCats = if (restrict) adultCats else emptySet(),
         hiddenCats = if (mixed) hiddenCats.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }.toSet() else emptySet(),
         langOrder = if (mixed) langOrder else emptyList(),
+        langFilter = langFilter,
+        kindFilter = kindFilter,
     )
 }
 
@@ -216,57 +267,85 @@ private fun <T> Browser(
     stale: Boolean = false,
     empty: String,
     pinnedIds: Set<String>,
+    langChips: List<String> = emptyList(),
+    activeLang: String? = null,
+    onLangSelect: (String) -> Unit = {},
+    kindChips: List<String> = emptyList(),
+    activeKind: String? = null,
+    onKindSelect: (String) -> Unit = {},
     card: @Composable (T) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val hasChips = langChips.isNotEmpty() || kindChips.isNotEmpty()
     BoxWithConstraints(Modifier.fillMaxSize()) {
-    val narrow = maxWidth < 900.dp
-    Row(Modifier.fillMaxSize().padding(start = if (narrow) 16.dp else 32.dp, end = 16.dp)) {
-        LazyColumn(
-            Modifier.width(if (narrow) 180.dp else 230.dp).fillMaxHeight().fadeEdges(),
-            state = catState,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = PaddingValues(vertical = 20.dp),
-        ) {
-            items(cats) { c ->
-                ListRow(
-                    if (c.id.startsWith("__")) c.name else ProviderNames.clean(c.name),
-                    onClick = {
-                        onSelect(c.id)
-                        scope.launch { gridState.scrollToItem(0) }
-                    },
-                    selected = selected == c.id,
-                    key = "cat:${c.id}",
-                    trailing = counts(c.id)?.toString(),
-                    icon = when {
-                        c.id == UiState.FAV -> Icons.Filled.Star
-                        c.id in pinnedIds -> Icons.Filled.Place
-                        c.id.startsWith(LANG) -> RelayIcons.Language
-                        else -> null
-                    },
-                )
+        val narrow = maxWidth < 900.dp
+        Row(Modifier.fillMaxSize().padding(start = if (narrow) 16.dp else 32.dp, end = 16.dp)) {
+            LazyColumn(
+                Modifier.width(if (narrow) 180.dp else 230.dp).fillMaxHeight().fadeEdges(),
+                state = catState,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = PaddingValues(vertical = 20.dp),
+            ) {
+                items(cats) { c ->
+                    ListRow(
+                        if (c.id.startsWith("__")) c.name else ProviderNames.clean(c.name),
+                        onClick = {
+                            onSelect(c.id)
+                            scope.launch { gridState.scrollToItem(0) }
+                        },
+                        selected = selected == c.id,
+                        key = "cat:${c.id}",
+                        trailing = counts(c.id)?.toString(),
+                        icon = when {
+                            c.id == UiState.FAV -> Icons.Filled.Star
+                            c.id in pinnedIds -> Icons.Filled.Place
+                            c.id.startsWith(LANG) -> RelayIcons.Language
+                            else -> null
+                        },
+                    )
+                }
             }
-        }
-        Spacer(Modifier.width(20.dp))
-        if (items == null || (stale && items.isEmpty())) {
-            EmptyState("Loading…", Modifier.weight(1f))
-        } else if (items.isEmpty()) {
-            EmptyState(empty, Modifier.weight(1f))
-        } else {
-            val enabled = LocalFocusEnabled.current
-            CompositionLocalProvider(LocalFocusEnabled provides (enabled && !stale)) {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
-                    modifier = Modifier.weight(1f).fillMaxHeight().alpha(if (stale) 0.35f else 1f).fadeEdges(),
-                    state = gridState,
-                    contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp, start = 10.dp, end = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(22.dp),
-                ) {
-                    items(items, key = itemKey) { card(it) }
+            Spacer(Modifier.width(20.dp))
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                if (hasChips) {
+                    LazyRow(
+                        contentPadding = PaddingValues(start = 10.dp, end = 24.dp, top = 14.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(langChips, key = { "lf:$it" }) { lang ->
+                            Chip(Langs.label(lang), activeLang == lang, "lf:$lang") {
+                                onLangSelect(lang)
+                                scope.launch { gridState.scrollToItem(0) }
+                            }
+                        }
+                        items(kindChips, key = { "kf:$it" }) { kind ->
+                            Chip(ContentKinds.label(kind), activeKind == kind, "kf:$kind") {
+                                onKindSelect(kind)
+                                scope.launch { gridState.scrollToItem(0) }
+                            }
+                        }
+                    }
+                }
+                if (items == null || (stale && items.isEmpty())) {
+                    EmptyState("Loading…", Modifier.weight(1f))
+                } else if (items.isEmpty()) {
+                    EmptyState(empty, Modifier.weight(1f))
+                } else {
+                    val enabled = LocalFocusEnabled.current
+                    CompositionLocalProvider(LocalFocusEnabled provides (enabled && !stale)) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(150.dp),
+                            modifier = Modifier.weight(1f).fillMaxHeight().alpha(if (stale) 0.35f else 1f).fadeEdges(),
+                            state = gridState,
+                            contentPadding = PaddingValues(top = if (hasChips) 12.dp else 20.dp, bottom = 40.dp, start = 10.dp, end = 24.dp),
+                            horizontalArrangement = Arrangement.spacedBy(22.dp),
+                            verticalArrangement = Arrangement.spacedBy(22.dp),
+                        ) {
+                            items(items, key = itemKey) { card(it) }
+                        }
+                    }
                 }
             }
         }
-    }
     }
 }

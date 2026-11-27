@@ -55,15 +55,21 @@ import dev.relay.tv.data.Tmdb
 import dev.relay.tv.data.TitleParts
 import dev.relay.tv.data.Trailers
 import dev.relay.tv.player.Playback
+import kotlinx.coroutines.CancellationException
 
 @Composable
 fun MovieDetailScreen(m: Movie) {
     val app = RelayApp.instance
     val store = app.store
+    val nav = LocalNav.current
     val ctx = LocalContext.current
     store.version.intValue
     store.historyVersion.intValue
     val pid = app.session.profileId
+    if (!app.catalog.allowed(m.categoryId, app.session.restrict(store.settings))) {
+        LaunchedEffect(Unit) { nav.pop(app.ui.focus) }
+        return
+    }
 
     var info by remember { mutableStateOf<MovieInfo?>(null) }
     var failed by remember { mutableStateOf(false) }
@@ -76,7 +82,13 @@ fun MovieDetailScreen(m: Movie) {
     LaunchedEffect(m.id, attempt) {
         failed = false
         detailsDone = false
-        info = runCatching { app.api.vodInfo(m.id) }.getOrNull()
+        info = try {
+            app.api.vodInfo(m.id)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            null
+        }
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, false, info?.tmdbId ?: m.tmdbId, m.name, info?.year ?: m.year)
@@ -196,10 +208,15 @@ fun MovieDetailScreen(m: Movie) {
 fun SeriesDetailScreen(s: Series) {
     val app = RelayApp.instance
     val store = app.store
+    val nav = LocalNav.current
     val ctx = LocalContext.current
     store.version.intValue
     store.historyVersion.intValue
     val pid = app.session.profileId
+    if (!app.catalog.allowed(s.categoryId, app.session.restrict(store.settings))) {
+        LaunchedEffect(Unit) { nav.pop(app.ui.focus) }
+        return
+    }
 
     var info by remember { mutableStateOf<SeriesInfo?>(null) }
     var failed by remember { mutableStateOf(false) }
@@ -212,7 +229,13 @@ fun SeriesDetailScreen(s: Series) {
     LaunchedEffect(s.id, attempt) {
         failed = false
         detailsDone = false
-        info = runCatching { app.api.seriesInfo(s.id) }.getOrNull()
+        info = try {
+            app.api.seriesInfo(s.id)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            null
+        }
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, true, info?.tmdbId ?: s.tmdbId, s.name, info?.year ?: s.year)

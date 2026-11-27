@@ -22,6 +22,10 @@ data class TitleQuery(
     /** Categories hidden in settings (ids for this kind only). Applied to the mixed lists. */
     val hiddenCats: Set<String>,
     val langOrder: List<String>,
+    /** Optional language filter chip on mixed lists ("en", "hi"...). */
+    val langFilter: String? = null,
+    /** Optional content-type filter chip ("sports", "docs", "comedy"...). */
+    val kindFilter: String? = null,
 )
 
 /** What [buildTitleList] reads from the library. Implemented by [Catalog] for movies and for series; fakes in tests. */
@@ -32,6 +36,7 @@ interface TitleSource<T> {
     fun inCategory(cat: String): List<T>
     fun byId(id: Int): T?
     fun lang(id: Int): String?
+    fun kind(t: T): String? = null
     fun id(t: T): Int
     fun category(t: T): String
 }
@@ -50,14 +55,19 @@ fun <T> buildTitleList(src: TitleSource<T>, q: TitleQuery, check: () -> Unit = {
         is TitleSelection.Language -> src.byAdded.filterChecked(check) { src.lang(src.id(it)) == s.key }
         is TitleSelection.Category -> src.inCategory(s.id)
     }
-    val allowed = if (q.blockedCats.isEmpty()) base else base.filterChecked(check) { src.category(it) !in q.blockedCats }
+    var allowed = if (q.blockedCats.isEmpty()) base else base.filterChecked(check) { src.category(it) !in q.blockedCats }
+    if (q.langFilter != null) allowed = allowed.filterChecked(check) { src.lang(src.id(it)) == q.langFilter }
+    if (q.kindFilter != null) allowed = allowed.filterChecked(check) { src.kind(it) == q.kindFilter }
     val mixed = q.selection == TitleSelection.Recent || q.selection == TitleSelection.Top || q.selection == TitleSelection.All
     val ranked = if (!mixed) {
         allowed
     } else {
         val visible = if (q.hiddenCats.isEmpty()) allowed else allowed.filterChecked(check) { src.category(it) !in q.hiddenCats }
-        val rank = LangRank(q.langOrder)
-        rankSorted(visible, q.langOrder.size + 1, check) { rank.rank(src.lang(src.id(it))) }
+        if (q.langFilter != null) visible
+        else {
+            val rank = LangRank(q.langOrder)
+            rankSorted(visible, q.langOrder.size + 1, check) { rank.rank(src.lang(src.id(it))) }
+        }
     }
     // Each title once (a provider can list an id twice, a favourite can be saved twice), so grids can key their cells by id.
     return uniqueById(ranked, src)

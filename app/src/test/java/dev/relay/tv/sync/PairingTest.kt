@@ -148,4 +148,30 @@ class PairingTest {
         val got = Pairing.decode(String(newScreen.agree(oldScreen.publicText)!!.open(sealed)!!))!!
         assertEquals(token, got.token)
     }
+
+    @Test fun pairGateRefusesConcurrentHelloWhileCodeIsOnScreen() {
+        var now = 1_000L
+        val gate = PairGate(clock = { now })
+        val genuine = PairSession.create()
+        val intruder = PairSession.create()
+
+        val first = gate.hello(genuine.publicText)!!
+        // Another device on the LAN cannot swap the code or reset tries while the 60 s window is live.
+        assertNull(gate.hello(intruder.publicText))
+        // The same peer retrying its own hello gets the same agreement.
+        assertEquals(first.code, gate.hello(genuine.publicText)!!.code)
+
+        // Five bad bundles exhaust the session; a sixth (even genuine) is refused until expiry or reset.
+        repeat(PairGate.MAX_TRIES) {
+            assertNull(gate.openBundle(ByteArray(32) { 7 }))
+        }
+        val genuineSealed = genuine.agree(first.replyPublicKey)!!.seal(Pairing.encode(bundle).toByteArray())
+        assertNull(gate.openBundle(genuineSealed))
+
+        // Once attempts are exhausted (or after HELLO_LOCK_MS), a fresh hello is allowed again.
+        now += PairGate.HELLO_LOCK_MS + 1
+        val second = gate.hello(intruder.publicText)!!
+        val intruderSealed = intruder.agree(second.replyPublicKey)!!.seal(Pairing.encode(bundle).toByteArray())
+        assertEquals("me/relay-sync", gate.openBundle(intruderSealed)!!.repo)
+    }
 }

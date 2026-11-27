@@ -67,15 +67,19 @@ class RelayApp : Application(), ImageLoaderFactory {
         registerActivityLifecycleCallbacks(dev.relay.tv.data.FlushOnStop(store))
         AppLog.secrets = {
             val acc = store.account
+            val liveAcc = if (::api.isInitialized) api.account else null
             val s = store.settings
             listOfNotNull(
-                acc?.username, acc?.password, BuildConfig.UPDATE_TOKEN.ifBlank { null },
+                acc?.username, acc?.password,
+                liveAcc?.username, liveAcc?.password,
+                BuildConfig.UPDATE_TOKEN.ifBlank { null },
                 s.tmdbKey.ifBlank { null }, s.ratingsKey.ifBlank { null },
-            ) + (if (::sync.isInitialized) sync.settings.secrets() else emptyList())
+            ).distinct() + (if (::sync.isInitialized) sync.settings.secrets() else emptyList())
         }
         AppLog.saveUntil = store.settings.logUntil
         AppLog.init(this)
         dev.relay.tv.player.TimeshiftBuffer.cleanLeftovers(cacheDir)
+        dev.relay.tv.update.Updater.cleanStaging(this)
         dev.relay.tv.data.DeviceTier.current = deviceTier()
         api = XtreamApi(http) { store.settings.userAgent.ifBlank { "RelayTV/1.0" } }
         api.account = store.account

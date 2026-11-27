@@ -76,6 +76,8 @@ private enum class SettingsPage(val title: String) {
     ADVANCED("Advanced playback"),
 }
 
+private val TOP_SETTINGS_PAGES = SettingsPage.entries.filter { it != SettingsPage.ADVANCED }
+
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun SettingsTab() {
@@ -188,7 +190,7 @@ fun SettingsTab() {
             .focusProperties { canFocus = true }
             .onFocusChanged { targetFocused = it.isFocused }
         LaunchedEffect(restore) {
-            val target = if (page == null) restore?.let { it.ordinal + 1 } else if (restore == null) 0 else 1
+            val target = if (page == null) restore?.let { TOP_SETTINGS_PAGES.indexOf(it).takeIf { i -> i >= 0 }?.plus(1) } else if (restore == null) 0 else 1
             if (target == null) return@LaunchedEffect
             if (isTv || restore != null) inputMode.requestInputMode(InputMode.Keyboard)
             if (list.layoutInfo.visibleItemsInfo.none { it.index == target }) list.scrollToItem(target)
@@ -217,8 +219,8 @@ fun SettingsTab() {
             when (currentPage) {
                 null -> {
                     item { Section("Settings") }
-                    items(SettingsPage.ADVANCED.ordinal) { index ->
-                        val category = SettingsPage.entries[index]
+                    items(TOP_SETTINGS_PAGES.size) { index ->
+                        val category = TOP_SETTINGS_PAGES[index]
                         ListRow(
                             category.title,
                             onClick = { restore = null; page = category },
@@ -700,11 +702,13 @@ fun SettingsTab() {
                         }
                     }
                     item {
-                        Setting("Back up to a file", "Not including your login, PINs or API keys", false) {
-                            try {
-                                createDoc.launch("relay-backup.json")
-                            } catch (e: Exception) {
-                                backupNote = "No file picker on this device. Use Phone companion instead."
+                        Setting("Back up to a file", "Not including your login, PINs or API keys", kidsLocked) {
+                            gate.run("Parent PIN to export a backup") {
+                                try {
+                                    createDoc.launch("relay-backup.json")
+                                } catch (e: Exception) {
+                                    backupNote = "No file picker on this device. Use Phone companion instead."
+                                }
                             }
                         }
                     }
@@ -741,7 +745,7 @@ fun SettingsTab() {
                             "Save detailed logs",
                             if (on) "On until ${timeFmt.format(Date(until))} · ${AppLog.diskBytes() / 1024} KB"
                             else "Off · important lines are always kept (${AppLog.diskBytes() / 1024} KB)",
-                            false,
+                            kidsLocked,
                         ) {
                             val next = if (on) 0L else System.currentTimeMillis() + AppLog.SAVE_WINDOW_MS
                             AppLog.saveUntil = next
@@ -749,17 +753,17 @@ fun SettingsTab() {
                             AppLog.i("App", if (next > 0) "Detailed logging on for 24h" else "Detailed logging off")
                         }
                     }
-                    item { Setting("View recent activity", "${AppLog.recent().size} lines", false) { viewingLog = true } }
-                    item { Setting("Library and language report", "What Relay recognised in your playlist", false) { reportOpen = true } }
+                    item { Setting("View recent activity", "${AppLog.recent().size} lines", kidsLocked) { viewingLog = true } }
+                    item { Setting("Library and language report", "What Relay recognised in your playlist", kidsLocked) { reportOpen = true } }
                     item {
                         val crash = AppLog.lastCrash()
                         val how = if (rememberIsTv()) "On a TV: Backup & phone → Phone companion → Download logs" else ""
-                        Setting("Share logs", listOfNotNull(crash?.let { "Includes crash from ${timeFmt.format(Date(it))}" }, how.ifEmpty { null }).joinToString(" · "), false) {
+                        Setting("Share logs", listOfNotNull(crash?.let { "Includes crash from ${timeFmt.format(Date(it))}" }, how.ifEmpty { null }).joinToString(" · "), kidsLocked) {
                             logNote = LogShare.share(ctx)
                         }
                     }
                     item {
-                        Setting("Clear logs", "", false) {
+                        Setting("Clear logs", "", kidsLocked) {
                             AppLog.clear()
                             logNote = "Logs cleared."
                         }

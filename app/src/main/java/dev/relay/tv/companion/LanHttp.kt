@@ -7,13 +7,15 @@ import java.net.Socket
 
 /** The few pieces of plain HTTP that Relay's small home-network servers share (the phone page and Play on TV). */
 object LanHttp {
+    const val MAX_HEADERS = 64
+
     /** A parsed request: method, path without its query, the Host header (null when missing), and the body. */
-    class Request(val method: String, val path: String, val body: ByteArray, val host: String? = null)
+    class Request(val method: String, val path: String, val body: ByteArray, val host: String? = null, val origin: String? = null)
 
     /** The request line and the headers Relay reads. A length that is missing or not a number counts as 0. */
-    class Head(val method: String, val path: String, val host: String?, val length: Int)
+    class Head(val method: String, val path: String, val host: String?, val length: Int, val origin: String? = null)
 
-    /** Reads the request line and headers from [input]; null when they are malformed. */
+    /** Reads the request line and headers from [input]; null when they are malformed or exceed [MAX_HEADERS]. */
     fun readHead(input: InputStream): Head? {
         val requestLine = readLine(input) ?: return null
         val parts = requestLine.split(" ")
@@ -21,23 +23,28 @@ object LanHttp {
         val path = parts.getOrNull(1)?.substringBefore('?') ?: return null
         var length = 0
         var host: String? = null
+        var origin: String? = null
+        var count = 0
         while (true) {
             val h = readLine(input) ?: break
             if (h.isEmpty()) break
+            if (++count > MAX_HEADERS) return null
             val name = h.substringBefore(':').trim()
             val value = h.substringAfter(':', "").trim()
             when {
                 name.equals("content-length", ignoreCase = true) -> length = value.toIntOrNull() ?: 0
                 name.equals("host", ignoreCase = true) -> host = value
+                name.equals("origin", ignoreCase = true) -> origin = value
             }
         }
-        return Head(method, path, host, length)
+        return Head(method, path, host, length, origin)
     }
 
     /**
      * Reads one request from [input]. Null when it is malformed. A body over [maxBody] (or a negative
      * length) is answered with 413 here and also gives null. A request addressed to any name other
-     * than this device's own address and port (see [hostMatches]) is answered with 403 and gives null.
+     * than this device's own address and port (see [hostMatches]), or carrying a cross-origin `Origin`
+     * header on a POST, is answered with 403 and gives null.
      */
     fun read(sock: Socket, input: InputStream, maxBody: Int): Request? {
         val head = readHead(input) ?: return null
@@ -49,7 +56,20 @@ object LanHttp {
             respond(sock, 403, "text/plain", "Wrong address".toByteArray())
             return null
         }
-        return Request(head.method, head.path, readBytes(input, head.length), head.host)
+        if (head.method == "POST" && !originAllowed(head.origin, sock.localAddress, sock.localPort)) {
+            respond(sock, 403, "text/plain", "Wrong origin".toByteArray())
+            return null
+        }
+        return Request(head.method, head.path, readBytes(input, head.length), head.host, head.origin)
+    }
+
+    /** Non-browser clients send no Origin; browsers send `http://<host>:<port>` (or `"null"`), which must match this server. */
+    fun originAllowed(origin: String?, local: InetAddress, port: Int): Boolean {
+        if (origin == null) return true
+        val o = origin.trim().lowercase()
+        if (!o.startsWith("http://")) return false
+        val authority = o.removePrefix("http://").substringBefore('/')
+        return hostMatches(authority, local, port)
     }
 
     /**
@@ -63,7 +83,9 @@ object LanHttp {
             h.startsWith("[") -> {
                 val end = h.indexOf(']')
                 if (end < 0) return false
-                h.substring(1, end) to h.substring(end + 1).removePrefix(":")
+                val rest = h.substring(end + 1)
+                if (!rest.startsWith(":")) return false
+                h.substring(1, end) to rest.substring(1)
             }
             h.count { it == ':' } == 1 -> h.substringBefore(':') to h.substringAfter(':')
             else -> return false

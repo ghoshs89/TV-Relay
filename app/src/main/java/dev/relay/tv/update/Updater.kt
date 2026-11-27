@@ -4,12 +4,14 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import dev.relay.tv.BuildConfig
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Jsons
@@ -18,8 +20,11 @@ import dev.relay.tv.data.at
 import dev.relay.tv.data.long
 import dev.relay.tv.data.str
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -54,6 +59,8 @@ object Updater {
     var state by mutableStateOf<UpdateState>(UpdateState.Idle)
     var dialogOpen by mutableStateOf(false)
     var announcedCode = 0
+    @Volatile var activeSessionId: Int = -1
+        internal set
 
     private const val API = "https://api.github.com"
     /** Always on: the repository is public, so reading its releases needs no token. */
@@ -72,29 +79,53 @@ object Updater {
             else -> null
         }
 
-    private fun request(url: String, accept: String): Request = Request.Builder()
-        .url(url)
-        .apply { UpdateRequest.authHeader(BuildConfig.UPDATE_TOKEN)?.let { header("Authorization", it) } }
-        .header("Accept", accept)
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "RelayTV-Updater")
-        .build()
+    private fun setState(next: UpdateState) {
+        Snapshot.withMutableSnapshot { state = next }
+    }
+
+    private fun request(url: String, accept: String): Request {
+        if (!UpdateRequest.isTrustedUrl(url)) throw IOException("Refused untrusted update address")
+        val host = url.toHttpUrlOrNull()?.host.orEmpty()
+        return Request.Builder()
+            .url(url)
+            .apply { UpdateRequest.authHeader(BuildConfig.UPDATE_TOKEN, host)?.let { header("Authorization", it) } }
+            .header("Accept", accept)
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "RelayTV-Updater")
+            .build()
+    }
+
+    /** Removes leftover downloaded APKs from an interrupted update. */
+    fun cleanStaging(ctx: Context) {
+        runCatching { File(ctx.cacheDir, "updates").deleteRecursively() }
+    }
+
+    /** Dismisses an Installing prompt if the viewer backed out of Android's installer screen. */
+    fun dismissInstalling() {
+        val current = state
+        if (current is UpdateState.Installing) {
+            setState(UpdateState.Available(current.info))
+        }
+        dialogOpen = false
+    }
 
     /** Checks GitHub. Quiet mode keeps an earlier "available" result if the network blips. */
     suspend fun check(http: OkHttpClient, quiet: Boolean = false) {
         if (busy) return
         val previous = state
-        if (!quiet) state = UpdateState.Checking
-        state = try {
+        if (!quiet) setState(UpdateState.Checking)
+        val next = try {
             val info = latest(http)
             AppLog.i("Update", "Latest release ${info?.versionName ?: "none"}, installed ${BuildConfig.VERSION_NAME}")
             if (info != null && info.versionCode > BuildConfig.VERSION_CODE) UpdateState.Available(info) else UpdateState.UpToDate
         } catch (e: CancellationException) {
+            if (!quiet) setState(previous)
             throw e
         } catch (e: Exception) {
             AppLog.w("Update", "Check failed", e)
             if (quiet) previous else UpdateState.Failed(e.message ?: "Update check failed", null)
         }
+        setState(next)
     }
 
     private suspend fun latest(http: OkHttpClient): UpdateInfo? = withContext(Dispatchers.IO) {
@@ -144,23 +175,40 @@ object Updater {
         return false
     }
 
+    /** Runs [downloadAndInstall] in [scope] (the app scope) so closing the dialog never leaves state stuck. */
+    fun startDownloadAndInstall(ctx: Context, http: OkHttpClient, scope: CoroutineScope, info: UpdateInfo) {
+        if (busy) return
+        val appCtx = ctx.applicationContext
+        scope.launch { downloadAndInstall(appCtx, http, info) }
+    }
+
     suspend fun downloadAndInstall(ctx: Context, http: OkHttpClient, info: UpdateInfo) {
         if (busy) return
-        if (!canInstall(ctx)) {
-            state = UpdateState.NeedsPermission(info)
+        val appCtx = ctx.applicationContext
+        if (!canInstall(appCtx)) {
+            setState(UpdateState.NeedsPermission(info))
             return
         }
         try {
-            state = UpdateState.Downloading(info, 0f)
-            val apk = download(ctx, http, info)
-            verify(ctx, apk)
-            state = UpdateState.Installing(info)
-            withContext(Dispatchers.IO) { install(ctx, apk) }
+            setState(UpdateState.Downloading(info, 0f))
+            val apk = download(appCtx, http, info)
+            verify(appCtx, apk, info.versionCode)
+            setState(UpdateState.Installing(info))
+            withContext(Dispatchers.IO) {
+                try {
+                    install(appCtx, apk)
+                } finally {
+                    cleanStaging(appCtx)
+                }
+            }
         } catch (e: CancellationException) {
+            cleanStaging(appCtx)
+            if (state is UpdateState.Downloading) setState(UpdateState.Available(info))
             throw e
         } catch (e: Exception) {
+            cleanStaging(appCtx)
             AppLog.e("Update", "Update to ${info.versionName} failed", e)
-            state = UpdateState.Failed(e.message ?: "Update failed", info)
+            setState(UpdateState.Failed(e.message ?: "Update failed", info))
         }
     }
 
@@ -189,7 +237,7 @@ object Updater {
                             if (total > 0 && read - lastShown >= 512 * 1024) {
                                 lastShown = read
                                 val p = (read.toFloat() / total).coerceIn(0f, 1f)
-                                withContext(Dispatchers.Main) { state = UpdateState.Downloading(info, p) }
+                                withContext(Dispatchers.Main) { setState(UpdateState.Downloading(info, p)) }
                             }
                         }
                     }
@@ -198,8 +246,13 @@ object Updater {
             file
         }
 
-    private fun verify(ctx: Context, apk: File) {
-        val pkg = ctx.packageManager.getPackageArchiveInfo(apk.path, 0)
+    private fun verify(ctx: Context, apk: File, expectedCode: Int) {
+        val pm = ctx.packageManager
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+        val pkg = pm.getPackageArchiveInfo(apk.path, flags)
             ?: throw IOException("The downloaded file isn't a valid APK.")
         if (pkg.packageName != ctx.packageName) throw IOException("The downloaded APK is for a different app.")
         val code = if (Build.VERSION.SDK_INT >= 28) pkg.longVersionCode else {
@@ -207,6 +260,29 @@ object Updater {
             pkg.versionCode.toLong()
         }
         if (code <= BuildConfig.VERSION_CODE) throw IOException("The downloaded build isn't newer than this one.")
+        if (code != expectedCode.toLong()) throw IOException("The downloaded APK version ($code) didn't match the release ($expectedCode).")
+        val archiveCerts = signingCertsOf(pkg)
+        val installedPkg = pm.getPackageInfo(ctx.packageName, flags)
+        val installedCerts = signingCertsOf(installedPkg)
+        if (archiveCerts.isNotEmpty() && installedCerts.isNotEmpty() && archiveCerts.intersect(installedCerts).isEmpty()) {
+            throw IOException("The downloaded APK isn't signed with the same key as the installed app.")
+        }
+    }
+
+    private fun signingCertsOf(info: android.content.pm.PackageInfo): Set<ByteArrayKey> {
+        val sigs = if (Build.VERSION.SDK_INT >= 28) {
+            val s = info.signingInfo ?: return emptySet()
+            if (s.hasMultipleSigners()) s.apkContentsSigners else s.signingCertificateHistory
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures
+        }
+        return sigs?.map { ByteArrayKey(it.toByteArray()) }?.toSet().orEmpty()
+    }
+
+    private class ByteArrayKey(val bytes: ByteArray) {
+        override fun equals(other: Any?): Boolean = other is ByteArrayKey && bytes.contentEquals(other.bytes)
+        override fun hashCode(): Int = bytes.contentHashCode()
     }
 
     private fun install(ctx: Context, apk: File) {
@@ -220,17 +296,24 @@ object Updater {
             }
         }
         val sessionId = installer.createSession(params)
-        installer.openSession(sessionId).use { session ->
-            session.openWrite("relay.apk", 0, apk.length()).use { out ->
-                apk.inputStream().use { it.copyTo(out, 64 * 1024) }
-                session.fsync(out)
+        activeSessionId = sessionId
+        try {
+            installer.openSession(sessionId).use { session ->
+                session.openWrite("relay.apk", 0, apk.length()).use { out ->
+                    apk.inputStream().use { it.copyTo(out, 64 * 1024) }
+                    session.fsync(out)
+                }
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
+                val callback = PendingIntent.getBroadcast(
+                    ctx, sessionId, Intent(ctx, InstallReceiver::class.java), flags,
+                )
+                session.commit(callback.intentSender)
             }
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-            val callback = PendingIntent.getBroadcast(
-                ctx, sessionId, Intent(ctx, InstallReceiver::class.java), flags,
-            )
-            session.commit(callback.intentSender)
+        } catch (e: Exception) {
+            activeSessionId = -1
+            runCatching { installer.abandonSession(sessionId) }
+            throw e
         }
     }
 }

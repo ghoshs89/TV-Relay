@@ -1,11 +1,12 @@
 package dev.relay.tv.data
 
-import android.net.Uri
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * Pulls server URLs, username and password out of a provider's welcome message, e.g.
  *   "url/host = http://example.com  ...  username = abc  password = xyz"
- * Links with a path (setup guides, DNS checkers) are ignored; only bare server hosts count.
+ * Links with a path (setup guides, DNS checkers) or non-server labels (billing panels, support,
+ * EPG links) are ignored; only Xtream server hosts count.
  */
 object ProviderText {
     /** [nets]: the network each server is meant for, read from the words in front of it (see [HostLabels]). */
@@ -19,6 +20,8 @@ object ProviderText {
     private val URL = Regex("""https?://[^\s"'<>|,()\[\]]+""", RegexOption.IGNORE_CASE)
     private val USER = Regex("""(?i)\buser(?:name)?\b\s*[:=]\s*([^\s,;|]+)""")
     private val PASS = Regex("""(?i)\bpass(?:word)?\b\s*[:=]\s*([^\s,;|]+)""")
+    // Words immediately preceding a link that mark it as a billing/support/guide page rather than a stream server.
+    private val NON_SERVER_LABEL = Regex("""(?i)\b(epg|xmltv|panel|billing|portal\s+login|support|help|guide|telegram|discord|whatsapp|website)\s*[:=\-]*\s*$""")
 
     fun parse(text: String): Result {
         if (text.isBlank()) return Result(emptyList(), null, null)
@@ -32,15 +35,17 @@ object ProviderText {
             val label = text.substring(labelStart, m.range.first)
             labelStart = m.range.last + 1
             val raw = m.value.trimEnd('.', '/')
-            val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: continue
-            val path = uri.path.orEmpty().trim('/')
-            val isApi = path.endsWith("player_api.php") || path.endsWith("get.php")
+            val parsed = raw.toHttpUrlOrNull() ?: continue
+            val path = parsed.encodedPath.trim('/')
+            val isApi = path.endsWith("player_api.php", ignoreCase = true) || path.endsWith("get.php", ignoreCase = true)
             if (isApi) {
                 // M3U / API links carry the login in the query string.
-                if (user == null) user = uri.getQueryParameter("username")
-                if (pass == null) pass = uri.getQueryParameter("password")
-            } else if (path.isNotEmpty()) {
-                continue // a web page, not a server
+                if (user == null) user = parsed.queryParameter("username")
+                if (pass == null) pass = parsed.queryParameter("password")
+            } else {
+                if (path.isNotEmpty() || parsed.query != null) continue // a web page or xmltv link, not a server
+                val tail = label.takeLast(48)
+                if (NON_SERVER_LABEL.containsMatchIn(tail)) continue
             }
             val host = XtreamApi.normalizeHost(raw)
             if (host.isNotEmpty() && host !in hosts) {

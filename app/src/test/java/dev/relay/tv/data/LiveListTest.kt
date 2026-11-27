@@ -155,4 +155,25 @@ class LiveListTest {
         }
         assertTrue(buildLiveList(big, query(LiveSelection.Category("big"), sort = 0)).letters.isEmpty())
     }
+
+    @Test
+    fun favouritesHistoryAndCategoryDropBlockedAdultChannels() {
+        assertEquals(listOf(5, 1), ids(query(LiveSelection.Favourites(listOf(5, 4, 1)))))
+        assertEquals(listOf(3, 2), ids(query(LiveSelection.History(listOf(3, 4, 2)))))
+        assertEquals(emptyList<Int>(), ids(query(LiveSelection.Category("xxx"))))
+    }
+
+    @Test
+    fun contentKindFilterSelectsMatchingChannelsOnly() {
+        val kinds = mapOf(1 to ContentKinds.NEWS, 3 to ContentKinds.ENTERTAINMENT)
+        val withKinds = object : LiveData by data {
+            override fun kind(ch: Channel) = kinds[ch.id]
+        }
+        val q = LiveQuery(
+            cat = "all", selection = LiveSelection.All, sort = 0, filters = emptySet(), find = "",
+            blockedCats = setOf("xxx"), hiddenCats = emptySet(), langOrder = listOf("en", "hi"),
+            merge = false, favs = emptyList(), preferred = emptyMap(), kind = ContentKinds.NEWS,
+        )
+        assertEquals(listOf(1), buildLiveList(withKinds, q).channels.map { it.id })
+    }
 }

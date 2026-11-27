@@ -123,3 +123,59 @@ class PairAgreement internal constructor(private val secret: ByteArray, private 
         null
     }
 }
+
+/**
+ * Guards a waiting screen's pairing session so a second device on the home network cannot overwrite
+ * the 6-digit code currently being checked or reset the failed-attempt counter while the agreement is live.
+ */
+class PairGate(
+    private val session: PairSession = PairSession.create(),
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    private var agreement: PairAgreement? = null
+    private var peerKey: String? = null
+    private var agreedAt: Long = 0L
+    private var tries: Int = 0
+
+    class Accepted(val replyPublicKey: String, val code: String)
+
+    @Synchronized
+    fun hello(theirPublic: String): Accepted? {
+        val clean = theirPublic.trim()
+        val now = clock()
+        val current = agreement
+        // Refuse a different device while a fresh code is on screen and still has attempts left.
+        if (current != null && peerKey != clean && now - agreedAt < HELLO_LOCK_MS && tries < MAX_TRIES) {
+            return null
+        }
+        val ag = session.agree(clean) ?: return null
+        agreement = ag
+        peerKey = clean
+        agreedAt = now
+        tries = 0
+        return Accepted(session.publicText, ag.code)
+    }
+
+    @Synchronized
+    fun openBundle(sealed: ByteArray): PairBundle? {
+        val ag = agreement ?: return null
+        if (clock() - agreedAt > BUNDLE_WINDOW_MS) return null
+        if (++tries > MAX_TRIES) return null
+        val plain = ag.open(sealed) ?: return null
+        return Pairing.decode(String(plain, Charsets.UTF_8))
+    }
+
+    @Synchronized
+    fun reset() {
+        agreement = null
+        peerKey = null
+        agreedAt = 0L
+        tries = 0
+    }
+
+    companion object {
+        const val HELLO_LOCK_MS = 60_000L
+        const val BUNDLE_WINDOW_MS = 5 * 60_000L
+        const val MAX_TRIES = 5
+    }
+}

@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -27,6 +28,8 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
 import dev.relay.tv.ui.ReminderCenter
+import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.compose.runtime.snapshotFlow
 import android.widget.LinearLayout
@@ -110,6 +113,7 @@ class PlayerActivity : ComponentActivity() {
     private var previousLiveIndex: Int? = null
     private var hostAttempt = 0
     private var liveRetries = 0
+    private var behindLiveRetries = 0
     private var lastItem: PlayItem? = null
     private var lastDuration = 0L
 
@@ -127,6 +131,8 @@ class PlayerActivity : ComponentActivity() {
     private var skipBackSec = SkipSizes.DEFAULT_BACK
     private var skipForwardSec = SkipSizes.DEFAULT_FORWARD
     private var recordLiveWatch = Runnable { }
+    private val retryLiveRunnable = Runnable { if (!failing && !stoppedInBackground) reconnectLive() }
+    private val clearLiveRetries = Runnable { liveRetries = 0 }
 
     // Audio and subtitle languages, and the per-series memory of what the viewer picked.
     private val trackPrefs by lazy { PlayerTracks(app) }
@@ -145,6 +151,7 @@ class PlayerActivity : ComponentActivity() {
     private var stoppedInBackground = false
     private var resumeVodAfterStop: Boolean? = null
     private lateinit var tsSource: ProgressiveMediaSource.Factory
+    private lateinit var hlsSource: HlsMediaSource.Factory
     private lateinit var tsBar: TimeshiftBar
     private val tsTicker = object : Runnable {
         override fun run() {
@@ -212,6 +219,7 @@ class PlayerActivity : ComponentActivity() {
     /** Pauses and asks. Keep watching resumes (live goes back to the live edge). */
     private fun askStillWatching() {
         AppLog.i("Player", "Asking whether anyone is still watching")
+        handler.removeCallbacks(retryLiveRunnable)
         saveProgress(finished = false)
         player.pause()
         overlay.visibility = View.GONE
@@ -220,6 +228,7 @@ class PlayerActivity : ComponentActivity() {
         failure.showStillWatching {
             failure.hide()
             stillWatching.answered(SystemClock.elapsedRealtime())
+            stoppedInBackground = false
             if (req.live) playLive(liveIndex) else player.play()
             view.requestFocus()
         }
@@ -247,6 +256,8 @@ class PlayerActivity : ComponentActivity() {
 
     private fun stopForLimit(reason: String) {
         AppLog.i("Access", "Viewing limit reached while playing: $reason")
+        handler.removeCallbacks(retryLiveRunnable)
+        handler.removeCallbacks(clearLiveRetries)
         saveProgress(finished = false)
         player.stop()
         stopTimeshift()
@@ -338,21 +349,22 @@ class PlayerActivity : ComponentActivity() {
             }
             .build()
         val dataSource = OkHttpDataSource.Factory(streamHttp).setUserAgent(s.userAgent.ifBlank { "RelayTV/1.0" })
-        val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
-            DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
-        )
+        val tsFlags = DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+            DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS or
+            DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS
+        val extractors = DefaultExtractorsFactory().setTsExtractorFlags(tsFlags)
+        val errorPolicy = object : DefaultLoadErrorHandlingPolicy() {
+            override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+                if (isPlaylistError(info.exception)) C.TIME_UNSET else super.getRetryDelayMsFor(info)
+        }
         val mediaSources = DefaultMediaSourceFactory(dataSource, extractors)
-            .setLoadErrorHandlingPolicy(object : DefaultLoadErrorHandlingPolicy() {
-                override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
-                    if (isPlaylistError(info.exception)) C.TIME_UNSET else super.getRetryDelayMsFor(info)
-            })
+            .setLoadErrorHandlingPolicy(errorPolicy)
+        hlsSource = HlsMediaSource.Factory(dataSource)
+            .setExtractorFactory(DefaultHlsExtractorFactory(tsFlags, true))
+            .setLoadErrorHandlingPolicy(errorPolicy)
         tsSource = ProgressiveMediaSource.Factory(
             TimeshiftDataSource.Factory { timeshift },
-            DefaultExtractorsFactory().setTsExtractorFlags(
-                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                    DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
-            ),
+            DefaultExtractorsFactory().setTsExtractorFlags(tsFlags),
         )
         // ON = use FFmpeg only when the device can't decode a format itself (keeps AC3 passthrough).
         val renderers = RelayRenderersFactory(this, s.audioDelayMs)
@@ -735,7 +747,7 @@ class PlayerActivity : ComponentActivity() {
             }
             hostAttempt = if (urls.isEmpty()) 0 else (hostAttempt + 1) % urls.size
             showOverlay("Reconnecting…")
-            player.setMediaItem(mediaItem(item, hostAttempt))
+            setDirectLiveSource(item, hostAttempt)
             player.prepare()
             player.playWhenReady = true
             return
@@ -776,6 +788,15 @@ class PlayerActivity : ComponentActivity() {
         return b.build()
     }
 
+    private fun setDirectLiveSource(item: PlayItem, attempt: Int) {
+        val mi = mediaItem(item, attempt)
+        if (mi.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8) {
+            player.setMediaSource(hlsSource.createMediaSource(mi))
+        } else {
+            player.setMediaItem(mi)
+        }
+    }
+
     private fun startVod() {
         tuneStartedAt = SystemClock.elapsedRealtime()
         val start = req.index.coerceIn(0, req.items.lastIndex)
@@ -798,12 +819,15 @@ class PlayerActivity : ComponentActivity() {
         playLive(target)
     }
 
-    private fun playLive(index: Int, playlistUrl: String? = null) {
+    private fun playLive(index: Int, playlistUrl: String? = null, keepRetries: Boolean = false) {
+        handler.removeCallbacks(retryLiveRunnable)
+        handler.removeCallbacks(clearLiveRetries)
         tuneStartedAt = SystemClock.elapsedRealtime()
         val n = req.items.size
         liveIndex = ((index % n) + n) % n
         hostAttempt = 0
-        liveRetries = 0
+        if (!keepRetries) liveRetries = 0
+        behindLiveRetries = 0
         liveStalls = 0
         liveReady = false
         liveWatch.reset()
@@ -826,7 +850,7 @@ class PlayerActivity : ComponentActivity() {
             tsOffset = 0L
             player.setMediaSource(tsSource.createMediaSource(tsItem(item, 0L)))
         } else {
-            player.setMediaItem(mediaItem(item, 0))
+            setDirectLiveSource(item, 0)
         }
         player.prepare()
         player.playWhenReady = true
@@ -847,12 +871,12 @@ class PlayerActivity : ComponentActivity() {
     private fun reconnectLive() {
         if (stoppedInBackground) return
         if (timeshift != null) {
-            // The pause buffer reconnects on its own; restart cleanly at live.
-            playLive(liveIndex)
+            // The pause buffer reconnects on its own; restart cleanly at live without wiping retry count.
+            playLive(liveIndex, keepRetries = true)
             return
         }
         val item = currentItem() ?: return
-        player.setMediaItem(mediaItem(item, hostAttempt))
+        setDirectLiveSource(item, hostAttempt)
         player.prepare()
         player.playWhenReady = true
     }
@@ -1015,21 +1039,32 @@ class PlayerActivity : ComponentActivity() {
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_READY) {
                 if (liveRetries > 0 || hostAttempt > 0) AppLog.i("Player", "Recovered after retry")
-                AppLog.d("Player", "Ready: ${currentItem()?.title} via ${hostOf(currentItem()?.let { urlsFor(it).getOrNull(hostAttempt) })}")
-                liveRetries = 0
+                val activeUrl = currentItem()?.let { (if (req.live && liveUrls.isNotEmpty()) liveUrls else urlsFor(it)).getOrNull(hostAttempt) }
+                AppLog.d("Player", "Ready: ${currentItem()?.title} via ${hostOf(activeUrl)}")
+                behindLiveRetries = 0
                 liveStalls = 0
                 vodStalls = 0
-                if (req.live) liveReady = true
+                if (req.live) {
+                    liveReady = true
+                    // Clear the retry count only once the stream stays up for a few seconds, so a stream
+                    // that buffers one packet and immediately closes does not loop forever.
+                    handler.removeCallbacks(clearLiveRetries)
+                    handler.postDelayed(clearLiveRetries, 8_000)
+                } else {
+                    liveRetries = 0
+                }
                 if (player.duration != C.TIME_UNSET) lastDuration = player.duration
                 onReady()
             }
             if (state == Player.STATE_ENDED) {
                 if (req.live) {
+                    handler.removeCallbacks(clearLiveRetries)
                     // The server closed the stream. Reconnect, but not forever.
                     if (liveRetries < 3) {
                         liveRetries++
                         AppLog.w("Player", "Live stream ended; reconnecting ($liveRetries of 3)")
-                        reconnectLive()
+                        handler.removeCallbacks(retryLiveRunnable)
+                        handler.postDelayed(retryLiveRunnable, 1_500)
                     } else if (!tryNextVersion()) {
                         showFailure("This channel isn't responding")
                     }
@@ -1082,6 +1117,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun handleError(e: PlaybackException) {
+        handler.removeCallbacks(clearLiveRetries)
         val item = currentItem() ?: return
         lastErrorName = e.errorCodeName
         lastHttp = httpCodeOf(e)
@@ -1094,26 +1130,32 @@ class PlayerActivity : ComponentActivity() {
             if (recorderPlaylist != null) showOverlay("Pause and rewind aren't available on this HLS stream")
             return
         }
-        AppLog.e("Player", "${e.errorCodeName} on ${item.kind} '${item.title}' via ${hostOf(urlsFor(item).getOrNull(hostAttempt))}", e)
+        val urls = if (req.live && liveUrls.isNotEmpty()) liveUrls else urlsFor(item)
+        AppLog.e("Player", "${e.errorCodeName} on ${item.kind} '${item.title}' via ${hostOf(urls.getOrNull(hostAttempt))}", e)
         if (req.live && timeshift != null) {
             AppLog.w("Timeshift", "Pause buffer playback failed for ${item.title}; playing directly")
             tsDisabled += item.key
-            playLive(liveIndex)
+            playLive(liveIndex, keepRetries = true)
             showOverlay("Pause isn't available on this channel")
             return
         }
-        if (e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+        if (e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW && behindLiveRetries < 3) {
+            behindLiveRetries++
             player.seekToDefaultPosition()
             player.prepare()
             return
         }
-        val urls = if (req.live) liveUrls else urlsFor(item)
+        behindLiveRetries = 0
         if (hostAttempt + 1 < urls.size) {
             hostAttempt++
-            val pos = player.currentPosition
-            val idx = if (req.live) 0 else player.currentMediaItemIndex
-            player.replaceMediaItem(idx, mediaItem(item, hostAttempt))
-            if (!req.live && pos > 0) player.seekTo(idx, pos)
+            if (req.live) {
+                setDirectLiveSource(item, hostAttempt)
+            } else {
+                val pos = player.currentPosition
+                val idx = player.currentMediaItemIndex
+                player.replaceMediaItem(idx, mediaItem(item, hostAttempt))
+                if (pos > 0) player.seekTo(idx, pos)
+            }
             player.prepare()
             player.playWhenReady = true
             showOverlay("Trying backup server…")
@@ -1126,7 +1168,8 @@ class PlayerActivity : ComponentActivity() {
             liveRetries++
             hostAttempt = 0
             showOverlay("Reconnecting…")
-            handler.postDelayed({ if (!failing) reconnectLive() }, 2_000)
+            handler.removeCallbacks(retryLiveRunnable)
+            handler.postDelayed(retryLiveRunnable, 2_000)
             return
         }
         if (req.live && tryNextVersion()) return
@@ -1428,6 +1471,10 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        val blockedByPrompt = failing ||
+            (::stillWatching.isInitialized && stillWatching.asking) ||
+            (::limits.isInitialized && limits.reached)
+        if (blockedByPrompt) return
         if (stoppedInBackground) {
             // Came back after leaving the app: resume live, with a fresh pause buffer.
             stoppedInBackground = false
@@ -1444,6 +1491,8 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        handler.removeCallbacks(retryLiveRunnable)
+        handler.removeCallbacks(clearLiveRetries)
         if (::limits.isInitialized) {
             limits.flush()
             limits.pause()
@@ -1452,8 +1501,10 @@ class PlayerActivity : ComponentActivity() {
             saveProgress(finished = false)
             if (!req.live) resumeVodAfterStop = player.playWhenReady
             player.pause()
-            // Don't keep recording (and using the connection) while Relay is in the background.
-            if (req.live && timeshift != null && !isInPictureInPictureMode) {
+            val screenOn = (getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive != false
+            val keepPipPlaying = isInPictureInPictureMode && screenOn
+            // Don't keep recording (or holding a live connection) while Relay is in the background or the screen is off.
+            if (req.live && !keepPipPlaying) {
                 stoppedInBackground = true
                 player.stop()
                 stopTimeshift()

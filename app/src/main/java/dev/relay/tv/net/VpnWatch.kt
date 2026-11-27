@@ -19,6 +19,7 @@ class VpnWatch(context: Context, private val onChange: (Boolean) -> Unit) {
         private set
 
     @Volatile private var lastKnown: Boolean? = null
+    @Volatile private var activeNet: Network? = null
 
     private fun set(v: Boolean) {
         val before = lastKnown
@@ -31,7 +32,9 @@ class VpnWatch(context: Context, private val onChange: (Boolean) -> Unit) {
     fun start() {
         val cm = app.getSystemService(ConnectivityManager::class.java) ?: return
         runCatching {
-            cm.getNetworkCapabilities(cm.activeNetwork)?.let { caps ->
+            val current = cm.activeNetwork
+            activeNet = current
+            cm.getNetworkCapabilities(current)?.let { caps ->
                 val v = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
                 vpnOn = v
                 lastKnown = v
@@ -40,11 +43,22 @@ class VpnWatch(context: Context, private val onChange: (Boolean) -> Unit) {
         runCatching {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    activeNet = network
                     set(caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
                 }
 
                 override fun onLost(network: Network) {
-                    vpnOn = null
+                    if (network == activeNet) {
+                        val fallback = runCatching { cm.activeNetwork }.getOrNull()?.takeIf { it != network }
+                        val caps = fallback?.let { runCatching { cm.getNetworkCapabilities(it) }.getOrNull() }
+                        if (fallback != null && caps != null) {
+                            activeNet = fallback
+                            set(caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
+                        } else {
+                            activeNet = null
+                            vpnOn = null
+                        }
+                    }
                 }
             })
         }.onFailure { AppLog.w("Network", "Can't watch for a VPN; servers keep their saved order", it) }

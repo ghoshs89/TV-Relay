@@ -2,6 +2,7 @@ package dev.relay.tv.data
 
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -136,7 +137,10 @@ class Ratings(client: OkHttpClient, cacheFile: File?, private val clock: () -> L
     // not every poster on screen. Entries exist only for titles whose saved score was asked for.
     private val keyVersions = ConcurrentHashMap<String, MutableIntState>()
 
-    internal fun versionOf(key: String): MutableIntState = keyVersions.getOrPut(key) { mutableIntStateOf(0) }
+    internal fun versionOf(key: String): MutableIntState {
+        CacheLimits.capSize(keyVersions, max = 512, drop = 128)
+        return keyVersions.getOrPut(key) { mutableIntStateOf(0) }
+    }
 
     var base = MdbList.BASE
 
@@ -222,7 +226,7 @@ class Ratings(client: OkHttpClient, cacheFile: File?, private val clock: () -> L
 
     internal fun keep(key: String, s: Score): Score {
         cache.put(key, s)
-        keyVersions[key]?.let { it.intValue++ }
+        keyVersions[key]?.let { v -> Snapshot.withMutableSnapshot { v.intValue++ } }
         return s
     }
 

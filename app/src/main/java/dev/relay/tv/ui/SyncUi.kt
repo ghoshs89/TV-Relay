@@ -50,9 +50,7 @@ private fun spaced(code: String) = if (code.length == 6) code.substring(0, 3) + 
 fun JoinSyncDialog(onDismiss: () -> Unit, onJoined: () -> Unit) {
     val app = RelayApp.instance
     val scope = rememberCoroutineScope()
-    val session = remember { PairSession.create() }
-    val agreement = remember { AtomicReference<PairAgreement?>(null) }
-    val tries = remember { AtomicInteger(0) }
+    val gate = remember { dev.relay.tv.sync.PairGate() }
     var code by remember { mutableStateOf<String?>(null) }
     var offer by remember { mutableStateOf<PairBundle?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
@@ -65,29 +63,24 @@ fun JoinSyncDialog(onDismiss: () -> Unit, onJoined: () -> Unit) {
     val host = remember {
         object : PairHost {
             override fun hello(theirPublic: String): String? {
-                val ag = session.agree(theirPublic) ?: return null
-                agreement.set(ag)
-                tries.set(0)
+                val accepted = gate.hello(theirPublic) ?: return null
                 ui.post {
-                    code = ag.code
+                    code = accepted.code
                     offer = null
                     status = null
                 }
-                return session.publicText
+                return accepted.replyPublicKey
             }
 
             override fun bundle(sealed: ByteArray): Boolean {
-                // A few tries only: the key is fresh for each pairing and the seal cannot be guessed.
-                if (tries.incrementAndGet() > 5) return false
-                val ag = agreement.get() ?: return false
-                val plain = ag.open(sealed) ?: return false
-                val b = Pairing.decode(String(plain, Charsets.UTF_8)) ?: return false
+                val b = gate.openBundle(sealed) ?: return false
                 ui.post { offer = b }
                 return true
             }
 
             override fun link(text: String): String {
                 val b = Pairing.decode(text) ?: return "That pairing link isn't valid. Copy it again on the other screen."
+                gate.reset()
                 ui.post {
                     code = null
                     offer = b

@@ -66,7 +66,8 @@ fun UpdateDialog() {
     val primary = remember { FocusRequester() }
     val state = Updater.state
     val close: () -> Unit = {
-        if (!Updater.busy) Updater.dialogOpen = false
+        if (state is UpdateState.Installing) Updater.dismissInstalling()
+        else if (!Updater.busy) Updater.dialogOpen = false
     }
 
     InitialFocus(primary, state::class)
@@ -84,7 +85,7 @@ fun UpdateDialog() {
                 }
                 Buttons {
                     PillButton("Update now", {
-                        scope.launch { Updater.downloadAndInstall(ctx, app.http, state.info) }
+                        Updater.startDownloadAndInstall(ctx, app.http, app.appScope, state.info)
                     }, focusRequester = primary, primary = true)
                     PillButton("Later", close)
                 }
@@ -98,7 +99,7 @@ fun UpdateDialog() {
                 Buttons {
                     PillButton("Open settings", { Updater.openInstallPermission(ctx) }, focusRequester = primary, primary = true)
                     PillButton("Try again", {
-                        scope.launch { Updater.downloadAndInstall(ctx, app.http, state.info) }
+                        Updater.startDownloadAndInstall(ctx, app.http, app.appScope, state.info)
                     })
                     PillButton("Later", close)
                 }
@@ -119,6 +120,9 @@ fun UpdateDialog() {
                     "Confirm on the next screen if Android asks. Relay closes while it updates; " +
                         "open it again from your apps. Your login, profiles and history are kept.",
                 )
+                Buttons {
+                    PillButton("Close", { Updater.dismissInstalling() }, focusRequester = primary)
+                }
             }
             is UpdateState.Failed -> {
                 Title("Update problem")
@@ -127,11 +131,11 @@ fun UpdateDialog() {
                     val info = state.info
                     if (info != null) {
                         PillButton("Try again", {
-                            scope.launch { Updater.downloadAndInstall(ctx, app.http, info) }
+                            Updater.startDownloadAndInstall(ctx, app.http, app.appScope, info)
                         }, focusRequester = primary, primary = true)
                     } else {
                         PillButton("Check again", {
-                            scope.launch { Updater.check(app.http) }
+                            app.appScope.launch { Updater.check(app.http) }
                         }, focusRequester = primary, primary = true)
                     }
                     PillButton("Close", close)

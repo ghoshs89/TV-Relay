@@ -13,6 +13,12 @@ CRITICAL = {
     "MissingClass",
     "MissingSuperCall",
     "UnspecifiedRegisterReceiverFlag",
+    "TrustAllX509TrustManager",
+    "BadHostnameVerifier",
+    "SetJavaScriptEnabled",
+    "UnsafeImplicitIntentLaunch",
+    "ExportedReceiver",
+    "ExportedService",
 }
 
 path = sys.argv[1]

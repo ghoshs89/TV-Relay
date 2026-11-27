@@ -32,9 +32,9 @@ class StoreSyncLocal(private val app: RelayApp, private val screenName: String) 
     private val store = app.store
     private var snapshot: SyncData? = null
 
-    override val deviceId: String get() = store.deviceId
+    override val deviceId: String get() = onMain { store.deviceId }
 
-    override fun accountTag(): String = SyncCodec.accountTag(store.account)
+    override fun accountTag(): String = SyncCodec.accountTag(onMain { store.account })
 
     private fun own(d: SyncData, seen: Long) = d.copy(screens = mapOf(deviceId to Screen(screenName, seen)))
 
@@ -42,19 +42,23 @@ class StoreSyncLocal(private val app: RelayApp, private val screenName: String) 
 
     override fun items(screenSeen: Long): Map<String, JsonElement> {
         seenAt = screenSeen
-        val snap = own(store.syncSnapshot(), screenSeen)
+        val (snap, day, dev) = onMain {
+            Triple(own(store.syncSnapshot(), screenSeen), store.today(), store.deviceId)
+        }
         snapshot = snap
-        return SyncCodec.toRecords(snap, deviceId, store.today(), System.currentTimeMillis())
+        return SyncCodec.toRecords(snap, dev, day, System.currentTimeMillis())
     }
 
-    override fun changedAt(key: String, v: JsonElement?): Long? = store.syncChangedAt(key, v)
+    override fun changedAt(key: String, v: JsonElement?): Long? = onMain { store.syncChangedAt(key, v) }
 
     override fun isDefault(key: String, v: JsonElement): Boolean = SyncDiff.settingDefault(key, v)
 
     override fun apply(merged: Map<String, SyncRec>): Applied {
-        val snap = snapshot ?: own(store.syncSnapshot(), seenAt)
-        val day = store.today()
-        val target = own(SyncCodec.fromRecords(merged, snap, deviceId, day), seenAt)
+        val (snap, day, dev) = onMain {
+            val s = snapshot ?: own(store.syncSnapshot(), seenAt)
+            Triple(s, store.today(), store.deviceId)
+        }
+        val target = own(SyncCodec.fromRecords(merged, snap, dev, day), seenAt)
         // Writing happens on the main thread, where screens read the store.
         val (summary, now) = onMain {
             val done = store.syncApply(snap, target)
