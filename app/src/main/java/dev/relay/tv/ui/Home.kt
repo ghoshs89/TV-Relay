@@ -139,7 +139,7 @@ fun HomeScreen() {
     // Poll GitHub for new builds while Relay is open; announce each new version once.
     LaunchedEffect(Unit) {
         while (true) {
-            Updater.check(app.http, quiet = true)
+            Updater.check(app.http, quiet = true, includePrereleases = app.store.settings.includePrereleases)
             val s = Updater.state
             if (s is UpdateState.Available && s.info.versionCode != Updater.announcedCode) {
                 Updater.announcedCode = s.info.versionCode
