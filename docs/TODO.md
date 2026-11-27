@@ -33,11 +33,12 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 ## Check on a device
 
-For the hardening and content-filter release, try the following on a TV with a remote and on a phone in landscape.
+For the beta pre-release rollout, try the following on a TV with a remote and on a phone in landscape.
 
 | Check | What to look for |
 |---|---|
 | Content-type and language chips | In Live TV, pick **Sports** or **News**, then **All**: the channel list filters immediately and keeps D-pad focus predictable. In Movies and Series, combine a language chip with a genre chip (**Action**, **Comedy**, **Kids**). |
+| Usage stats & diagnostic upload | After setting `RELAY_TELEMETRY_URL`, open About & diagnostics: **Share anonymous usage stats** clearly explains what is sent vs never collected; **Send diagnostic report** returns a 6-char `#CODE` and appears on `/dashboard` without provider URLs or credentials. |
 | Live TV background and PiP | Press Home on a TV while a live channel plays: audio stops and the connection closes; reopen Relay and the channel tunes back in. On a phone, Home enters picture-in-picture; locking the screen stops the live stream. |
 | Kids and hidden-category guards | Hide a category or switch to a kids profile: titles and channels in blocked categories disappear from Home rows, Favourites, History, reminders and channel versions. |
 | PIN cooldown | Enter a wrong PIN five times: the dialog waits 30 seconds before accepting another try, and existing household PINs continue to sync with 1.0.135 screens. |
@@ -191,7 +192,7 @@ Older checks:
 
 | Release | What |
 |---|---|
-| Next | Content-type filter chips (Sports, News, Movies, Kids, Documentary, Music, Entertainment and VOD genres) plus quick language chips; serialized household sync and main-thread store access; live streams stopped in the background and re-tuned on return, with preserved reconnect limits; updater package and signing verification with a dismissible install dialog; parental category checks across Home, details, reminders, favourites and versions; PBKDF2 v2 PIN verification with a 5-try cooldown; active pairing lock; 256 MB XMLTV cap; cleartext traffic disabled on external APIs; documentation overhaul |
+| Pre-release | Content-type filter chips (Sports, News, Movies, Kids, Documentary, Music, Entertainment and VOD genres) plus quick language chips; opt-in anonymous usage stats with clear privacy notice, direct crash/log uploads (`#CODE`), and Cloudflare Worker + D1 dashboard; serialized household sync and main-thread store access; live streams stopped in the background and re-tuned on return; updater verification and dismissible install dialog; parental category checks across Home, details, reminders, favourites and versions; PBKDF2 v2 PIN verification with 5-try cooldown; active pairing lock; 256 MB XMLTV cap; cleartext traffic disabled on external APIs |
 | 1.0.135 | Shows the current title on pause, groups Settings by task, preserves concurrent sync edits and deletions, cancels interrupted provider requests, and plays HLS returned by `.ts` addresses. Removed the former household sync file from the app repository after migration. |
 | 1.0.126 | Safety release from the Gemini review: a joining screen no longer overwrites the household's shared settings; each phone page serves only what its screen opened it for, and only under the TV's own address; one folder per pause-buffer recording and safer trimming; picture-in-picture kept current on phones; the release workflow split into build, device-check and publish, with the signing key and write access kept apart and every action pinned |
 | 1.0.117 | On a TV, **Trailer** and **Find a trailer** show a QR code to watch the trailer on your phone (phones still open YouTube). Long summaries on film and series pages can be reached with the remote and opened in full; leftovers such as "… Read all" from the provider's text are removed |

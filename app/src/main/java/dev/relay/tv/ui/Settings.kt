@@ -123,6 +123,7 @@ fun SettingsTab() {
     val gate = rememberParentGate()
     var parentPinDialog by remember { mutableStateOf(false) }
     var reportOpen by remember { mutableStateOf(false) }
+    var sendingReport by remember { mutableStateOf(false) }
     var langsOpen by remember { mutableStateOf(false) }
     var homeOpen by remember { mutableStateOf(false) }
     var catsOpen by remember { mutableStateOf(false) }
@@ -737,7 +738,40 @@ fun SettingsTab() {
                             if (Updater.pending == null && !Updater.busy) scope.launch { Updater.check(app.http) }
                         }
                     }
+                    item { Section("Privacy & usage") }
+                    item {
+                        Setting(
+                            "Share anonymous usage stats",
+                            if (s.shareUsageStats) {
+                                "On · sends a random ID, app version, TV/phone model, daily watch minutes & crash count"
+                            } else {
+                                "Off · nothing is sent automatically"
+                            },
+                            kidsLocked,
+                        ) {
+                            gate.run("Parent PIN to change usage stats") {
+                                val next = !s.shareUsageStats
+                                store.settings = s.copy(shareUsageStats = next)
+                                app.telemetry.onOptInChanged(next)
+                            }
+                        }
+                    }
+                    item {
+                        Info(
+                            "Never collected",
+                            "Logins, passwords, provider server URLs, IP addresses, profiles, search history, or which channels, movies or episodes you watch.",
+                        )
+                    }
                     item { Section("Diagnostics") }
+                    if (app.telemetry.configured) {
+                        item {
+                            Setting(
+                                "Send diagnostic report",
+                                "Uploads logs directly and returns a short #code (logins and server URLs stripped)",
+                                kidsLocked,
+                            ) { sendingReport = true }
+                        }
+                    }
                     item {
                         val until = s.logUntil
                         val on = until > System.currentTimeMillis()
@@ -1031,6 +1065,7 @@ fun SettingsTab() {
     }
     if (parentPinDialog) ParentPinDialog(onDismiss = { parentPinDialog = false })
     if (reportOpen) LibraryReportDialog(onDismiss = { reportOpen = false })
+    if (sendingReport) SendReportDialog(onDismiss = { sendingReport = false })
     if (langsOpen) MyLanguagesDialog(onDismiss = { langsOpen = false })
     if (homeOpen) HomeLayoutDialog(onDismiss = { homeOpen = false })
     if (catsOpen) CategoryManagerDialog(onDismiss = { catsOpen = false })

@@ -39,8 +39,10 @@ android {
         // private copy of the repository can set RELAY_UPDATE_TOKEN (read-only, Contents) to read it.
         val updateToken = (System.getenv("RELAY_UPDATE_TOKEN") ?: "").trim()
         val updateRepo = (System.getenv("RELAY_UPDATE_REPO") ?: "").trim().ifEmpty { "ghoshs89/TV-Relay" }
+        val telemetryUrl = (System.getenv("RELAY_TELEMETRY_URL") ?: "").trim().trimEnd('/')
         buildConfigField("String", "UPDATE_TOKEN", "\"$updateToken\"")
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
+        buildConfigField("String", "TELEMETRY_URL", "\"$telemetryUrl\"")
         // True only in the benchmark build used by CI to drive the app on an emulator.
         buildConfigField("boolean", "BENCH", "false")
     }

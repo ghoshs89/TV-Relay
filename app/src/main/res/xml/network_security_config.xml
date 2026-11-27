@@ -8,5 +8,6 @@
         <domain includeSubdomains="true">themoviedb.org</domain>
         <domain includeSubdomains="true">tmdb.org</domain>
         <domain includeSubdomains="true">mdblist.com</domain>
+        <domain includeSubdomains="true">workers.dev</domain>
     </domain-config>
 </network-security-config>

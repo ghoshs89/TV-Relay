@@ -359,7 +359,9 @@ Settings → Library & guide → TMDB API key, then **Send from my phone** (or *
 
 ## Troubleshooting
 
-**Logs:** Settings → About & diagnostics. Important lines (library loads with timings, downloads, errors, playback problems, and the screen freezing) are always saved, so they survive a force-close. **Save detailed logs** adds every detail line for 24 hours, then turns itself off; disk use is capped at about 1 MB. Usernames, passwords, tokens and API keys are removed from every line. Shared logs start with the device's memory and processor, the library size and the main settings.
+**Logs & diagnostic reports:** Settings → About & diagnostics. Important lines (library loads with timings, downloads, errors, playback problems, and the screen freezing) are always saved, so they survive a force-close. **Save detailed logs** adds every detail line for 24 hours, then turns itself off; disk use is capped at about 1 MB. Usernames, passwords, tokens and API keys are removed from every line. Shared logs start with the device's memory and processor, the library size and the main settings.
+
+When a telemetry worker is configured in a build (`RELAY_TELEMETRY_URL`), **Send diagnostic report** uploads the scrubbed log bundle directly over HTTPS and returns a short 6-character code (such as `#K7P2M9`) — and if the app closed unexpectedly last time, a one-tap prompt offers to send the crash report on the next launch. Your provider login, tokens, API keys, and **provider server hostnames** are automatically stripped before anything leaves the screen. You can also turn **Share anonymous usage stats** on or off under **Privacy & usage**; when on, it counts only a random screen ID, Relay version, TV/phone model, daily watch minutes, and crash counts — never logins, server addresses, IP addresses, or which channels or titles you watch.
 
 To get the logs off a **TV**, open the phone companion (Settings → Backup & phone), scan the QR code and press **Download logs** on the phone. **Share logs** works directly on phones. With adb: `adb pull /sdcard/Android/data/dev.relay.tv/files/logs/`.
 
@@ -369,7 +371,7 @@ To get the logs off a **TV**, open the phone companion (Settings → Backup & ph
 
 **Saved copy of the library:** Relay keeps a ready-to-use copy of your prepared library next to the downloaded lists, so after a restart or an update the channels appear in seconds instead of about a minute. It is written a few seconds after the library is prepared from a download or refresh, and it is ignored (and rewritten) whenever anything about it looks wrong, for example after some updates, so the first start after those takes the long way once. Settings → Account & sync → Refresh channels and library rewrites the saved copy. The logs from Settings → About & diagnostics say at the top whether it was used and, if not, why.
 
-**Updates stopped arriving:** Settings → About & diagnostics (or the **Update** button in the top bar) shows why. GitHub limits how often an unnamed visitor may ask (60 an hour per network), so several screens on one network checking at once can be told to wait; it clears by itself. If the repository is private, sign in to GitHub, download the latest APK, and install it over your existing copy. See [update access](#update-access).
+**Updates stopped arriving:** Settings → About & diagnostics (or the **Update** button in the top bar) shows why. **Update channel** lets each screen stay on **Stable only** (the default) or opt in to **Stable and beta pre-releases**. GitHub limits how often an unnamed visitor may ask (60 an hour per network), so several screens on one network checking at once can be told to wait; it clears by itself. If the repository is private, sign in to GitHub, download the latest APK, and install it over your existing copy. See [update access](#update-access).
 
 **Sync status** (Settings → Account & sync): *Sync paused* means this screen still points at the app repository. Follow the [household migration steps](#sync-between-screens). *In sync, N minutes ago* is normal. *Waiting for the network* means the last try couldn't reach GitHub; it retries by itself. *The sync token was refused* or *can't be found with this token*: the token expired, was removed, or doesn't cover the repository; make a new one (Contents: read and write) and paste it under *Replace the token* on the phone page. *This screen's sync key doesn't open the file*: the household key was changed; choose **Join again from another screen**. *This screen is signed in to a different provider account*: sync is for one account; sign in with the same one or stop syncing here. *Update Relay on this screen to keep syncing*: another screen has a newer Relay that writes a newer file format; install the update. A message about the repository being public or the token being unable to write appears when sync is turned on; fix the repository or token and try again.
 
@@ -406,9 +408,16 @@ The standard release uses GitHub's public Releases endpoint. When the app reposi
 </details>
 
 <details>
+<summary><b>Optional anonymous usage & log-upload worker</b></summary>
+
+Relay keeps zero secrets in its public APK. If you want anonymous active-screen / watch-time rollups and one-click crash/log uploads with short `#CODE` IDs, deploy [the Cloudflare Worker](tools/telemetry-worker/README.md) on Cloudflare's free tier and set the GitHub Actions repository variable `RELAY_TELEMETRY_URL` (`Settings → Secrets and variables → Actions → Variables`). Your dashboard password (`OWNER_TOKEN`) and optional private GitHub Issue token live strictly inside Cloudflare Worker secrets.
+
+</details>
+
+<details>
 <summary><b>Builds and releases</b></summary>
 
-Every push to `main` that changes the app builds it in GitHub Actions and publishes it as release `v1.0.N`. Changes that touch only documentation or tools (`README.md`, `docs/`, `tools/`) don't make a release. You can also use **Run workflow** in the Actions tab. A run on a feature branch produces a downloadable build artifact. A run on `main` can publish.
+Every push to `main` that changes the app builds it in GitHub Actions and publishes it as release `v1.0.N`. Changes that touch only documentation or tools (`README.md`, `docs/`, `tools/`) don't make a release. You can also use **Run workflow** in the Actions tab: a run on a feature branch produces a downloadable build artifact, and ticking **Publish as a GitHub pre-release** publishes it as a GitHub Pre-release without notifying **Stable only** users. A run on `main` publishes a full release.
 
 The release pipeline in `.github/workflows/build.yml` uses three jobs (plus two optional manual jobs for gallery screenshots and benchmarks):
 
@@ -416,7 +425,7 @@ The release pipeline in `.github/workflows/build.yml` uses three jobs (plus two 
 |---|---|---|---|
 | **build** | No | Only until the APK is signed, then deleted | Unit tests, lint, the signed APK, its signature check and SHA-256 |
 | **device-check** | No | No | Installs that exact APK on an emulator (below) |
-| **publish** (main only) | Yes | No | Checks the APK is byte for byte the one built and signed with the Relay key, then makes the release |
+| **publish** (`main` or pre-release) | Yes | No | Checks the APK is byte for byte the one built and signed with the Relay key, then makes the release |
 
 So the emulator and the test scripts never run where the signing key or a write token is. Every action the workflow uses is pinned to an exact commit, with its version in a comment beside it; update both together.
 
@@ -464,8 +473,9 @@ app/src/main/java/dev/relay/tv/
                     home-network HTTP helpers it shares with Play on TV
   sync/             sync engine, GitHub storage, pairing, status text,
                     and Play on TV (the TV's receiver and the phone's sender)
+  telemetry/        opt-in anonymous usage stats and scrubbed crash/log uploads
   tv/               Google TV home screen (Continue watching)
-  update/           in-app updater
+  update/           in-app updater (stable and pre-release channels)
   net/              whether the device's connection goes through a VPN
 app/src/test/       unit tests
 app/src/androidTest/  emulator tests: reliability, settings navigation, updater,
@@ -473,6 +483,7 @@ app/src/androidTest/  emulator tests: reliability, settings navigation, updater,
 tools/icon/         icon and banner generator
 tools/fake-provider/  made-up Xtream provider for the benchmark and emulator tests
 tools/bench/        benchmark driver and report
+tools/telemetry-worker/  optional Cloudflare Worker + D1 dashboard for usage and reports
 app/src/benchmark/  sign-in to the made-up provider, benchmark build only
 .github/            build, release, screenshot and benchmark workflow, lint gate,
                     emulator reliability and screenshot runners

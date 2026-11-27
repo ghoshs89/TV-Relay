@@ -178,7 +178,9 @@ class PlayerActivity : ComponentActivity() {
     private val watchdog = object : Runnable {
         override fun run() {
             checkStall()
-            if (::limits.isInitialized) limits.tick(SystemClock.elapsedRealtime(), ::player.isInitialized && player.isPlaying)
+            val playing = ::player.isInitialized && player.isPlaying
+            if (::limits.isInitialized) limits.tick(SystemClock.elapsedRealtime(), playing)
+            if (playing) app.telemetry.onPlaybackSecond(req.live)
             watchBreaks()
             handler.postDelayed(this, 1_000)
         }

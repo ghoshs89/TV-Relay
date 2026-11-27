@@ -424,7 +424,7 @@ private fun FilterChip(label: String, filter: String) {
 }
 
 @Composable
-private fun Chip(label: String, on: Boolean, key: String, compact: Boolean = false, onClick: () -> Unit) {
+internal fun Chip(label: String, on: Boolean, key: String, compact: Boolean = false, onClick: () -> Unit) {
     Focusable(onClick, key = key, shape = RoundedCornerShape(50), scaleOnFocus = 1.06f) { f ->
         Text(
             if (on && !compact) "✓ $label" else label,

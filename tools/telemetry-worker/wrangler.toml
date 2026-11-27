@@ -1,0 +1,14 @@
+name = "relay-telemetry"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "relay-telemetry"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# Set these with `npx wrangler secret put ...` (never commit them):
+#   npx wrangler secret put OWNER_TOKEN
+# Optional private GitHub Issue notifications when someone sends a crash/log report:
+#   npx wrangler secret put GITHUB_LOG_REPO    # e.g. your-name/relay-logs
+#   npx wrangler secret put GITHUB_LOG_TOKEN   # fine-grained PAT (Issues: Read & write on that private repo)

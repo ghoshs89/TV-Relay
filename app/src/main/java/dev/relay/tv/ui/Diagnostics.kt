@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import dev.relay.tv.data.AppLog
+import kotlinx.coroutines.launch
 
 object LogShare {
     /** Opens the share sheet with a log bundle. Returns a status message for the UI. */
@@ -139,6 +140,142 @@ fun LibraryReportDialog(onDismiss: () -> Unit) {
                 }
             })
             PillButton("Close", onDismiss)
+        }
+    }
+}
+
+@Composable
+fun SendReportDialog(onDismiss: () -> Unit) {
+    val app = dev.relay.tv.RelayApp.instance
+    val uiScope = androidx.compose.runtime.rememberCoroutineScope()
+    var category by remember { mutableStateOf(dev.relay.tv.telemetry.DiagnosticUpload.CATEGORIES.first()) }
+    var note by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    var code by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val first = remember { FocusRequester() }
+    InitialFocus(first, code)
+
+    TvDialog(onDismiss, width = 760.dp) {
+        Text("Send diagnostic report", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+        val sentCode = code
+        if (sentCode != null) {
+            Text(
+                "Report sent · #$sentCode",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Palette.accent,
+            )
+            Text(
+                "Share code #$sentCode so this report can be found quickly. Your login, tokens and provider server addresses were removed before sending.",
+                fontSize = Type.small,
+                color = Palette.dim,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PillButton("Done", onDismiss, primary = true, focusRequester = first)
+            }
+        } else {
+            Text(
+                "Uploads this screen's device info, recent activity log and last crash (if any). Passwords, tokens, API keys and provider server addresses are removed before sending.",
+                fontSize = Type.caption,
+                color = Palette.dim,
+            )
+            androidx.compose.foundation.lazy.LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(dev.relay.tv.telemetry.DiagnosticUpload.CATEGORIES.size) { i ->
+                    val c = dev.relay.tv.telemetry.DiagnosticUpload.CATEGORIES[i]
+                    Chip(c, category == c, "repcat:$c") { category = c }
+                }
+            }
+            TvTextField(
+                value = note,
+                onValueChange = { note = it },
+                label = "What happened? (optional)",
+                modifier = Modifier.fillMaxWidth(),
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+            )
+            error?.let { Text(it, fontSize = Type.caption, color = Palette.danger) }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PillButton(
+                    if (sending) "Sending…" else "Send report",
+                    {
+                        if (sending) return@PillButton
+                        sending = true
+                        error = null
+                        uiScope.launch {
+                            val res = dev.relay.tv.telemetry.DiagnosticUpload.upload(app, category, note)
+                            sending = false
+                            res.onSuccess { code = it }.onFailure { error = it.message ?: "Upload failed." }
+                        }
+                    },
+                    primary = true,
+                    focusRequester = first,
+                )
+                PillButton("Cancel", onDismiss)
+            }
+        }
+    }
+}
+
+@Composable
+fun CrashReportDialog(onDismiss: () -> Unit) {
+    val app = dev.relay.tv.RelayApp.instance
+    val uiScope = androidx.compose.runtime.rememberCoroutineScope()
+    var sending by remember { mutableStateOf(false) }
+    var code by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val first = remember { FocusRequester() }
+    InitialFocus(first, code)
+
+    val dismissPrompt = {
+        AppLog.lastCrash()?.let { app.telemetry.lastPromptedCrashAt = it }
+        onDismiss()
+    }
+
+    TvDialog(onDismiss = dismissPrompt, width = 620.dp) {
+        val sentCode = code
+        if (sentCode != null) {
+            Text("Crash report sent · #$sentCode", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.accent)
+            Text(
+                "Thank you. Your login, tokens and provider server addresses were removed before sending.",
+                fontSize = Type.small,
+                color = Palette.dim,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PillButton("Done", dismissPrompt, primary = true, focusRequester = first)
+            }
+        } else {
+            Text("Relay closed unexpectedly last time", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+            Text(
+                "Send the crash trace and recent activity log to help fix it? Logins, tokens and provider server addresses are removed first.",
+                fontSize = Type.small,
+                color = Palette.dim,
+            )
+            error?.let { Text(it, fontSize = Type.caption, color = Palette.danger) }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PillButton(
+                    if (sending) "Sending…" else "Send crash report",
+                    {
+                        if (sending) return@PillButton
+                        sending = true
+                        error = null
+                        uiScope.launch {
+                            val res = dev.relay.tv.telemetry.DiagnosticUpload.upload(
+                                app,
+                                "App froze or crashed",
+                                note = "Reported from crash prompt",
+                                markCrashHandled = true,
+                            )
+                            sending = false
+                            res.onSuccess { code = it }.onFailure { error = it.message ?: "Upload failed." }
+                        }
+                    },
+                    primary = true,
+                    focusRequester = first,
+                )
+                PillButton("Don't send", dismissPrompt)
+            }
         }
     }
 }

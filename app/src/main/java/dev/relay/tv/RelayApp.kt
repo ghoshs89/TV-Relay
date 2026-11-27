@@ -41,6 +41,9 @@ class RelayApp : Application(), ImageLoaderFactory {
     /** "Play on TV": on a TV that syncs, receives what a phone of the household asks it to play. */
     lateinit var playReceiver: dev.relay.tv.sync.PlayReceiver
 
+    /** Anonymous usage rollup tracker and crash/diagnostic upload helper state. */
+    lateinit var telemetry: dev.relay.tv.telemetry.TelemetryTracker
+
     val session = Session()
 
     /** Outlives any screen; used for work that must not be cancelled by navigation. */
@@ -123,6 +126,8 @@ class RelayApp : Application(), ImageLoaderFactory {
         sync.start()
         playReceiver = dev.relay.tv.sync.PlayReceiver(this)
         registerActivityLifecycleCallbacks(playReceiver)
+        telemetry = dev.relay.tv.telemetry.TelemetryTracker(this)
+        registerActivityLifecycleCallbacks(telemetry)
         if (BuildConfig.BENCH) {
             // The benchmark build ships dev.relay.tv.bench.BenchSetup (src/benchmark); it is looked up by
             // name so the release build, which has no such class, compiles and never reaches this.

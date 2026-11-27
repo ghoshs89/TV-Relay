@@ -150,6 +150,17 @@ fun HomeScreen() {
     }
     if (Updater.dialogOpen) UpdateDialog()
 
+    var crashPrompt by remember { mutableStateOf(false) }
+    LaunchedEffect(app.session.profileId) {
+        if (!crashPrompt && app.telemetry.configured && app.session.profile?.kids != true) {
+            val crashAt = AppLog.lastCrash()
+            if (crashAt != null && crashAt > app.telemetry.lastPromptedCrashAt) {
+                crashPrompt = true
+            }
+        }
+    }
+    if (crashPrompt) CrashReportDialog(onDismiss = { crashPrompt = false })
+
     // Expiry warning: only within 7 days of the end date, only for 5 s after the app starts.
     var expiryNote by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
