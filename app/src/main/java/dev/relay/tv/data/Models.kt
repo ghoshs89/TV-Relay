@@ -165,6 +165,8 @@ data class Settings(
     // Batch 9: stop playing after this many minutes (0 = off), and ask "Are you still watching?" (see player/WatchBreaks).
     val sleepMinutes: Int = 0,
     val askStillWatching: Boolean = true,
+    /** When true on this screen, in-app update checks include GitHub pre-releases. */
+    val includePrereleases: Boolean = false,
 )
 
 /** A programme the viewer wants to be told about when it starts. Times are as shown in the guide. */

@@ -730,7 +730,23 @@ fun SettingsTab() {
                     item {
                         Setting("Check for app updates", updateStatusText(), false) {
                             Updater.dialogOpen = true
-                            if (Updater.pending == null && !Updater.busy) scope.launch { Updater.check(app.http) }
+                            if (Updater.pending == null && !Updater.busy) {
+                                scope.launch { Updater.check(app.http, includePrereleases = s.includePrereleases) }
+                            }
+                        }
+                    }
+                    item {
+                        Setting(
+                            "Update channel",
+                            if (s.includePrereleases) "Stable and beta pre-releases" else "Stable only",
+                            kidsLocked,
+                        ) {
+                            gate.run("Parent PIN to change update channel") {
+                                val next = !s.includePrereleases
+                                store.settings = s.copy(includePrereleases = next)
+                                Updater.announcedCode = 0
+                                scope.launch { Updater.check(app.http, quiet = true, includePrereleases = next) }
+                            }
                         }
                     }
                     item { Section("Diagnostics") }

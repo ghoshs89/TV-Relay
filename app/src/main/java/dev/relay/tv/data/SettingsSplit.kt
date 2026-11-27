@@ -23,7 +23,7 @@ object SettingsSplit {
     val PER_SCREEN: Set<String> = linkedSetOf(
         "liveExt", "userAgent", "logUntil", "matchFrameRate", "showStreamInfo", "audioDelayMs",
         "subSize", "subYellow", "subBox", "neutralTheme", "startOnLastChannel", "keyboard",
-        "timeshift", "timeshiftMinutes", "startScreen", "sleepMinutes",
+        "timeshift", "timeshiftMinutes", "startScreen", "sleepMinutes", "includePrereleases",
     )
 
     /** Every field name of [Settings], read from its serializer. */

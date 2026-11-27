@@ -15,6 +15,7 @@ import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Jsons
 import dev.relay.tv.data.arr
 import dev.relay.tv.data.at
+import dev.relay.tv.data.flag
 import dev.relay.tv.data.long
 import dev.relay.tv.data.str
 import kotlinx.coroutines.CancellationException
@@ -31,6 +32,7 @@ data class UpdateInfo(
     val notes: String,
     val assetUrl: String,
     val size: Long,
+    val prerelease: Boolean = false,
 )
 
 sealed interface UpdateState {
@@ -81,13 +83,13 @@ object Updater {
         .build()
 
     /** Checks GitHub. Quiet mode keeps an earlier "available" result if the network blips. */
-    suspend fun check(http: OkHttpClient, quiet: Boolean = false) {
+    suspend fun check(http: OkHttpClient, quiet: Boolean = false, includePrereleases: Boolean = false) {
         if (busy) return
         val previous = state
         if (!quiet) state = UpdateState.Checking
         state = try {
-            val info = latest(http)
-            AppLog.i("Update", "Latest release ${info?.versionName ?: "none"}, installed ${BuildConfig.VERSION_NAME}")
+            val info = latest(http, includePrereleases)
+            AppLog.i("Update", "Latest release ${info?.versionName ?: "none"}${if (info?.prerelease == true) " (pre-release)" else ""}, installed ${BuildConfig.VERSION_NAME}")
             if (info != null && info.versionCode > BuildConfig.VERSION_CODE) UpdateState.Available(info) else UpdateState.UpToDate
         } catch (e: CancellationException) {
             throw e
@@ -97,8 +99,12 @@ object Updater {
         }
     }
 
-    private suspend fun latest(http: OkHttpClient): UpdateInfo? = withContext(Dispatchers.IO) {
-        val url = "$API/repos/${BuildConfig.UPDATE_REPO}/releases/latest"
+    private suspend fun latest(http: OkHttpClient, includePrereleases: Boolean): UpdateInfo? = withContext(Dispatchers.IO) {
+        val url = if (includePrereleases) {
+            "$API/repos/${BuildConfig.UPDATE_REPO}/releases?per_page=10"
+        } else {
+            "$API/repos/${BuildConfig.UPDATE_REPO}/releases/latest"
+        }
         http.newCall(request(url, "application/vnd.github+json")).execute().use { r ->
             when (r.code) {
                 401, 403 ->
@@ -107,21 +113,43 @@ object Updater {
                 404 -> throw IOException("No release found for ${BuildConfig.UPDATE_REPO}.")
             }
             if (!r.isSuccessful) throw IOException("GitHub returned HTTP ${r.code}")
-            val j = Jsons.json.parseToJsonElement(r.body!!.string())
-            val tag = j.at("tag_name").str() ?: return@withContext null
-            val code = tag.substringAfterLast('.').toIntOrNull() ?: return@withContext null
-            val asset = j.at("assets").arr()
-                ?.firstOrNull { it.at("name").str()?.endsWith(".apk") == true }
-                ?: return@withContext null
+            val root = Jsons.json.parseToJsonElement(r.body!!.string())
+            val entries = if (includePrereleases) root.arr().orEmpty() else listOf(root)
+            val picked = UpdateRequest.pickRelease(
+                entries.mapNotNull { parseCandidate(it) },
+                includePrereleases = includePrereleases,
+            ) ?: return@withContext null
             UpdateInfo(
-                versionCode = code,
-                versionName = tag.removePrefix("v"),
-                notes = j.at("body").str().orEmpty().trim(),
-                assetUrl = UpdateRequest.assetUrl(BuildConfig.UPDATE_TOKEN, asset.at("url").str(), asset.at("browser_download_url").str())
-                    ?: return@withContext null,
-                size = asset.at("size").long() ?: 0L,
+                versionCode = picked.versionCode,
+                versionName = picked.versionName,
+                notes = picked.notes,
+                assetUrl = picked.assetUrl,
+                size = picked.size,
+                prerelease = picked.prerelease,
             )
         }
+    }
+
+    private fun parseCandidate(j: kotlinx.serialization.json.JsonElement): UpdateRequest.ReleaseCandidate? {
+        val tag = j.at("tag_name").str() ?: return null
+        val code = UpdateRequest.parseVersionCode(tag) ?: return null
+        val asset = j.at("assets").arr()
+            ?.firstOrNull { it.at("name").str()?.endsWith(".apk") == true }
+            ?: return null
+        val url = UpdateRequest.assetUrl(
+            BuildConfig.UPDATE_TOKEN,
+            asset.at("url").str(),
+            asset.at("browser_download_url").str(),
+        ) ?: return null
+        return UpdateRequest.ReleaseCandidate(
+            versionCode = code,
+            versionName = tag.removePrefix("v"),
+            notes = j.at("body").str().orEmpty().trim(),
+            assetUrl = url,
+            size = asset.at("size").long() ?: 0L,
+            draft = j.at("draft").flag(),
+            prerelease = j.at("prerelease").flag(),
+        )
     }
 
     fun canInstall(ctx: Context): Boolean =

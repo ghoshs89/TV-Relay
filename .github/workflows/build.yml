@@ -18,6 +18,10 @@ on:
         description: 'Capture the README gallery on Android TV and phone emulators'
         type: boolean
         default: false
+      prerelease:
+        description: 'Publish as a GitHub pre-release (does not notify stable users)'
+        type: boolean
+        default: false
 
 
 env:
@@ -268,7 +272,7 @@ jobs:
   # APK "build" made, checks it is byte for byte that APK and signed with the Relay key, and publishes it.
   publish:
     needs: [build, device-check]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.prerelease)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -302,15 +306,22 @@ jobs:
           TAG="v1.0.${{ github.run_number }}"
           git log -1 --pretty=%B | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.txt
           APK="out/Relay-1.0.${{ github.run_number }}.apk"
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ inputs.prerelease }}" != "true" ]; then
+            TITLE="Relay 1.0.${{ github.run_number }}"
+            FLAG="--latest"
+          else
+            TITLE="Relay 1.0.${{ github.run_number }} (Pre-release)"
+            FLAG="--prerelease"
+          fi
           if gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
             # Re-run of the same build: replace the APK on the existing release.
             gh release upload "$TAG" "$APK" --repo "${{ github.repository }}" --clobber
           else
             gh release create "$TAG" "$APK" \
               --repo "${{ github.repository }}" --target "${{ github.sha }}" \
-              --title "Relay 1.0.${{ github.run_number }}" --notes-file notes.txt --latest
+              --title "$TITLE" --notes-file notes.txt "$FLAG"
           fi
-          echo "Published $TAG"
+          echo "Published $TAG ($FLAG)"
 
   # Drives a benchmark build of the app on an emulator against a made-up provider and prints frame
   # times, list build times and time to first picture in the log. For comparing builds with each
