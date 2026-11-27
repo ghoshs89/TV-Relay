@@ -33,7 +33,7 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 ## Check on a device
 
-For the playback and Settings release, try the following on a TV with a remote and on a phone in landscape.
+For 1.0.135, try the following on a TV with a remote and on a phone in landscape.
 
 | Check | What to look for |
 |---|---|
@@ -182,7 +182,7 @@ Older checks:
 
 | Release | What |
 |---|---|
-| Playback and Settings release | Shows the current title on pause, groups Settings by task, preserves concurrent sync edits and deletions, cancels interrupted provider requests, and plays HLS returned by `.ts` addresses. Removed the former household sync file from the app repository after migration. |
+| 1.0.135 | Shows the current title on pause, groups Settings by task, preserves concurrent sync edits and deletions, cancels interrupted provider requests, and plays HLS returned by `.ts` addresses. Removed the former household sync file from the app repository after migration. |
 | 1.0.126 | Safety release from the Gemini review: a joining screen no longer overwrites the household's shared settings; each phone page serves only what its screen opened it for, and only under the TV's own address; one folder per pause-buffer recording and safer trimming; picture-in-picture kept current on phones; the release workflow split into build, device-check and publish, with the signing key and write access kept apart and every action pinned |
 | 1.0.117 | On a TV, **Trailer** and **Find a trailer** show a QR code to watch the trailer on your phone (phones still open YouTube). Long summaries on film and series pages can be reached with the remote and opened in full; leftovers such as "… Read all" from the provider's text are removed |
 | 1.0.116 | **Play on TV** also takes catch-up shows and programmes watched with Start over (at the same minute), and series pages get a Play on TV button for the next episode; hold an episode card or a programme in a channel's Catch-up list to send that one |

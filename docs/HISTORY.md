@@ -17,7 +17,7 @@ Plans 1 to 4 are finished and their full text is in the repository's history (`g
 | Trailers and summaries | Trailers as a QR code on TVs; long summaries reachable with the remote and readable in full; "Read all" leftovers removed | 1.0.117 | |
 | Safety release | From the Gemini review and ChatGPT's notes on it (26 Nov): a joining screen's untouched settings no longer overwrite the household's; each phone page serves only what its screen opened it for, and only under the TV's own address; one folder per pause-buffer recording, and trimming that never leaves a rewind in a deleted piece; picture-in-picture settings kept current; the play list let go when the player closes; the release workflow split so the signing key and write access never meet the emulator, with every action pinned | 1.0.126 | Nine larger findings, to-do 14 |
 
-## Playback and Settings release
+## Playback and Settings release (1.0.135)
 
 - The player displays the active title while paused. Episode details, movie years and live or catch-up programme information appear when available.
 - Settings opens by category. Back returns to the menu with focus on the category the viewer opened.
@@ -25,6 +25,8 @@ Plans 1 to 4 are finished and their full text is in the repository's history (`g
 - Cancelling a provider request closes the active HTTP call through the response-body read. Incomplete lists are discarded and the saved library remains available. A live `.ts` address that returns a playlist is played as HLS.
 - The README gallery uses the fake provider on TV and phone emulators. The [browsing study](BROWSING.md) records the two candidate layouts and how their remote navigation compares.
 
+
+[Relay 1.0.135](https://github.com/ghoshs89/TV-Relay/releases/tag/v1.0.135) passed 692 unit tests and the Android emulator suite. The signed upgrade from 1.0.126 preserved the test profile, favourite, watch entry, resume position, and settings. The published APK matched the tested build and Relay signing certificate. [Release verification](https://github.com/ghoshs89/TV-Relay/actions/runs/45914019573)
 
 ## Android reliability release
 
