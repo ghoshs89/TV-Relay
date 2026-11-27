@@ -53,8 +53,9 @@ object ProviderText {
                 labels += label
             }
         }
-        USER.find(text)?.let { user = it.groupValues[1] }
-        PASS.find(text)?.let { pass = it.groupValues[1] }
+        val nonUrl = URL.replace(text, " ")
+        USER.find(nonUrl)?.let { user = it.groupValues[1] }
+        PASS.find(nonUrl)?.let { pass = it.groupValues[1] }
         val tags = HostLabels.tags(labels)
         return Result(hosts, user, pass, hosts.indices.associate { hosts[it] to tags[it] })
     }
