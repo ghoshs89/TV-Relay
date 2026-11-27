@@ -12,16 +12,19 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
+import org.xml.sax.Attributes
+import org.xml.sax.InputSource
+import org.xml.sax.helpers.DefaultHandler
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.io.StringReader
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.zip.GZIPInputStream
+import javax.xml.parsers.SAXParserFactory
 
 /**
  * Optional external guide from an XMLTV URL (plain or .gz), used for channels where the
@@ -209,8 +212,13 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
                 }
             }
 
-            val p = XmlPullParserFactory.newInstance().apply { isNamespaceAware = false }.newPullParser()
-            p.setInput(input, null)
+            val factory = SAXParserFactory.newInstance().apply {
+                isNamespaceAware = false
+                isValidating = false
+                runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
+                runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
+                runCatching { setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) }
+            }
 
             var chId: String? = null
             val names = mutableListOf<String>()
@@ -219,28 +227,64 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
             var stop = 0L
             var title = ""
             var desc = ""
+            var captureTag: String? = null
+            val textBuf = StringBuilder()
 
-            var event = p.eventType
-            while (event != XmlPullParser.END_DOCUMENT) {
-                if (event == XmlPullParser.START_TAG) {
-                    when (p.name) {
+            val handler = object : DefaultHandler() {
+                override fun resolveEntity(publicId: String?, systemId: String?): InputSource =
+                    InputSource(StringReader(""))
+
+                private fun attr(a: Attributes, name: String): String? =
+                    a.getValue("", name) ?: a.getValue(name)
+
+                override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes) {
+                    val tag = if (!localName.isNullOrEmpty()) localName else qName.orEmpty()
+                    when (tag) {
                         "channel" -> {
-                            chId = p.getAttributeValue(null, "id")
+                            chId = attr(attributes, "id")
                             names.clear()
                         }
-                        "display-name" -> if (chId != null) names += p.nextText()
+                        "display-name" -> if (chId != null) {
+                            captureTag = tag
+                            textBuf.setLength(0)
+                        }
                         "programme" -> {
-                            progCh = p.getAttributeValue(null, "channel")
-                            start = parseTime(p.getAttributeValue(null, "start"))
-                            stop = parseTime(p.getAttributeValue(null, "stop"))
+                            progCh = attr(attributes, "channel")
+                            start = parseTime(attr(attributes, "start"))
+                            stop = parseTime(attr(attributes, "stop"))
                             title = ""
                             desc = ""
                         }
-                        "title" -> if (progCh != null && title.isEmpty()) title = p.nextText()
-                        "desc" -> if (progCh != null && desc.isEmpty()) desc = p.nextText()
+                        "title" -> if (progCh != null && title.isEmpty()) {
+                            captureTag = tag
+                            textBuf.setLength(0)
+                        }
+                        "desc" -> if (progCh != null && desc.isEmpty()) {
+                            captureTag = tag
+                            textBuf.setLength(0)
+                        }
                     }
-                } else if (event == XmlPullParser.END_TAG) {
-                    when (p.name) {
+                }
+
+                override fun characters(ch: CharArray, offset: Int, length: Int) {
+                    if (captureTag != null && textBuf.length < 4096) {
+                        textBuf.append(ch, offset, length)
+                    }
+                }
+
+                override fun endElement(uri: String?, localName: String?, qName: String?) {
+                    val tag = if (!localName.isNullOrEmpty()) localName else qName.orEmpty()
+                    if (tag == captureTag) {
+                        val text = textBuf.toString()
+                        when (tag) {
+                            "display-name" -> names += text
+                            "title" -> title = text
+                            "desc" -> desc = text
+                        }
+                        captureTag = null
+                        textBuf.setLength(0)
+                    }
+                    when (tag) {
                         "channel" -> {
                             val id = chId
                             if (id != null) {
@@ -264,8 +308,9 @@ class XmltvGuide(private val ctx: Context, private val http: OkHttpClient) {
                         }
                     }
                 }
-                event = p.next()
             }
+
+            factory.newSAXParser().parse(InputSource(input), handler)
             return Cache(
                 url,
                 System.currentTimeMillis(),

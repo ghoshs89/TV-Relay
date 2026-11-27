@@ -27,6 +27,7 @@ import dev.relay.tv.sync.PairAgreement
 import dev.relay.tv.sync.PairBundle
 import dev.relay.tv.sync.PairClient
 import dev.relay.tv.sync.PairDiscovery
+import dev.relay.tv.sync.PairGate
 import dev.relay.tv.sync.PairSession
 import dev.relay.tv.sync.Pairing
 import dev.relay.tv.sync.ScreenInfo
@@ -35,8 +36,6 @@ import dev.relay.tv.sync.WaitingScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 
 /** "482913" shown as "482 913". */
 private fun spaced(code: String) = if (code.length == 6) code.substring(0, 3) + " " + code.substring(3) else code
@@ -50,7 +49,7 @@ private fun spaced(code: String) = if (code.length == 6) code.substring(0, 3) + 
 fun JoinSyncDialog(onDismiss: () -> Unit, onJoined: () -> Unit) {
     val app = RelayApp.instance
     val scope = rememberCoroutineScope()
-    val gate = remember { dev.relay.tv.sync.PairGate() }
+    val gate = remember { PairGate() }
     var code by remember { mutableStateOf<String?>(null) }
     var offer by remember { mutableStateOf<PairBundle?>(null) }
     var status by remember { mutableStateOf<String?>(null) }

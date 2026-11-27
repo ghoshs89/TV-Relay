@@ -169,11 +169,7 @@ class LiveListTest {
         val withKinds = object : LiveData by data {
             override fun kind(ch: Channel) = kinds[ch.id]
         }
-        val q = LiveQuery(
-            cat = "all", selection = LiveSelection.All, sort = 0, filters = emptySet(), find = "",
-            blockedCats = setOf("xxx"), hiddenCats = emptySet(), langOrder = listOf("en", "hi"),
-            merge = false, favs = emptyList(), preferred = emptyMap(), kind = ContentKinds.NEWS,
-        )
+        val q = query().copy(kind = ContentKinds.NEWS)
         assertEquals(listOf(1), buildLiveList(withKinds, q).channels.map { it.id })
     }
 }

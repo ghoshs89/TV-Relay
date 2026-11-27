@@ -78,13 +78,13 @@ data class ProfileSwitchLock(val profileId: String, val parentPin: String) {
  * PBKDF2-HMAC-SHA256 hashes.
  */
 object ParentPin {
-    private const val V2_PREFIX = "v2$"
+    private const val V2_PREFIX = "v2\$"
     private const val V2_ITERATIONS = 60_000
 
     fun hash(pin: String, salt: String = newSalt()): String = "$salt:${sha256("$salt:$pin")}"
 
     fun hashV2(pin: String, salt: String = newSalt(), iterations: Int = V2_ITERATIONS): String =
-        "$V2_PREFIX$iterations$$salt$${pbkdf2(pin, salt, iterations)}"
+        "${V2_PREFIX}${iterations}\$${salt}\$${pbkdf2(pin, salt, iterations)}"
 
     fun verify(pin: String, stored: String?): Boolean {
         if (stored.isNullOrEmpty() || pin.isEmpty()) return false
