@@ -38,6 +38,7 @@ import dev.relay.tv.ui.LoginScreen
 import dev.relay.tv.ui.MovieDetailScreen
 import dev.relay.tv.ui.Nav
 import dev.relay.tv.ui.Palette
+import dev.relay.tv.ui.PersonDetailScreen
 import dev.relay.tv.ui.ProfilesScreen
 import dev.relay.tv.ui.ReminderCenter
 import dev.relay.tv.ui.ReminderDialog
