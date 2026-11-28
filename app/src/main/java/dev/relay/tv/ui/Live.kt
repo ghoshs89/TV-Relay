@@ -244,118 +244,124 @@ fun LiveTab() {
 
     val isProviderCat = providerCats.any { it.id == ui.liveCat }
     val isPinned = ui.liveCat in pinned
+    var catPickerOpen by remember { mutableStateOf(false) }
 
-    // The channel list keeps at least 45% of the width, whatever the screen: the category and
-    // panel columns take shares of the real width instead of switching at one fixed size.
+    val selectedCatLabel = remember(cat, shortName, groups) {
+        when {
+            cat == UiState.FAV -> "Favourites"
+            cat == UiState.HISTORY -> "Recently watched"
+            cat == UiState.ALL -> "All channels"
+            cat.startsWith(LANG) -> Langs.label(cat.removePrefix(LANG))
+            cat.startsWith(ChannelEdits.GROUP) -> groups.firstOrNull { "${ChannelEdits.GROUP}${it.id}" == cat }?.name ?: "Group"
+            else -> ProviderNames.clean(shortName[cat] ?: providerCats.firstOrNull { it.id == cat }?.name ?: "Category")
+        }
+    }
+    val inSubCat = cat != UiState.FAV && cat != UiState.HISTORY && cat != UiState.ALL
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val narrow = maxWidth < 900.dp
         val side = if (narrow) 16.dp else 32.dp
-        val widths = LiveLayout.widths(maxWidth.value, side.value)
-        val catWidth = widths.category.dp
-        val panelWidth = widths.panel.dp
-        Row(Modifier.fillMaxSize().padding(start = side, end = side, bottom = 16.dp)) {
-            LazyColumn(
-                Modifier.width(catWidth).fillMaxHeight().fadeEdges(),
-                state = ui.liveCatList,
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                contentPadding = PaddingValues(vertical = 20.dp),
+        val panelWidth = (maxWidth * 0.34f).coerceIn(240.dp, 360.dp)
+        Column(Modifier.fillMaxSize().padding(start = side, end = side, bottom = 12.dp)) {
+            // Row 1: Unified top browse bar (Guide grid toggle, presets, Categories ▾ modal, Sort, Find, Pin).
+            LazyRow(
+                contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(rows, key = { it.lazyKey }) { row ->
-                    when (row) {
-                        is CatRow.Item -> ListRow(
-                            if (row.indent) "   ${row.label}" else row.label,
-                            onClick = {
-                                ui.liveCat = row.id
-                                ui.liveFind = ""
-                                scope.launch { ui.liveChList.scrollToItem(0) }
-                            },
-                            selected = ui.liveCat == row.id,
-                            key = row.lazyKey,
-                            trailing = row.count?.toString(),
-                            icon = row.icon,
-                        )
-                        is CatRow.Header -> ListRow(
-                            row.label,
-                            onClick = { ui.liveCountry = if (row.open) "" else row.key },
-                            key = "lh:${row.key}",
-                            trailing = row.count.toString(),
-                            trailingIcon = if (row.open) Icons.Filled.ArrowDropDown else Icons.Filled.KeyboardArrowRight,
-                            textColor = Palette.accent2,
-                        )
+                item(key = "tb:grid") {
+                    Chip(if (ui.liveGrid) "List view" else "Guide grid", false, "tb:grid") { ui.liveGrid = !ui.liveGrid }
+                }
+                item(key = "tb:fav") {
+                    Chip("Favourites", cat == UiState.FAV, "tb:fav") {
+                        ui.liveCat = UiState.FAV; ui.liveFind = ""; scope.launch { ui.liveChList.scrollToItem(0) }
+                    }
+                }
+                item(key = "tb:hist") {
+                    Chip("Recently watched", cat == UiState.HISTORY, "tb:hist") {
+                        ui.liveCat = UiState.HISTORY; ui.liveFind = ""; scope.launch { ui.liveChList.scrollToItem(0) }
+                    }
+                }
+                item(key = "tb:all") {
+                    Chip("All channels", cat == UiState.ALL, "tb:all") {
+                        ui.liveCat = UiState.ALL; ui.liveFind = ""; scope.launch { ui.liveChList.scrollToItem(0) }
+                    }
+                }
+                item(key = "tb:cats") {
+                    Chip(if (inSubCat) "$selectedCatLabel ▾" else "Categories ▾", inSubCat, "tb:cats") { catPickerOpen = true }
+                }
+                item(key = "tb:sort") {
+                    Chip("Sort: ${LiveBrowse.SORTS[sort.coerceIn(0, 3)]}", false, "tb:sort") {
+                        store.setLiveSort(ui.liveCat, (sort + 1) % LiveBrowse.SORTS.size)
+                        scope.launch { ui.liveChList.scrollToItem(0) }
+                    }
+                }
+                item(key = "tb:find") {
+                    Chip(if (ui.liveFind.isBlank()) "Find" else "Find: ${ui.liveFind}", ui.liveFind.isNotBlank(), "tb:find") { finding = true }
+                }
+                if (ui.liveFind.isNotBlank()) item(key = "tb:clear") { Chip("Clear find", false, "tb:clear") { ui.liveFind = "" } }
+                if (isProviderCat) {
+                    item(key = "tb:pin") {
+                        Chip(if (isPinned) "Unpin category" else "Pin category", isPinned, "tb:pin") {
+                            store.pinnedCats = if (isPinned) pinned - ui.liveCat else pinned + ui.liveCat
+                        }
                     }
                 }
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f).fillMaxHeight()) {
+
+            // Row 2: Quick content-type & stream filters.
+            LazyRow(
+                contentPadding = PaddingValues(top = 2.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(availableKinds, key = { "tb:kind:$it" }) { kind ->
+                    Chip(ContentKinds.label(kind), activeKind == kind, "tb:kind:$kind") {
+                        ui.liveKind = if (activeKind == kind) null else kind
+                        scope.launch { ui.liveChList.scrollToItem(0) }
+                    }
+                }
+                item(key = "tb:${LiveBrowse.F_CATCHUP}") { FilterChip("Catch-up", LiveBrowse.F_CATCHUP) }
+                item(key = "tb:${LiveBrowse.F_HD}") { FilterChip("HD / 4K", LiveBrowse.F_HD) }
+                item(key = "tb:${LiveBrowse.F_GUIDE}") { FilterChip("Has guide", LiveBrowse.F_GUIDE) }
+            }
+
+            // A–Z quick jump strip when sorted by name in list mode.
+            val letters = shown?.letters.orEmpty()
+            if (sort == 2 && letters.isNotEmpty() && !ui.liveGrid) {
                 LazyRow(
-                    contentPadding = PaddingValues(start = 6.dp, end = 6.dp, top = 14.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    item {
-                        Chip(if (ui.liveGrid) "List view" else "Guide grid", false, "tb:grid") { ui.liveGrid = !ui.liveGrid }
-                    }
-                    item {
-                        Chip("Sort: ${LiveBrowse.SORTS[sort.coerceIn(0, 3)]}", false, "tb:sort") {
-                            store.setLiveSort(ui.liveCat, (sort + 1) % LiveBrowse.SORTS.size)
-                            scope.launch { ui.liveChList.scrollToItem(0) }
-                        }
-                    }
-                    item {
-                        Chip(if (ui.liveFind.isBlank()) "Find" else "Find: ${ui.liveFind}", ui.liveFind.isNotBlank(), "tb:find") { finding = true }
-                    }
-                    if (ui.liveFind.isNotBlank()) item { Chip("Clear find", false, "tb:clear") { ui.liveFind = "" } }
-                    items(availableKinds, key = { "tb:kind:$it" }) { kind ->
-                        Chip(ContentKinds.label(kind), activeKind == kind, "tb:kind:$kind") {
-                            ui.liveKind = if (activeKind == kind) null else kind
-                            scope.launch { ui.liveChList.scrollToItem(0) }
-                        }
-                    }
-                    item { FilterChip("Catch-up", LiveBrowse.F_CATCHUP) }
-                    item { FilterChip("HD / 4K", LiveBrowse.F_HD) }
-                    item { FilterChip("Has guide", LiveBrowse.F_GUIDE) }
-                    if (isProviderCat) {
-                        item {
-                            Chip(if (isPinned) "Unpin category" else "Pin category", isPinned, "tb:pin") {
-                                store.pinnedCats = if (isPinned) pinned - ui.liveCat else pinned + ui.liveCat
-                            }
+                    items(letters) { (letter, index) ->
+                        Chip(letter, false, "az:$letter", compact = true) {
+                            scope.launch { ui.liveChList.scrollToItem(index) }
                         }
                     }
                 }
-                // The letters come with the list (built off the screen thread), so a long list costs nothing here.
-                val letters = shown?.letters.orEmpty()
-                if (sort == 2 && letters.isNotEmpty() && !ui.liveGrid) {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        items(letters) { (letter, index) ->
-                            Chip(letter, false, "az:$letter", compact = true) {
-                                scope.launch { ui.liveChList.scrollToItem(index) }
-                            }
-                        }
-                    }
-                }
-                if (shown == null) {
-                    EmptyState("Loading channels…", Modifier.weight(1f))
-                } else if (channels.isEmpty()) {
-                    EmptyState(
-                        when {
-                            shown.baseSize > 0 -> "No channels match these filters."
-                            ui.liveCat == UiState.FAV -> "No favourite channels yet. Open a channel's panel and press Favourite."
-                            ui.liveCat == UiState.HISTORY -> "Channels you watch will show up here."
-                            catalog.loading -> "Loading… ${catalog.progress?.text.orEmpty()}"
-                            else -> "No channels in this category."
-                        },
-                        Modifier.weight(1f),
-                    )
-                } else if (ui.liveGrid) {
-                    GuideGrid(channels, Modifier.weight(1f).fillMaxWidth())
-                } else {
+            }
+
+            // Main content area: 2-pane (wide channel list + preview/actions panel) or full-width Guide grid.
+            if (shown == null) {
+                EmptyState("Loading channels…", Modifier.weight(1f))
+            } else if (channels.isEmpty()) {
+                EmptyState(
+                    when {
+                        shown.baseSize > 0 -> "No channels match these filters."
+                        ui.liveCat == UiState.FAV -> "No favourite channels yet. Open a channel's panel and press Favourite."
+                        ui.liveCat == UiState.HISTORY -> "Channels you watch will show up here."
+                        catalog.loading -> "Loading… ${catalog.progress?.text.orEmpty()}"
+                        else -> "No channels in this category."
+                    },
+                    Modifier.weight(1f),
+                )
+            } else if (ui.liveGrid) {
+                GuideGrid(channels, Modifier.weight(1f).fillMaxWidth())
+            } else {
+                Row(Modifier.weight(1f).fillMaxWidth()) {
                     LazyColumn(
-                        Modifier.weight(1f).fillMaxWidth().fadeEdges(),
+                        Modifier.weight(1f).fillMaxHeight().fadeEdges(),
                         state = ui.liveChList,
                         verticalArrangement = Arrangement.spacedBy(6.dp),
-                        contentPadding = PaddingValues(vertical = 12.dp, horizontal = 6.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp),
                     ) {
                         itemsIndexed(channels, key = { _, c -> c.id }, contentType = { _, _ -> "channel" }) { i, ch ->
                             ChannelRow(
@@ -375,16 +381,58 @@ fun LiveTab() {
                             )
                         }
                     }
+                    // Phones show the panel only once a channel is selected; TVs keep it as a guide preview.
+                    if (showPanel) {
+                        Spacer(Modifier.width(16.dp))
+                        ChannelPanel(
+                            focused,
+                            Modifier.width(panelWidth).fillMaxHeight(),
+                            groupId = ui.liveCat.takeIf { it.startsWith(ChannelEdits.GROUP) }?.removePrefix(ChannelEdits.GROUP),
+                        )
+                    }
                 }
             }
-            // Phones show the panel only once a channel is selected; TVs keep it as a guide preview.
-            if (!ui.liveGrid && showPanel) {
-                Spacer(Modifier.width(14.dp))
-                ChannelPanel(
-                    focused,
-                    Modifier.width(panelWidth).fillMaxHeight(),
-                    groupId = ui.liveCat.takeIf { it.startsWith(ChannelEdits.GROUP) }?.removePrefix(ChannelEdits.GROUP),
-                )
+        }
+    }
+
+    if (catPickerOpen) {
+        val first = remember { FocusRequester() }
+        InitialFocus(first)
+        TvDialog({ catPickerOpen = false }, width = 580.dp) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Live TV categories", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+                PillButton("Close", { catPickerOpen = false }, focusRequester = first, key = "lcat:close", compact = true)
+            }
+            LazyColumn(
+                Modifier.fillMaxWidth().heightIn(max = 460.dp),
+                state = ui.liveCatList,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                items(rows, key = { it.lazyKey }) { row ->
+                    when (row) {
+                        is CatRow.Item -> ListRow(
+                            if (row.indent) "   ${row.label}" else row.label,
+                            onClick = {
+                                ui.liveCat = row.id
+                                ui.liveFind = ""
+                                catPickerOpen = false
+                                scope.launch { ui.liveChList.scrollToItem(0) }
+                            },
+                            selected = ui.liveCat == row.id,
+                            key = "dlg:${row.lazyKey}",
+                            trailing = row.count?.toString(),
+                            icon = row.icon,
+                        )
+                        is CatRow.Header -> ListRow(
+                            row.label,
+                            onClick = { ui.liveCountry = if (row.open) "" else row.key },
+                            key = "dlg:lh:${row.key}",
+                            trailing = row.count.toString(),
+                            trailingIcon = if (row.open) Icons.Filled.ArrowDropDown else Icons.Filled.KeyboardArrowRight,
+                            textColor = Palette.accent2,
+                        )
+                    }
+                }
             }
         }
     }

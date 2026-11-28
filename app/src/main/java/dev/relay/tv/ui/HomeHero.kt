@@ -136,8 +136,16 @@ private fun TitleText(f: HeroFocus.Title, info: Tmdb.Info?, compact: Boolean) {
     }
     Spacer(Modifier.height(6.dp))
     val r = f.ref
+    val app = RelayApp.instance
+    val cert = info?.certification ?: r?.let { if (it.tv) app.catalog.seriesMeta(it.id)?.cert else app.catalog.movieMeta(it.id)?.cert }
+    val isDub = r?.let {
+        if (it.tv) app.catalog.seriesById[it.id]?.let { sr -> app.catalog.isDubbedSeries(sr) }
+        else app.catalog.movieById[it.id]?.let { mv -> app.catalog.isDubbedMovie(mv) }
+    } == true
     val meta = listOfNotNull(
         (info?.year ?: r?.year)?.takeIf { it.isNotBlank() },
+        cert,
+        if (isDub) "Hindi dubbed" else null,
         info?.genres?.take(3)?.joinToString(", ")?.takeIf { it.isNotBlank() },
         (info?.rating ?: r?.rating?.takeIf { it > 0 })?.let { "★ %.1f".format(it) },
         r?.lang?.let { Langs.label(it) },

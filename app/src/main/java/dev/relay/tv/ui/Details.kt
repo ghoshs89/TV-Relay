@@ -101,7 +101,16 @@ fun MovieDetailScreen(m: Movie) {
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, false, info?.tmdbId ?: m.tmdbId, m.name, info?.year ?: m.year)
-        tmdb?.let { app.catalog.learnLanguage("m:${m.id}", it.language, it.country) }
+        tmdb?.let {
+            app.catalog.learnTitleMeta(
+                key = "m:${m.id}",
+                isoCode = it.language,
+                region = it.country,
+                cert = it.certification,
+                genres = it.genres,
+                categoryName = app.catalog.vodCatName(m.categoryId),
+            )
+        }
         detailsDone = true
         val rk = store.settings.ratingsKey
         if (rk.isNotBlank()) {
@@ -137,8 +146,12 @@ fun MovieDetailScreen(m: Movie) {
 
     val rating = tmdb?.rating ?: info?.rating ?: m.rating.takeIf { it > 0 }
     val tp = remember(m.name) { TitleParts.parse(m.name) }
+    val cert = tmdb?.certification ?: app.catalog.movieMeta(m.id)?.cert
+    val isDub = app.catalog.isDubbedMovie(m)
     val meta = listOfNotNull(
         tmdb?.year ?: info?.year ?: m.year,
+        cert,
+        if (isDub) "Hindi dubbed" else null,
         tp.tag, tp.region,
         info?.durationSecs?.takeIf { it > 0 }?.let { fmtDuration(it * 1000L) },
         rating?.let { "%.1f/10".format(it) },
@@ -241,7 +254,16 @@ fun SeriesDetailScreen(s: Series) {
         failed = info == null
         val key = store.settings.tmdbKey
         if (key.isNotBlank()) tmdb = app.tmdb.lookup(key, true, info?.tmdbId ?: s.tmdbId, s.name, info?.year ?: s.year)
-        tmdb?.let { app.catalog.learnLanguage("s:${s.id}", it.language, it.country) }
+        tmdb?.let {
+            app.catalog.learnTitleMeta(
+                key = "s:${s.id}",
+                isoCode = it.language,
+                region = it.country,
+                cert = it.certification,
+                genres = it.genres,
+                categoryName = app.catalog.seriesCatName(s.categoryId),
+            )
+        }
         detailsDone = true
         val rk = store.settings.ratingsKey
         if (rk.isNotBlank()) {
@@ -293,8 +315,12 @@ fun SeriesDetailScreen(s: Series) {
 
     val rating = tmdb?.rating ?: info?.rating ?: s.rating.takeIf { it > 0 }
     val tp = remember(s.name) { TitleParts.parse(s.name) }
+    val cert = tmdb?.certification ?: app.catalog.seriesMeta(s.id)?.cert
+    val isDub = app.catalog.isDubbedSeries(s)
     val meta = listOfNotNull(
         tmdb?.year ?: info?.year ?: s.year,
+        cert,
+        if (isDub) "Hindi dubbed" else null,
         tp.tag, tp.region,
         if (seasonKeys.isNotEmpty()) "${seasonKeys.size} season${if (seasonKeys.size == 1) "" else "s"}" else null,
         rating?.let { "%.1f/10".format(it) },
@@ -488,11 +514,12 @@ private fun TitleOrLogo(name: String, logo: String?, compact: Boolean) {
 /** Cast with photos from TMDB; the provider's names alone when that is all there is. */
 @Composable
 private fun CastRow(people: List<Tmdb.Person>, providerCast: String?, keyPrefix: String) {
+    val nav = LocalNav.current
     val list = people.ifEmpty {
         providerCast?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.take(10)?.map { Tmdb.Person(it) }.orEmpty()
     }
-    Rail("Cast", list, key = { it.name }) { p ->
-        Focusable({}, Modifier.width(112.dp), key = "$keyPrefix:cast:${p.name}", scaleOnFocus = 1.04f) { f ->
+    Rail("Cast", list, key = { it.name }, hint = "OK: movies & shows") { p ->
+        Focusable({ nav.push(Route.PersonDetail(p)) }, Modifier.width(112.dp), key = "$keyPrefix:cast:${p.name}", scaleOnFocus = 1.04f) { f ->
             Column(Modifier.fillMaxWidth().background(if (f) Palette.surface2 else Color.Transparent).padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.size(84.dp).background(Palette.surface2, CircleShape), contentAlignment = Alignment.Center) {
                     Text(initials(p.name), color = Palette.dim, fontSize = 22.sp, fontWeight = FontWeight.Bold)

@@ -159,6 +159,7 @@ fun AppRoot() {
                                     Route.Home -> HomeScreen()
                                     is Route.MovieDetail -> MovieDetailScreen(route.movie)
                                     is Route.SeriesDetail -> SeriesDetailScreen(route.series)
+                                    is Route.PersonDetail -> PersonDetailScreen(route.person)
                                     Route.Setup -> SetupScreen(onDone = { nav.pop(ui.focus) })
                                 }
                             }

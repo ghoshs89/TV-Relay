@@ -39,7 +39,7 @@ interface TitleSource<T> {
     fun byId(id: Int): T?
     fun lang(id: Int): String?
     fun kind(t: T): String? = null
-    fun matchesKind(t: T, wantKind: String): Boolean = kind(t) == wantKind
+    fun apiGenres(t: T): List<String> = emptyList()
     fun isDubbed(t: T): Boolean = false
     fun id(t: T): Int
     fun category(t: T): String
@@ -61,7 +61,11 @@ fun <T> buildTitleList(src: TitleSource<T>, q: TitleQuery, check: () -> Unit = {
     }
     var allowed = if (q.blockedCats.isEmpty()) base else base.filterChecked(check) { src.category(it) !in q.blockedCats }
     if (q.langFilter != null) allowed = allowed.filterChecked(check) { src.lang(src.id(it)) == q.langFilter }
-    if (q.kindFilter != null) allowed = allowed.filterChecked(check) { src.matchesKind(it, q.kindFilter) }
+    if (q.kindFilter != null) {
+        allowed = allowed.filterChecked(check) {
+            src.kind(it) == q.kindFilter || ContentKinds.matchesApiGenres(src.apiGenres(it), q.kindFilter)
+        }
+    }
     if (q.dubbedOnly) allowed = allowed.filterChecked(check) { src.isDubbed(it) }
     val mixed = q.selection == TitleSelection.Recent || q.selection == TitleSelection.Top || q.selection == TitleSelection.All
     val ranked = if (!mixed) {

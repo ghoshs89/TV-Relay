@@ -15,8 +15,8 @@ import java.security.MessageDigest
 class SnapshotLogicTest {
 
     /** The LOGIC value the hash below was recorded for. */
-    private val recordedFor = 1
-    private val recordedHash = "9d7ea8280177d1d6"
+    private val recordedFor = 2
+    private val recordedHash = "56b0ed8867f96435"
 
     private fun sampleHash(): String {
         val sb = StringBuilder()

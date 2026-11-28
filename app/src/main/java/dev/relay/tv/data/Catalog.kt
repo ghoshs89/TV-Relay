@@ -1162,8 +1162,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         override fun byId(id: Int): Movie? = movieById[id]
         override fun lang(id: Int): String? = movieLang(id)
         override fun kind(t: Movie): String? = vodCatKind[t.categoryId]
-        override fun matchesKind(t: Movie, wantKind: String): Boolean =
-            vodCatKind[t.categoryId] == wantKind || ContentKinds.matchesApiGenres(movieMeta(t.id)?.genres.orEmpty(), wantKind)
+        override fun apiGenres(t: Movie): List<String> = movieMeta(t.id)?.genres.orEmpty()
         override fun isDubbed(t: Movie): Boolean = isDubbedMovie(t)
         override fun id(t: Movie): Int = t.id
         override fun category(t: Movie): String = t.categoryId
@@ -1177,8 +1176,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         override fun byId(id: Int): Series? = seriesById[id]
         override fun lang(id: Int): String? = seriesLang(id)
         override fun kind(t: Series): String? = seriesCatKind[t.categoryId]
-        override fun matchesKind(t: Series, wantKind: String): Boolean =
-            seriesCatKind[t.categoryId] == wantKind || ContentKinds.matchesApiGenres(seriesMeta(t.id)?.genres.orEmpty(), wantKind)
+        override fun apiGenres(t: Series): List<String> = seriesMeta(t.id)?.genres.orEmpty()
         override fun isDubbed(t: Series): Boolean = isDubbedSeries(t)
         override fun id(t: Series): Int = t.id
         override fun category(t: Series): String = t.categoryId

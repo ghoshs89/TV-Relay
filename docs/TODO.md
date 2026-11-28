@@ -17,7 +17,7 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 | # | Item | Notes |
 |---|---|---|
 | 14 | Optional protocol bumps after all screens update | Once every screen in the household runs the hardening release or newer: switch `ParentPin.hash` default output from `v1` to `v2$` PBKDF2 (verification already accepts both), and optionally add a commitment message before key exchange in `Pairing` (`/pair/*`). |
-| 15 | Optional browsing layout follow-up | Content-type and quick language filter chips now sit above Live TV, Movies and Series; see [BROWSING.md](BROWSING.md) if you later want to replace the side rail with a top category drawer. |
+| 15 | **Unified top-bar navigation & Categories modal** | Done in the updated pre-release: Live TV, Movies and Series now share Home's single-rail navigation with a top browse bar, **Categories ▾** modal picker, and compact Hero strip (the legacy inner category rail has been removed, and `Guide` lives directly inside **Live TV → Guide grid**). |
 | 2 | Guide grid: draw only the programmes on screen (plan 5, U4) | Each row builds every programme in an 11 hour window. Needs a benchmark run before and after; the guide stretches now exist. |
 | 3 | Player recovery (plan 5, B1) | Add an automatic retry for a film after a transient network drop (direct live streams now stop in the background and re-tune cleanly on return). |
 | 4 | **Finish splitting the player code** | Done so far (1.0.30): kids limit timing, audio and subtitle choices, failure panel, pause bar and its arithmetic, reminder banner, number entry and the picture-in-picture ratio are separate classes with tests. `PlayerActivity.kt` is about 1,540 lines. Not done: live channel switching and recovery (`LiveSession`), the pause buffer controller (`TimeshiftController`) and view construction (`PlayerViews`). After the player checks in B. |
@@ -33,16 +33,19 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 ## Check on a device
 
-The Watch next pre-release, 1.0.148 (sidebar, Modern home, detail pages, trailers in other apps), on the TV with the remote and on a phone in landscape:
+The updated Watch next & Unified Browsing pre-release on `modern-watch-next`, on the TV with the remote and on a phone in landscape:
 
 | Item | What to look for |
 |---|---|
-| Sidebar | Icons only until you move into it, then names. Left from Home's rows, the Live TV categories, the guide's channels, Movies, Series and Settings reaches it; Right returns to the same item. Back: content → sidebar → Home → **Close Relay?**. |
-| Phone bar | Home, Live TV, Movies, Series, Search and More (Guide, My list, Settings, Switch profile) all open, nothing is cut off. |
-| Home hero | Scroll quickly across a row: nothing stutters, and the picture changes once you stop. With a TMDB key, the title's logo and summary show; without one, the poster and name. A channel card shows now and next. |
+| Sidebar & top browse bar | TV sidebar lists Profile, Search, Home, Live TV, Movies, Series, My list, Settings (no top-level **Guide** tab). Left from Live TV channel rows, Movies grid or Series grid reaches the sidebar cleanly; **Categories ▾** opens the category modal, and **Live TV → Guide grid** opens the timeline guide. |
+| Phone bar | Home, Live TV, Movies, Series, Search and More (My list, Settings, Switch profile) all open, nothing is cut off. |
+| Home hero | Scroll quickly across a row (on Home, Movies or Series): nothing stutters, and the picture changes once you stop. With a TMDB key, the title's logo, age certification and summary show; Hindi-dubbed Hollywood films show a `Hindi dubbed` label. |
+| Kids age rating & rows | Set a kids profile's **Age rating** (`Little kids 0–6`, `Older kids 7–9`, `Pre-teens 10–12`) in *Settings → Profiles*: Kids Home shows age-grouped rails (**For little kids (0–6)**, **For older kids (7–9)**, **For pre-teens (10–12)**) and Watch Next suggestions never include non-kids or over-age titles. |
+| Clickable cast | On any Movie or Series detail page, tap an actor in **Cast**: their filmography screen opens with bio and matching movies/series in your library; Back returns focus to that actor card. |
+| Dubbed & Live TV categories | Under **Movies**, open **Hindi**, **English** and **Dubbed**: Hindi-dubbed Hollywood titles appear under **English** (and **Dubbed**) instead of cluttering **Hindi**, while South Indian titles stay in **South Indian**. Under **Live TV → Categories ▾**, `IN`/`IND`/`INDIA` variants merge into one **India** group and English channels like Star Movies or WION appear under **English**. |
 | Up next | Finish an episode: the next one appears in **Up next**, not in Continue watching. Hold OK to remove it; it returns after you play that series again. |
-| Recommendations | **Recommended for you** and **Because you watched …** appear after finishing a film or two; nothing already watched shows. Hold OK → **Not interested** removes it at once, and it stays away on another screen after a sync. Kids profiles show only kids-safe titles. |
-| Detail pages | Full-width picture, logo or title, Play/Resume, Start over, Trailer, My list, Play on TV; cast with photos (TMDB key); seasons and episode cards; **More like this** at the bottom. |
+| Recommendations | **Recommended for you** and **Because you watched …** appear after finishing a film or two; nothing already watched shows. Hold OK → **Not interested** removes it at once, and it stays away on another screen after a sync. |
+| Detail pages | Full-width picture, logo or title, Play/Resume, Start over, Trailer, My list, Play on TV; clickable cast with photos (TMDB key); seasons and episode cards; **More like this** at the bottom. |
 | Trailers | With SmartTube installed, Trailer opens SmartTube; without SmartTube, Morphe, ReVanced or YouTube in that order; with none, the QR code. Which app opened is in the log ("Opened in …"). |
 | End-of-film card | In the last 30 seconds of an episode, "Up next in N s" counts down; OK starts it now, Back hides it. After a film, the card suggests a recommendation that starts only with OK. |
 | Older screens | A screen still on 1.0.144 keeps syncing with a beta screen, without "Update Relay on this screen to keep syncing". |

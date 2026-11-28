@@ -68,6 +68,9 @@ fun HomeScreen() {
 
     // In the app's scope: opening another screen mustn't cancel a load halfway.
     LaunchedEffect(Unit) { app.appScope.launch { catalog.load() } }
+    LaunchedEffect(catalog.libraryVersion, app.store.settings.tmdbKey, app.store.settings.ratingsKey) {
+        if (!catalog.isEmpty) app.enricher.enrichPriority()
+    }
     LaunchedEffect(ui.tab) { AppLog.d("Nav", "Tab: ${Dest.active(ui).label}") }
 
     // While Relay is in front, refresh the library once it's 6 hours old (the external guide
@@ -114,7 +117,7 @@ fun HomeScreen() {
         } else if (!app.session.autoStartDone) {
             when (st.startScreen) {
                 "live" -> Dest.LIVE.open(app.ui)
-                "guide" -> Dest.GUIDE.open(app.ui)
+                "guide" -> { app.ui.tab = Tabs.LIVE; app.ui.liveGrid = true }
             }
         }
     }
@@ -328,18 +331,26 @@ fun HomeTab() {
     store.historyVersion.intValue
     val pid = app.session.profileId
     val restrict = app.session.restrict(store.settings)
+    val profile = app.session.profile
+    val isKids = profile?.kids == true
+    val kidsMaxAge = profile?.effectiveKidsAge() ?: dev.relay.tv.data.KidsAge.DEFAULT_MAX_AGE
     val restrictions = remember(restrict, catalog.adultCats, catalog.libraryVersion) { catalog.restrictions(restrict) }
 
     // The store hands back the same list until something is written, so these are worked out
     // again only when the history, favourites or channels really change.
+    val suggestions = app.suggestions
+    val allowsRef: (dev.relay.tv.data.TitleRef?) -> Boolean = { ref ->
+        ref != null && restrictions.allowsCategory(ref.categoryId) &&
+            (!isKids || (suggestions.kidsBandOf(ref)?.let { it <= kidsMaxAge } == true))
+    }
     val history = store.history(pid)
-    val continueWatching = remember(history, restrict, catalog.adultCats, catalog.libraryVersion) {
+    val continueWatching = remember(history, restrict, isKids, kidsMaxAge, catalog.adultCats, catalog.libraryVersion, catalog.langVersion) {
         history.filter { e ->
-            e.kind != "live" && e.inProgress && (!restrict || when (e.kind) {
-                "movie" -> e.streamId.toIntOrNull()?.let { catalog.movieById[it]?.categoryId }?.let(restrictions::allowsCategory) == true
-                "episode" -> e.seriesId?.let { catalog.seriesById[it]?.categoryId }?.let(restrictions::allowsCategory) == true
+            e.kind != "live" && e.inProgress && when (e.kind) {
+                "movie" -> e.streamId.toIntOrNull()?.let { allowsRef(suggestions.ref(false, it)) } == true
+                "episode" -> e.seriesId?.let { allowsRef(suggestions.ref(true, it)) } == true
                 else -> false
-            })
+            }
         }.distinctBy { it.key }.take(20)
     }
     val recentChannels = remember(history, catalog.channels, restrict, catalog.adultCats) {
@@ -355,33 +366,37 @@ fun HomeTab() {
             .filter { restrictions.allowsCategory(it.categoryId) }
             .distinctBy { it.id }
     }
-    val myList = remember(favs, restrict, catalog.adultCats, catalog.libraryVersion) {
+    val myList = remember(favs, restrict, isKids, kidsMaxAge, catalog.adultCats, catalog.libraryVersion, catalog.langVersion) {
         favs.filter { f ->
-            f.kind != "live" && (!restrict || when (f.kind) {
-                "movie" -> catalog.movieById[f.id]?.categoryId?.let(restrictions::allowsCategory) == true
-                "series" -> catalog.seriesById[f.id]?.categoryId?.let(restrictions::allowsCategory) == true
+            f.kind != "live" && when (f.kind) {
+                "movie" -> allowsRef(suggestions.ref(false, f.id))
+                "series" -> allowsRef(suggestions.ref(true, f.id))
                 else -> false
-            })
+            }
         }.distinctBy { it.kind to it.id }
     }
 
     // Watch next: worked out off the screen thread whenever history, favourites, dismissals or the library change.
-    val suggestions = app.suggestions
     store.dismissed(pid.orEmpty())
     val stamp = Suggestions.stamp(app, favs)
     LaunchedEffect(stamp) { suggestions.refresh(stamp) }
     val watchNext = suggestions.state.takeIf { it.stamp.startsWith(pid.orEmpty() + "|") }
     val upNext = watchNext?.upNext.orEmpty()
     val recs = watchNext?.rows ?: dev.relay.tv.data.Recommendations.Rows.EMPTY
+    val kidsByAge = watchNext?.kidsByAge.orEmpty()
 
     // The hero follows the focused card; before anything has focus it shows the first thing worth watching.
     var hero by remember { mutableStateOf<HeroFocus?>(null) }
-    val firstHero = remember(continueWatching, upNext, recs, catalog.libraryVersion) {
+    val firstHero = remember(continueWatching, upNext, recs, kidsByAge, catalog.libraryVersion) {
         continueWatching.firstOrNull()?.let { heroOf(app, it) }
             ?: upNext.firstOrNull()?.let { heroOfUpNext(app, it) }
             ?: recs.forYou.firstOrNull()?.let { pick ->
                 val img = if (pick.title.tv) catalog.seriesById[pick.title.id]?.cover else catalog.movieById[pick.title.id]?.poster
                 HeroFocus.Title(pick.title.name, img, pick.title, reason = pick.reason)
+            }
+            ?: kidsByAge.values.firstOrNull()?.firstOrNull()?.let { kt ->
+                val img = if (kt.tv) catalog.seriesById[kt.id]?.cover else catalog.movieById[kt.id]?.poster
+                HeroFocus.Title(kt.name, img, kt)
             }
     }
 
@@ -416,7 +431,22 @@ fun HomeTab() {
 
     val st = store.settings
     val featured = app.session.langFeatured(st)
-    val rows = HomeLayout.resolve(app.session.profile?.homeRows, featured)
+    val baseRows = HomeLayout.resolve(app.session.profile?.homeRows, featured)
+    val rows = remember(baseRows, isKids, kidsByAge) {
+        if (!isKids || kidsByAge.isEmpty()) baseRows
+        else buildList {
+            val ageRows = kidsByAge.keys.map { "${HomeLayout.KIDS_AGE_PREFIX}$it" }
+            var placed = false
+            for (r in baseRows) {
+                add(r)
+                if (r == HomeLayout.BECAUSE_2 || (r == HomeLayout.RECOMMENDED && HomeLayout.BECAUSE_2 !in baseRows)) {
+                    addAll(ageRows)
+                    placed = true
+                }
+            }
+            if (!placed) addAll(0, ageRows)
+        }.distinct()
+    }
     val hidden = st.hiddenCats
 
     val tv = rememberIsTv()
@@ -428,6 +458,24 @@ fun HomeTab() {
         rows.forEach { row ->
             item(key = row) {
                 when {
+                    row.startsWith(HomeLayout.KIDS_AGE_PREFIX) -> {
+                        val band = row.removePrefix(HomeLayout.KIDS_AGE_PREFIX)
+                        val list = kidsByAge[band].orEmpty()
+                        Rail(HomeLayout.label(row), list, key = { it.key }) { t ->
+                            val img = if (t.tv) catalog.seriesById[t.id]?.cover else catalog.movieById[t.id]?.poster
+                            val rt = posterScore(if (t.tv) "s" else "m", t.id)
+                            PosterCard(
+                                t.name, img,
+                                {
+                                    if (t.tv) catalog.seriesById[t.id]?.let { nav.push(Route.SeriesDetail(it)) }
+                                    else catalog.movieById[t.id]?.let { nav.push(Route.MovieDetail(it)) }
+                                },
+                                key = "kids:$band:${t.key}", subtitle = t.year,
+                                badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
+                                onFocused = { hero = HeroFocus.Title(t.name, img, t) },
+                            )
+                        }
+                    }
                     row == HomeLayout.UP_NEXT -> Rail(HomeLayout.label(row), upNext, key = { it.key }, hint = "Hold OK to remove") { u ->
                         val series = catalog.seriesById[u.seriesId]
                         val ep = u.episode
@@ -518,35 +566,45 @@ fun HomeTab() {
                     }
                     row.startsWith(HomeLayout.LANG) -> {
                         val lang = row.removePrefix(HomeLayout.LANG)
-                        // Finding the newest titles in one language can mean walking the whole library, so it is done
-                        // off the screen thread. The last answer stays up (and is kept while the row is scrolled away)
-                        // until the new one is ready.
-                        val inputs = listOf(catalog.libraryVersion, restrict, catalog.langVersion, hidden)
+                        val inputs = listOf(catalog.libraryVersion, restrict, isKids, kidsMaxAge, catalog.langVersion, hidden)
                         val cache = app.ui.homeLangRows
                         var list by remember(lang) { mutableStateOf(cache[lang]?.second ?: emptyList()) }
                         LaunchedEffect(lang, inputs) {
                             val kept = cache[lang]?.takeIf { it.first == inputs }?.second
-                            val built = kept ?: withContext(Dispatchers.Default) { newIn(catalog, lang, restrict, hidden) }
+                            val built = kept ?: withContext(Dispatchers.Default) {
+                                newIn(catalog, lang, restrict, hidden).filter { t ->
+                                    !isKids || when (t) {
+                                        is HomeTitle.M -> allowsRef(suggestions.ref(false, t.movie.id))
+                                        is HomeTitle.S -> allowsRef(suggestions.ref(true, t.series.id))
+                                    }
+                                }
+                            }
                             if (kept == null) cache[lang] = inputs to built
                             list = built
                         }
                         Rail(HomeLayout.label(row), list, key = { it.railKey }) { t -> TitleCard(t, "nl:$lang") { hero = it } }
                     }
                     row == HomeLayout.NEW_MOVIES -> {
-                        val list = remember(catalog.moviesByAdded, restrict, hidden) {
-                            catalog.moviesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
+                        val list = remember(catalog.moviesByAdded, restrict, isKids, kidsMaxAge, hidden, catalog.langVersion) {
+                            catalog.moviesByAdded.asSequence()
+                                .filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden && (!isKids || allowsRef(suggestions.ref(false, it.id))) }
+                                .take(30).toList()
                         }
                         Rail(HomeLayout.label(row), list, key = { it.id }) { m -> TitleCard(HomeTitle.M(m), "ram") { hero = it } }
                     }
                     row == HomeLayout.NEW_SERIES -> {
-                        val list = remember(catalog.seriesByAdded, restrict, hidden) {
-                            catalog.seriesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
+                        val list = remember(catalog.seriesByAdded, restrict, isKids, kidsMaxAge, hidden, catalog.langVersion) {
+                            catalog.seriesByAdded.asSequence()
+                                .filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden && (!isKids || allowsRef(suggestions.ref(true, it.id))) }
+                                .take(30).toList()
                         }
                         Rail(HomeLayout.label(row), list, key = { it.id }) { x -> TitleCard(HomeTitle.S(x), "ras") { hero = it } }
                     }
                     row == HomeLayout.TOP_MOVIES -> {
-                        val list = remember(catalog.moviesByRating, restrict, hidden) {
-                            catalog.moviesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
+                        val list = remember(catalog.moviesByRating, restrict, isKids, kidsMaxAge, hidden, catalog.langVersion) {
+                            catalog.moviesByRating.asSequence()
+                                .filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden && (!isKids || allowsRef(suggestions.ref(false, it.id))) }
+                                .take(30).toList()
                         }
                         Rail(HomeLayout.label(row), list, key = { it.id }) { m ->
                             PosterCard(
@@ -556,8 +614,10 @@ fun HomeTab() {
                         }
                     }
                     row == HomeLayout.TOP_SERIES -> {
-                        val list = remember(catalog.seriesByRating, restrict, hidden) {
-                            catalog.seriesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
+                        val list = remember(catalog.seriesByRating, restrict, isKids, kidsMaxAge, hidden, catalog.langVersion) {
+                            catalog.seriesByRating.asSequence()
+                                .filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden && (!isKids || allowsRef(suggestions.ref(true, it.id))) }
+                                .take(30).toList()
                         }
                         Rail(HomeLayout.label(row), list, key = { it.id }) { x ->
                             PosterCard(

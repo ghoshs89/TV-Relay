@@ -51,15 +51,15 @@ Relay signs in to an Xtream Codes account and plays what that account provides. 
 ## Features
 
 <table>
-  <tr><td><b>Watch</b></td><td>Live TV with pause and rewind, catch-up, movies and series with resume, the current title while paused, next episode with a countdown card, and picture-in-picture on phones</td></tr>
-  <tr><td><b>Watch next</b></td><td>Up next (the episode after the one you finished), Recommended for you and "Because you watched …" rows built from each profile's own viewing, More like this on every film and series page; with a TMDB key they use TMDB's recommendations, always limited to what your provider has</td></tr>
-  <tr><td><b>Your languages</b></td><td>English, Hindi and Bengali first by default, then South Indian and Bangladesh; every other language still there, lower down. Order, Home rows and audio follow each profile</td></tr>
-  <tr><td><b>Find</b></td><td>Timeline guide with now and next in every list, search that also finds programmes on TV, content-type chips (Sports, News, Movies, Kids, Documentary, Music, Entertainment and genres), categories by country and by language, hide or pin categories, favourites, channel groups and renames</td></tr>
-  <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, daily viewing time and bedtime for kids, a parent PIN for anything that changes access</td></tr>
+  <tr><td><b>Watch</b></td><td>Live TV with pause and rewind (and timeline <b>Guide grid</b> inside Live TV), catch-up, movies and series with resume, the current title while paused, next episode with a countdown card, and picture-in-picture on phones</td></tr>
+  <tr><td><b>Watch next</b></td><td>Up next (the episode after the one you finished), Recommended for you and "Because you watched …" rows built from each profile's own viewing, More like this on every film and series page; with a TMDB key they use TMDB's recommendations, always limited to what your provider has. On kids profiles, suggestions and Kids Home age-band rows strictly follow the profile's age rating</td></tr>
+  <tr><td><b>Your languages</b></td><td>English, Hindi and Bengali first by default, then South Indian and Bangladesh; Hindi-dubbed Hollywood films classify under English with a <b>Dubbed</b> filter chip and badge; every other language stays accessible lower down</td></tr>
+  <tr><td><b>Find</b></td><td>Unified top browse bar across Live TV, Movies and Series with a compact Hero strip, <b>Categories ▾</b> modal picker, normalized country folders, timeline guide in Live TV, content-type and genre chips, and clickable <b>Cast</b> cards opening actor filmographies in your library</td></tr>
+  <tr><td><b>Family</b></td><td>Profiles, kids profiles with selectable age ratings (0–6, 7–9, 10–12) that filter categories and Watch Next rows, daily viewing time and bedtime for kids, and a parent PIN for anything that changes access</td></tr>
   <tr><td><b>Reliability</b></td><td>One entry per channel with automatic fallback to its other versions, backup servers (the ones meant for use with or without a VPN tried first to match), stalled streams reconnect on their own, failures explained in plain words, a library refresh that can't wipe your saved lists, and a ready-to-use copy of the library so channels appear within seconds after a restart</td></tr>
   <tr><td><b>Picture and sound</b></td><td>Refresh-rate matching, Dolby and DTS audio, lip-sync adjustment, subtitle style, stream info on start</td></tr>
   <tr><td><b>Several screens</b></td><td>Optional sync keeps profiles, favourites, watch history, kids' viewing time and shared settings the same on every TV and phone you own, through a private GitHub repository of your own, encrypted before it leaves the screen. <b>Play on TV</b> hands what the phone is playing (a channel, a film, an episode, catch-up or Start over) to a TV at home</td></tr>
-  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers in SmartTube, Morphe, ReVanced or YouTube (a QR code for your phone when none is installed), API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates (stable and beta channels), and optional direct crash and diagnostic report uploads</td></tr>
+  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork and background language/age enrichment, trailers in SmartTube, Morphe, ReVanced or YouTube (a QR code for your phone when none is installed), API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates (stable and beta channels), and optional direct crash and diagnostic report uploads</td></tr>
 </table>
 
 ## Install
@@ -237,7 +237,7 @@ Both the phone companion page and the Play on TV receiver answer only requests a
 
 - **Search** shows an *On TV* row: programmes on now (OK to watch) and later (OK sets a reminder). By default it covers channels whose guide Relay has already loaded. **Search the whole TV guide** downloads your provider's full guide for your languages and favourite channels (up to 1,500) every 12 hours. An external XMLTV guide, if set, is searched instead.
 - **Start over** in the channel panel plays the current programme from its beginning on channels with catch-up.
-- **How Watch next chooses:** it starts from the films you finished, the series you finished an episode of, and your My list, most recent first. With a TMDB key it asks TMDB for recommendations for the last five of them (kept for a week) and keeps only titles your provider has, matched by TMDB number or by title and year. Without a key it ranks your library by the same type (Sports, Kids, Documentary and so on), category, language and years, then rating and how recently it was added. It never offers anything this profile has watched or started (in any copy), anything a kids profile or hidden category rules out, or anything marked Not interested. Each profile has its own; "Not interested" and Up next choices sync between screens. Nothing about it leaves the screen except the TMDB question, which carries only TMDB's number for the title.
+- **How Watch next chooses:** it starts from the films you finished, the series you finished an episode of, and your My list, most recent first. With a TMDB key it asks TMDB for recommendations for the last five of them (kept for a week) and keeps only titles your provider has, matched by TMDB number or by title and year. Without a key it ranks your library by the same type (Sports, Kids, Documentary and so on), category, language and years, then rating and how recently it was added. It never offers anything this profile has watched or started (in any copy), anything a kids profile's age rating (`0–6`, `7–9`, `10–12`) or hidden category rules out, or anything marked Not interested. Each profile has its own; "Not interested" and Up next choices sync between screens. Nothing about it leaves the screen except the TMDB question, which carries only TMDB's number for the title.
 - **Continue watching on the home screen** (Google TV and Android TV): movies and episodes you're partway through appear on the TV's own home screen. Choosing one opens Relay and resumes it on the same profile. Kids profiles and adult categories never appear there.
 
 </details>
@@ -368,7 +368,7 @@ Settings → Library & guide → Rotten Tomatoes scores. Add a free MDBList key 
 <details>
 <summary><b>TMDB artwork and details</b></summary>
 
-Settings → Library & guide → TMDB API key, then **Send from my phone** (or **Type it here**). A free key from themoviedb.org (Settings → API) adds better backdrops, ratings, genres, cast and trailers to movie and series pages, and a full summary where the provider's is cut short (many copy theirs from IMDb, which shortens them). Without it, Relay uses your provider's own information. Either the 32-character "API Key" or the longer "API Read Access Token" works, and spaces, quotes or a leading `api_key=` in what you paste are ignored.
+Settings → Library & guide → TMDB API key, then **Send from my phone** (or **Type it here**). A free key from themoviedb.org (Settings → API) adds better backdrops, ratings, age certifications, genres, clickable cast filmographies (showing matching movies and series in your library) and trailers to movie and series pages, a full summary where the provider's is cut short, and background language/dubbed classification. Without it, Relay uses your provider's own information. Either the 32-character "API Key" or the longer "API Read Access Token" works, and spaces, quotes or a leading `api_key=` in what you paste are ignored.
 
 </details>
 
@@ -481,13 +481,15 @@ app/src/main/java/dev/relay/tv/
                     servers that just failed), catalog, local store,
                     backups, restrictions, languages, content-type chips,
                     channel versions, a saved copy of the prepared library for
-                    fast start-up, kids limits, TMDB and Rotten Tomatoes,
+                    fast start-up, kids limits & age ratings, TMDB and Rotten Tomatoes,
+                    background language/age enrichment (MetadataEnricher),
                     trailers and which app opens them, mergeable records and
                     encryption for sync, Watch next rules (Up next, title
                     versions, recommendations, dismissals) and a 7-day TMDB cache
   ui/               Compose screens for TV and phone: the sidebar and phone bar
-                    (NavShell), the Home hero, My list, detail pages, and
-                    Suggestions, which feeds Watch next from the library
+                    (NavShell), the Home hero, unified top-bar Movies/Series/Live TV
+                    with Categories modals, My list, detail pages, cast filmographies
+                    (PersonDetail), and Suggestions feeding Watch next & Kids rows
   player/           Media3 player, per-session pause-buffer recorder, stream recovery
   companion/        scoped phone companion web page, library editor, and the small
                     home-network HTTP helpers it shares with Play on TV
@@ -526,7 +528,7 @@ flowchart TB
     GTV(["Google TV home screen<br/>Continue watching"])
 
     subgraph APP["Relay app, one process"]
-        UI["ui/<br/>Compose screens: Home, Live TV, Guide,<br/>Movies, Series, Search, Settings"]
+        UI["ui/<br/>Compose screens: Home, Live TV (with Guide grid),<br/>Movies, Series, Cast, Search, Settings"]
         COMP["companion/<br/>web page server for the phone"]
         WN["tv/<br/>WatchNext"]
         PLAYER["player/<br/>Media3 player, stream recovery,<br/>pause buffer"]

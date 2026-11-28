@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
@@ -72,7 +71,6 @@ enum class Dest(val label: String, val icon: ImageVector) {
     SEARCH("Search", Icons.Filled.Search),
     HOME("Home", Icons.Filled.Home),
     LIVE("Live TV", RelayIcons.Tv),
-    GUIDE("Guide", Icons.Filled.DateRange),
     MOVIES("Movies", Icons.Filled.PlayArrow),
     SERIES("Series", Icons.Filled.List),
     MY_LIST("My list", Icons.Filled.Favorite),
@@ -81,8 +79,7 @@ enum class Dest(val label: String, val icon: ImageVector) {
 
     fun isActive(ui: UiState): Boolean = when (this) {
         HOME -> ui.tab == Tabs.HOME
-        LIVE -> ui.tab == Tabs.LIVE && !ui.liveGrid
-        GUIDE -> ui.tab == Tabs.LIVE && ui.liveGrid
+        LIVE -> ui.tab == Tabs.LIVE
         MOVIES -> ui.tab == Tabs.MOVIES
         SERIES -> ui.tab == Tabs.SERIES
         SEARCH -> ui.tab == Tabs.SEARCH
@@ -94,7 +91,6 @@ enum class Dest(val label: String, val icon: ImageVector) {
         when (this) {
             HOME -> ui.tab = Tabs.HOME
             LIVE -> { ui.tab = Tabs.LIVE; ui.liveGrid = false }
-            GUIDE -> { ui.tab = Tabs.LIVE; ui.liveGrid = true }
             MOVIES -> ui.tab = Tabs.MOVIES
             SERIES -> ui.tab = Tabs.SERIES
             SEARCH -> ui.tab = Tabs.SEARCH
@@ -106,7 +102,7 @@ enum class Dest(val label: String, val icon: ImageVector) {
     companion object {
         /** The bottom bar on phones; the rest are under More. */
         val PHONE_BAR = listOf(HOME, LIVE, MOVIES, SERIES, SEARCH)
-        val PHONE_MORE = listOf(GUIDE, MY_LIST, SETTINGS)
+        val PHONE_MORE = listOf(MY_LIST, SETTINGS)
 
         fun active(ui: UiState): Dest = entries.firstOrNull { it.isActive(ui) } ?: HOME
     }

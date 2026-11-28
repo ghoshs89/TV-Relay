@@ -60,8 +60,10 @@ class UiState {
     // Movies and Series quick filters
     var movieLangFilter by mutableStateOf<String?>(null)
     var movieKindFilter by mutableStateOf<String?>(null)
+    var movieDubbedFilter by mutableStateOf(false)
     var seriesLangFilter by mutableStateOf<String?>(null)
     var seriesKindFilter by mutableStateOf<String?>(null)
+    var seriesDubbedFilter by mutableStateOf(false)
 
     val liveCatList = LazyListState()
     val liveChList = LazyListState()
@@ -133,6 +135,7 @@ sealed interface Route {
     data object Home : Route
     data class MovieDetail(val movie: Movie) : Route
     data class SeriesDetail(val series: Series) : Route
+    data class PersonDetail(val person: dev.relay.tv.data.Tmdb.Person) : Route
     data object Setup : Route
 }
 
