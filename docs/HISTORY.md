@@ -75,6 +75,19 @@ Plan 4, cold start on the same emulator, saved copy against JSON path:
 
 Plan 4 also found the channel stage on the JSON path 3 to 35% slower than `main` on the emulator, where a desktop JVM showed it 30 to 40% faster. The cause was not found.
 
+Watch next pre-release against 1.0.144 (one run each, 28 Nov, same emulator image; runs 145 and 146). The sidebar changes what the first key presses of some stretches do, so read these as "no regression", not as a speed-up:
+
+| What | 1.0.144 | Watch next branch |
+|---|---|---|
+| Home browse, 95th percentile frame | 186 ms | 44 ms |
+| Holding Down in Live TV, 95th percentile | 53 ms | 12 ms |
+| Holding Up through Movies, 95th percentile | 221 ms | 52 ms |
+| Home fling, 95th percentile | 20 ms | 7 ms |
+| First picture after tuning | 1,261 ms | 1,260 ms |
+| Janky frames, whole run | 32.6% | 9.4% |
+| Native heap at the end | 53 MB | 68 MB |
+| Cold start, channels on screen (saved copy) | 1.4 s | 0.7 s |
+
 ## 4. Rules that came out of the work
 
 1. **A push to `main` that changes the app is a release** to every device. Docs and tools alone do not build. Work on a branch; check it with **Run workflow** (publishes nothing, uses up a build number).
