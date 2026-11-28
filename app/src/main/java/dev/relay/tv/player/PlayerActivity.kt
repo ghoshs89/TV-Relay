@@ -182,6 +182,7 @@ class PlayerActivity : ComponentActivity() {
             if (::limits.isInitialized) limits.tick(SystemClock.elapsedRealtime(), playing)
             if (playing) app.telemetry.onPlaybackSecond(req.live)
             watchBreaks()
+            updateUpNext()
             handler.postDelayed(this, 1_000)
         }
     }
@@ -593,6 +594,8 @@ class PlayerActivity : ComponentActivity() {
             finish()
         }
         reminder.addTo(root)
+        upNext = UpNextCard(this, isTv, ::upNextPlayNow)
+        upNext.addTo(root)
         failure = FailurePanel(
             this,
             onRetry = { retryAfterFailure() },
@@ -1199,6 +1202,47 @@ class PlayerActivity : ComponentActivity() {
         return true
     }
 
+    // ---------- Up next card (last 30 seconds) ----------
+
+    private lateinit var upNext: UpNextCard
+    private var upNextHiddenFor: String? = null
+    private var upNextRec: dev.relay.tv.data.Movie? = null
+
+    private fun updateUpNext() {
+        if (!::player.isInitialized || !::upNext.isInitialized || req.live) return
+        val item = currentItem() ?: return upNext.hide()
+        val dur = player.duration.takeIf { it != C.TIME_UNSET } ?: return upNext.hide()
+        val offer = UpNextRules.offer(item.kind, dur, player.currentPosition, player.hasNextMediaItem(), app.store.settings.autoNext, upNextHiddenFor == item.key)
+        when (offer) {
+            null -> upNext.hide()
+            is UpNextRules.NextEpisode -> {
+                val next = req.items.getOrNull(player.currentMediaItemIndex + 1)
+                upNext.show("Up next in ${offer.secondsLeft} s", listOfNotNull(next?.title, next?.subtitle).joinToString(" · "))
+            }
+            UpNextRules.Recommend -> {
+                // Only this profile's own recommendations (worked out with its kids and hidden-category rules).
+                val state = app.suggestions.state.takeIf { it.stamp.startsWith(req.profileId + "|") }
+                val pick = state?.rows?.forYou?.firstOrNull { !it.title.tv && "movie:${it.title.id}" != item.key }
+                val m = pick?.let { app.catalog.movieById[it.title.id] }
+                upNextRec = m
+                if (pick == null || m == null) return upNext.hide()
+                upNext.show(pick.reason, dev.relay.tv.data.TitleParts.parse(m.name).title)
+            }
+        }
+    }
+
+    private fun upNextPlayNow() {
+        upNext.hide()
+        val rec = upNextRec
+        if (player.hasNextMediaItem()) {
+            player.seekToNextMediaItem()
+        } else if (rec != null) {
+            saveProgress(finished = true)
+            Playback.movie(this, rec, rec.ext, 0)
+            finish()
+        }
+    }
+
     // ---------- Back ----------
 
     private fun onBack() {
@@ -1209,6 +1253,11 @@ class PlayerActivity : ComponentActivity() {
         }
         if (reminder.shown != null) {
             reminder.dismiss()
+            return
+        }
+        if (::upNext.isInitialized && upNext.shown) {
+            upNextHiddenFor = currentItem()?.key
+            upNext.hide()
             return
         }
         if (channelOverlayOpen) {
@@ -1311,6 +1360,12 @@ class PlayerActivity : ComponentActivity() {
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
             reminder.watch(r)
+            return true
+        }
+        if (::upNext.isInitialized && upNext.shown && event.action == KeyEvent.ACTION_DOWN &&
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
+        ) {
+            upNextPlayNow()
             return true
         }
         // The transport buttons on some remotes are delivered to the activity without a focused control.

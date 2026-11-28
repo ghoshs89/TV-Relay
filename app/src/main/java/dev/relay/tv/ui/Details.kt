@@ -37,6 +37,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -137,27 +146,20 @@ fun MovieDetailScreen(m: Movie) {
     )
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Phones in landscape are short: smaller poster and title, everything scrolls.
+        // Phones in landscape are short: smaller title, everything scrolls.
         val compact = maxHeight < 480.dp
-        Backdrop(tmdb?.backdrop ?: info?.backdrop ?: m.poster)
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = if (compact) 28.dp else 72.dp, vertical = if (compact) 20.dp else 56.dp),
-            verticalAlignment = if (compact) Alignment.Top else Alignment.CenterVertically,
-        ) {
-            Poster(tmdb?.poster ?: m.poster, m.name, width = if (compact) 150 else 260)
-            Spacer(Modifier.width(if (compact) 24.dp else 44.dp))
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                Text(
-                    displayTitle(m.name), fontSize = if (compact) 26.sp else 38.sp, fontWeight = FontWeight.Bold,
-                    color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(8.dp))
+        val side = if (compact) 28.dp else 64.dp
+        FullBackdrop(tmdb?.backdrop ?: info?.backdrop ?: m.poster, wide = tmdb?.backdrop != null || info?.backdrop != null)
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = if (compact) 20.dp else maxHeight * 0.22f, bottom = 32.dp)) {
+            Column(Modifier.padding(horizontal = side).widthIn(max = 760.dp)) {
+                TitleOrLogo(m.name, tmdb?.logo, compact)
+                Spacer(Modifier.height(10.dp))
                 if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = Type.body)
                 if (store.settings.ratingsKey.isNotBlank() && score?.none == false) {
                     Spacer(Modifier.height(8.dp))
                     RtScores(score)
                 }
-                Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
+                Spacer(Modifier.height(if (compact) 14.dp else 20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PillButton(
                         if (resumable && entry != null) "Resume  ${fmtDuration(entry.position)}" else "Play",
@@ -167,21 +169,21 @@ fun MovieDetailScreen(m: Movie) {
                     if (resumable) {
                         PillButton("Start over", { Playback.movie(ctx, m, ext, 0) }, icon = Icons.Filled.Refresh, key = "md:restart")
                     }
-                    if (playOnTv) {
-                        PillButton("Play on TV", { playOnTvOpen = true }, icon = RelayIcons.Tv, key = "md:tv")
-                    }
-                    PillButton(
-                        if (fav) "In my list" else "My list",
-                        { store.toggleFav(pid, FavItem("movie", m.id, m.name, m.poster)) },
-                        icon = if (fav) Icons.Filled.Check else Icons.Filled.Add, key = "md:fav",
-                    )
                     // Last in the row, so it appearing later moves nothing that is already there.
                     TrailerButton(
                         ctx, trailerAllowed, trailerId, detailsDone, m.name, info?.year ?: m.year,
                         "md:trailer", { trailerFallback = it },
                     )
+                    PillButton(
+                        if (fav) "In my list" else "My list",
+                        { store.toggleFav(pid, FavItem("movie", m.id, m.name, m.poster)) },
+                        icon = if (fav) Icons.Filled.Check else Icons.Filled.Add, key = "md:fav",
+                    )
+                    if (playOnTv) {
+                        PillButton("Play on TV", { playOnTvOpen = true }, icon = RelayIcons.Tv, key = "md:tv")
+                    }
                 }
-                Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
+                Spacer(Modifier.height(if (compact) 14.dp else 20.dp))
                 val plot = dev.relay.tv.data.PlotText.clean(tmdb?.overview ?: info?.plot)
                 if (failed) {
                     // Play still works from the list's information; only the extra details are missing.
@@ -190,15 +192,15 @@ fun MovieDetailScreen(m: Movie) {
                     CircularProgressIndicator(Modifier.size(22.dp), color = Palette.accent, strokeWidth = 2.dp)
                 } else if (plot != null) {
                     PlotBlock(
-                        plot, m.name, maxLines = if (compact) 3 else 5,
+                        plot, m.name, maxLines = if (compact) 3 else 4,
                         fontSize = if (compact) 15.sp else 17.sp, lineHeight = if (compact) 22.sp else 25.sp, key = "md:plot",
                     )
                 }
                 info?.director?.let { Text("Director: $it", color = Palette.dim, fontSize = Type.small, modifier = Modifier.padding(top = 12.dp)) }
-                val cast = tmdb?.cast?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: info?.cast
-                cast?.let { Text("Cast: $it", color = Palette.dim, fontSize = Type.small, modifier = Modifier.padding(top = 4.dp)) }
-                Spacer(Modifier.height(24.dp))
             }
+            Spacer(Modifier.height(20.dp))
+            CastRow(tmdb?.people.orEmpty(), info?.cast, "md")
+            MoreLikeThis(app.suggestions.ref(false, m.id), "md")
         }
     }
     trailerFallback?.let { TrailerQrDialog(it) { trailerFallback = null } }
@@ -250,6 +252,7 @@ fun SeriesDetailScreen(s: Series) {
     val seasons = info?.seasons.orEmpty()
     val seasonKeys = seasons.keys.sorted()
     val all: List<Episode> = seasonKeys.flatMap { seasons[it].orEmpty() }
+    LaunchedEffect(all) { app.suggestions.rememberEpisodes(s.id, all) }
     val history = store.history(pid)
 
     // Next up: the most recent episode in progress, or the one after the last finished episode.
@@ -300,60 +303,57 @@ fun SeriesDetailScreen(s: Series) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxHeight < 480.dp
-        val side = if (compact) 28.dp else 72.dp
-        Backdrop(tmdb?.backdrop ?: info?.backdrop ?: s.cover)
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = if (compact) 20.dp else 48.dp, bottom = 24.dp)) {
-            Row(Modifier.padding(horizontal = side)) {
-                Poster(tmdb?.poster ?: s.cover, s.name, width = if (compact) 120 else 190)
-                Spacer(Modifier.width(if (compact) 22.dp else 36.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        displayTitle(s.name), fontSize = if (compact) 24.sp else 34.sp, fontWeight = FontWeight.Bold,
-                        color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
+        val side = if (compact) 28.dp else 64.dp
+        FullBackdrop(tmdb?.backdrop ?: info?.backdrop ?: s.cover, wide = tmdb?.backdrop != null || info?.backdrop != null)
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = if (compact) 20.dp else maxHeight * 0.18f, bottom = 32.dp)) {
+            Column(Modifier.padding(horizontal = side).widthIn(max = 760.dp)) {
+                TitleOrLogo(s.name, tmdb?.logo, compact)
+                Spacer(Modifier.height(10.dp))
+                if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = Type.body)
+                if (store.settings.ratingsKey.isNotBlank() && score?.none == false) {
                     Spacer(Modifier.height(8.dp))
-                    if (meta.isNotEmpty()) Text(meta.joinToString("   ·   "), color = Palette.dim, fontSize = Type.body)
-                    if (store.settings.ratingsKey.isNotBlank() && score?.none == false) {
-                        Spacer(Modifier.height(8.dp))
-                        RtScores(score)
-                    }
-                    Spacer(Modifier.height(if (compact) 12.dp else 18.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (nextEp != null) {
-                            val label = if (lastIdx >= 0) "Continue S${nextEp.season} E${nextEp.number}" else "Play S${nextEp.season} E${nextEp.number}"
-                            PillButton(
-                                label, { Playback.episodes(ctx, s, all, nextIdx, nextResume) },
-                                icon = Icons.Filled.PlayArrow, focusRequester = playFocus, primary = true, key = "sd:play",
-                            )
-                            if (playOnTv) {
-                                PillButton("Play on TV", { sendEpisode = nextEp to nextResume }, icon = RelayIcons.Tv, key = "sd:tv")
-                            }
-                        } else if (info == null && !failed) {
-                            CircularProgressIndicator(Modifier.size(28.dp), color = Palette.accent, strokeWidth = 2.dp)
-                        }
+                    RtScores(score)
+                }
+                Spacer(Modifier.height(if (compact) 12.dp else 18.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (nextEp != null) {
+                        val label = if (lastIdx >= 0) (if (nextResume > 0) "Resume S${nextEp.season} E${nextEp.number}" else "Continue S${nextEp.season} E${nextEp.number}")
+                        else "Play S${nextEp.season} E${nextEp.number}"
                         PillButton(
-                            if (fav) "In my list" else "My list",
-                            { store.toggleFav(pid, FavItem("series", s.id, s.name, s.cover)) },
-                            icon = if (fav) Icons.Filled.Check else Icons.Filled.Add, key = "sd:fav",
-                            focusRequester = if (nextEp == null) playFocus else null,
+                            label, { Playback.episodes(ctx, s, all, nextIdx, nextResume) },
+                            icon = Icons.Filled.PlayArrow, focusRequester = playFocus, primary = true, key = "sd:play",
                         )
-                        TrailerButton(
-                            ctx, trailerAllowed, trailerId, detailsDone, s.name, info?.year ?: s.year,
-                            "sd:trailer", { trailerFallback = it },
-                        )
+                        if (nextResume > 0) {
+                            PillButton("Start over", { Playback.episodes(ctx, s, all, nextIdx, 0) }, icon = Icons.Filled.Refresh, key = "sd:restart")
+                        }
+                    } else if (info == null && !failed) {
+                        CircularProgressIndicator(Modifier.size(28.dp), color = Palette.accent, strokeWidth = 2.dp)
                     }
-                    if (failed) {
-                        Spacer(Modifier.height(10.dp))
-                        LoadFailed("Couldn't load episodes.", key = "sd:retry") { attempt++ }
+                    TrailerButton(
+                        ctx, trailerAllowed, trailerId, detailsDone, s.name, info?.year ?: s.year,
+                        "sd:trailer", { trailerFallback = it },
+                    )
+                    PillButton(
+                        if (fav) "In my list" else "My list",
+                        { store.toggleFav(pid, FavItem("series", s.id, s.name, s.cover)) },
+                        icon = if (fav) Icons.Filled.Check else Icons.Filled.Add, key = "sd:fav",
+                        focusRequester = if (nextEp == null) playFocus else null,
+                    )
+                    if (nextEp != null && playOnTv) {
+                        PillButton("Play on TV", { sendEpisode = nextEp to nextResume }, icon = RelayIcons.Tv, key = "sd:tv")
                     }
-                    Spacer(Modifier.height(if (compact) 12.dp else 16.dp))
-                    val plot = dev.relay.tv.data.PlotText.clean(tmdb?.overview ?: info?.plot)
-                    if (plot != null) {
-                        PlotBlock(
-                            plot, s.name, maxLines = if (compact) 3 else 4,
-                            fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 20.sp else 23.sp, key = "sd:plot",
-                        )
-                    }
+                }
+                if (failed) {
+                    Spacer(Modifier.height(10.dp))
+                    LoadFailed("Couldn't load episodes.", key = "sd:retry") { attempt++ }
+                }
+                Spacer(Modifier.height(if (compact) 12.dp else 16.dp))
+                val plot = dev.relay.tv.data.PlotText.clean(tmdb?.overview ?: info?.plot)
+                if (plot != null) {
+                    PlotBlock(
+                        plot, s.name, maxLines = if (compact) 3 else 4,
+                        fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 20.sp else 23.sp, key = "sd:plot",
+                    )
                 }
             }
             Spacer(Modifier.height(if (compact) 16.dp else 22.dp))
@@ -398,6 +398,9 @@ fun SeriesDetailScreen(s: Series) {
                     )
                 }
             }
+            Spacer(Modifier.height(16.dp))
+            CastRow(tmdb?.people.orEmpty(), info?.cast, "sd")
+            MoreLikeThis(app.suggestions.ref(true, s.id), "sd")
         }
     }
     trailerFallback?.let { TrailerQrDialog(it) { trailerFallback = null } }
@@ -442,24 +445,101 @@ fun LoadFailed(text: String, key: String? = null, onRetry: () -> Unit) {
     }
 }
 
-@Composable
-private fun Poster(url: String?, title: String, width: Int = 260) {
-    Box(
-        Modifier
-            .size(width = width.dp, height = (width * 1.5f).dp)
-            .background(Palette.surface2, RoundedCornerShape(12.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(initials(title), color = Palette.dim, fontSize = 40.sp, fontWeight = FontWeight.Bold)
-        if (!url.isNullOrBlank()) {
-            AsyncImage(
-                url, null, Modifier.fillMaxSize().background(Palette.surface2, RoundedCornerShape(12.dp)),
-                contentScale = ContentScale.Crop,
-            )
-        }
-    }
-}
 
 
 /** Provider names often carry a language tag, year and region, e.g. "IN - Title (2026) (US)". */
 fun displayTitle(raw: String): String = TitleParts.parse(raw).title
+
+/** The page's backdrop across the whole screen, fading into the background on the left and at the bottom. */
+@Composable
+private fun FullBackdrop(url: String?, wide: Boolean) {
+    Box(Modifier.fillMaxSize()) {
+        if (!url.isNullOrBlank()) {
+            val ctx = LocalContext.current
+            val request = remember(url) { coil.request.ImageRequest.Builder(ctx).data(url).size(1280, 720).crossfade(true).build() }
+            AsyncImage(
+                model = request, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (wide) 0.7f else 0.3f },
+            )
+        }
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Palette.bg, 0.4f to Palette.bg.copy(alpha = 0.8f), 1f to Color.Transparent)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, 0.45f to Palette.bg.copy(alpha = 0.4f), 0.75f to Palette.bg)))
+    }
+}
+
+/** TMDB's title logo when there is one, otherwise the title in large type. */
+@Composable
+private fun TitleOrLogo(name: String, logo: String?, compact: Boolean) {
+    if (logo != null) {
+        val ctx = LocalContext.current
+        val req = remember(logo) { coil.request.ImageRequest.Builder(ctx).data(logo).size(500, 200).build() }
+        AsyncImage(
+            req, contentDescription = displayTitle(name), contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
+            modifier = Modifier.heightIn(max = if (compact) 64.dp else 110.dp).widthIn(max = if (compact) 280.dp else 420.dp),
+        )
+    } else {
+        Text(
+            displayTitle(name), fontSize = if (compact) 26.sp else 40.sp, fontWeight = FontWeight.ExtraBold,
+            color = Palette.text, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = if (compact) 30.sp else 46.sp,
+        )
+    }
+}
+
+/** Cast with photos from TMDB; the provider's names alone when that is all there is. */
+@Composable
+private fun CastRow(people: List<Tmdb.Person>, providerCast: String?, keyPrefix: String) {
+    val list = people.ifEmpty {
+        providerCast?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.take(10)?.map { Tmdb.Person(it) }.orEmpty()
+    }
+    Rail("Cast", list, key = { it.name }) { p ->
+        Focusable({}, Modifier.width(112.dp), key = "$keyPrefix:cast:${p.name}", scaleOnFocus = 1.04f) { f ->
+            Column(Modifier.fillMaxWidth().background(if (f) Palette.surface2 else Color.Transparent).padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(84.dp).background(Palette.surface2, CircleShape), contentAlignment = Alignment.Center) {
+                    Text(initials(p.name), color = Palette.dim, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    if (p.photo != null) {
+                        AsyncImage(p.photo, null, Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(p.name, color = Palette.text, fontSize = Type.caption, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                p.character?.let { Text(it, color = Palette.dim, fontSize = Type.label, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
+            }
+        }
+    }
+}
+
+/** "More like this": TMDB's recommendations found in the library, or the library's own look-alikes. */
+@Composable
+private fun MoreLikeThis(ref: dev.relay.tv.data.TitleRef?, keyPrefix: String) {
+    if (ref == null) return
+    val app = RelayApp.instance
+    val nav = LocalNav.current
+    app.store.version.intValue
+    val dismissed = app.store.dismissed(app.session.profileId.orEmpty())
+    var list by remember(ref.key) { mutableStateOf<List<dev.relay.tv.data.TitleRef>>(emptyList()) }
+    LaunchedEffect(ref.key, dismissed) { list = app.suggestions.moreLikeThis(ref) }
+    var asking by remember { mutableStateOf<dev.relay.tv.data.TitleRef?>(null) }
+    Rail("More like this", list, key = { it.key }, hint = "Hold OK: not interested") { t ->
+        val image = if (t.tv) app.catalog.seriesById[t.id]?.cover else app.catalog.movieById[t.id]?.poster
+        PosterCard(
+            t.name, image,
+            {
+                if (t.tv) app.catalog.seriesById[t.id]?.let { nav.push(Route.SeriesDetail(it)) }
+                else app.catalog.movieById[t.id]?.let { nav.push(Route.MovieDetail(it)) }
+            },
+            key = "$keyPrefix:more:${t.key}", subtitle = t.year, onLongClick = { asking = t },
+        )
+    }
+    asking?.let { t ->
+        val first = remember { FocusRequester() }
+        InitialFocus(first)
+        TvDialog({ asking = null }) {
+            Text("Not interested", fontSize = Type.title, fontWeight = FontWeight.Bold, color = Palette.text)
+            Text("${displayTitle(t.name)} won't be recommended to this profile again.", fontSize = Type.bodyLarge, color = Palette.dim)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PillButton("Not interested", { app.suggestions.notInterested(t); asking = null }, focusRequester = first, primary = true, key = "$keyPrefix:notint")
+                PillButton("Cancel", { asking = null }, key = "$keyPrefix:notint:cancel")
+            }
+        }
+    }
+}

@@ -16,7 +16,7 @@ object HomeLayout {
     const val BECAUSE_1 = "because1"
     const val BECAUSE_2 = "because2"
 
-    /** The Watch next rows, added after Continue watching (1.0.145). */
+    /** The Watch next rows, added after Continue watching. */
     val WATCH_NEXT = listOf(UP_NEXT, RECOMMENDED, BECAUSE_1, BECAUSE_2)
 
     private val TAIL = listOf(MY_LIST, NEW_MOVIES, NEW_SERIES, TOP_MOVIES, TOP_SERIES)

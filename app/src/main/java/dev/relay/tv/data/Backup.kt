@@ -30,7 +30,7 @@ data class BackupFile(
     val liveSort: Map<String, Int> = emptyMap(),
     val seriesTracks: Map<Int, TrackPref> = emptyMap(),
     val reminders: List<Reminder> = emptyList(),
-    /** Per profile: "Not interested" and Up next dismissals (added in 1.0.145; older files have none). */
+    /** Per profile: "Not interested" and Up next dismissals (added with Watch next; older files have none). */
     val dismissed: Map<String, Map<String, Long>> = emptyMap(),
 ) {
     companion object {

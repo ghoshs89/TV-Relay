@@ -51,14 +51,15 @@ Relay signs in to an Xtream Codes account and plays what that account provides. 
 ## Features
 
 <table>
-  <tr><td><b>Watch</b></td><td>Live TV with pause and rewind, catch-up, movies and series with resume, the current title while paused, next episode, and picture-in-picture on phones</td></tr>
+  <tr><td><b>Watch</b></td><td>Live TV with pause and rewind, catch-up, movies and series with resume, the current title while paused, next episode with a countdown card, and picture-in-picture on phones</td></tr>
+  <tr><td><b>Watch next</b></td><td>Up next (the episode after the one you finished), Recommended for you and "Because you watched …" rows built from each profile's own viewing, More like this on every film and series page; with a TMDB key they use TMDB's recommendations, always limited to what your provider has</td></tr>
   <tr><td><b>Your languages</b></td><td>English, Hindi and Bengali first by default, then South Indian and Bangladesh; every other language still there, lower down. Order, Home rows and audio follow each profile</td></tr>
   <tr><td><b>Find</b></td><td>Timeline guide with now and next in every list, search that also finds programmes on TV, content-type chips (Sports, News, Movies, Kids, Documentary, Music, Entertainment and genres), categories by country and by language, hide or pin categories, favourites, channel groups and renames</td></tr>
   <tr><td><b>Family</b></td><td>Profiles, kids profiles that can't reach adult titles by any route, daily viewing time and bedtime for kids, a parent PIN for anything that changes access</td></tr>
   <tr><td><b>Reliability</b></td><td>One entry per channel with automatic fallback to its other versions, backup servers (the ones meant for use with or without a VPN tried first to match), stalled streams reconnect on their own, failures explained in plain words, a library refresh that can't wipe your saved lists, and a ready-to-use copy of the library so channels appear within seconds after a restart</td></tr>
   <tr><td><b>Picture and sound</b></td><td>Refresh-rate matching, Dolby and DTS audio, lip-sync adjustment, subtitle style, stream info on start</td></tr>
   <tr><td><b>Several screens</b></td><td>Optional sync keeps profiles, favourites, watch history, kids' viewing time and shared settings the same on every TV and phone you own, through a private GitHub repository of your own, encrypted before it leaves the screen. <b>Play on TV</b> hands what the phone is playing (a channel, a film, an episode, catch-up or Start over) to a TV at home</td></tr>
-  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers (a QR code to watch on your phone when you're at the TV, YouTube on a phone), API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates (stable and beta channels), and optional direct crash and diagnostic report uploads</td></tr>
+  <tr><td><b>Extras</b></td><td>Rotten Tomatoes scores (IMDb when there's none), TMDB artwork, trailers in SmartTube, Morphe, ReVanced or YouTube (a QR code for your phone when none is installed), API keys sent from your phone, programme reminders, Continue watching on the Google TV home screen, a phone page for editing your library, backup and restore, in-app updates (stable and beta channels), and optional direct crash and diagnostic report uploads</td></tr>
 </table>
 
 ## Install
@@ -107,6 +108,18 @@ Open the APK from the Releases page and allow your browser to install apps when 
 
 If your provider gives separate addresses for use with and without a VPN, enter all of them. Pasting the provider's whole message (on the sign-in screen or the phone page) marks which are for a VPN; the phone page also has a field to list them yourself. Relay then tries the servers that suit the device's connection first and keeps the others as a last resort, and it notices when a VPN is turned on or off. Settings → Account & sync lists every server with its mark and state; press one to change its mark.
 
+## Getting around
+
+**On a TV**, a sidebar on the left holds Search, Home, Live TV, Guide, Movies, Series, My list and Settings, with your profile at the top (choose it to switch profile). It shows icons only until you move into it, then widens to show the names. Press **Left** from the left edge of any screen to reach it and **Right** to go back to where you were. Choosing an item opens it; focus stays in the sidebar until you press Right. When an update is ready, **Update** appears at the bottom.
+
+**On a phone**, a bar at the bottom holds Home, Live TV, Movies, Series and Search; **More** opens Guide, My list, Settings and Switch profile.
+
+**Back** closes an open panel or window first. Then, on a TV, it moves to the sidebar; from the sidebar (or on a phone) it goes to Home, and from Home it asks **Close Relay?**.
+
+**Home** opens on a large picture of whatever has focus: the backdrop, the title's logo (with a TMDB key) or name, year, genres, rating and a short summary, or for a channel what's on now and next. It waits until you stop on a card, so scrolling quickly costs nothing. Below it are the rows: Continue watching, **Up next**, **Recommended for you**, up to two **Because you watched …** rows, your channels, then the language, newest and top-rated rows. Choose which rows show, and their order, in Settings → Library & guide → Home screen.
+
+**My list** collects the films and series you added with **My list** on their page and your favourite channels, with chips to show one kind. Hold OK on an item to remove it.
+
 ## Remote controls
 
 **Live TV**
@@ -130,6 +143,7 @@ If your provider gives separate addresses for use with and without a VPN, enter 
 | Left / Right, Rewind / Fast-Forward | Back / forward by the sizes set in Settings → Playback & subtitles (10 s and 30 s to begin with) |
 | OK | Show the player controls: audio, subtitles and speed |
 | Back | Hide the controls; otherwise a large prompt says *Press Back again to leave the player* and a second Back within about two seconds leaves it. Your position is saved. |
+| OK on the Up next card | In the last 30 seconds a card offers what comes next: the next episode counts down and starts by itself (when **Play next episode** is on); after a film or a finale it suggests your top recommendation, which starts only if you press OK. Back hides the card. |
 
 Pause a video to see its title above the picture. Movies also show the year, episodes show the series and episode details, and catch-up shows the programme and channel. Live TV uses the programme at the paused position when guide data is available and shows the channel name otherwise. The title stays visible after the controls fade and clears when playback resumes.
 
@@ -138,14 +152,14 @@ When you put Relay in the background, a movie or episode you paused stays paused
 **On a movie or series page:**
 
 - **Trailer** appears when your provider or TMDB knows a trailer (a TMDB key finds more, including trailers in the film's own language, for example Hindi or Bengali). When none is known, **Find a trailer** looks for one on YouTube instead.
-- **On a TV**, both show a **QR code**: scan it with your phone's camera and the trailer plays in YouTube on your phone, while the TV stays on the page. Back closes the code.
-- **On a phone**, both open the YouTube app, and Back returns to the same page. A phone without YouTube shows the QR code instead, for another phone.
+- Both open the trailer in the first of these that is installed: **SmartTube**, **Morphe**, **ReVanced** (or RVX), then **YouTube**. Back returns to the same page. Browsers are never used. With none of them installed, a **QR code** appears instead: scan it with your phone and the trailer plays there. Relay never plays YouTube itself.
 - Neither button appears on kids profiles, because YouTube is outside Relay's kids limits and parent PIN.
+- **More like this** at the bottom of the page lists similar titles your provider has (TMDB's recommendations with a key, otherwise the library's own look-alikes). Hold OK on one to mark it **Not interested**.
 - **The summary** shows a few lines. When there is more, press **Down** from the buttons to reach it (it says **More**) and **OK** to read all of it; Up and Down scroll a long one. Leftovers that some providers copy from other sites, such as "… Read all" or "See full summary »", are removed: they were never links.
 
 **Closing Relay:** on the main tabs, the profile picker and the sign-in screen, Back asks **Close Relay?** with **Stay in Relay** selected. Back again, or choosing Stay, keeps Relay open; the app closes only when you choose **Close Relay**. On a film or series page Back goes to the list underneath. Inside a Settings category, Back returns to the category menu.
 
-**On Home:** hold OK on a Continue watching card or a Recently watched channel to remove it (Menu works too). The **Clear all** button at the end of the Continue watching row empties it after a confirmation.
+**On Home:** hold OK on a Continue watching card or a Recently watched channel to remove it (Menu works too). On an Up next card it removes the series until you play it again; on a recommendation it offers **Not interested**, which hides that title (every copy of it) from this profile's recommendations. The **Clear all** button at the end of the Continue watching row empties it after a confirmation.
 
 **In the guide grid:** the time window advances every half hour while your selected programme stays in view for as long as it remains in the window. OK on a past show plays it from catch-up, on a current show tunes in, and on a future show sets a reminder. In the Live TV list, **Right** opens the channel panel: favourite, guide, catch-up, rename and groups.
 
@@ -223,6 +237,7 @@ Both the phone companion page and the Play on TV receiver answer only requests a
 
 - **Search** shows an *On TV* row: programmes on now (OK to watch) and later (OK sets a reminder). By default it covers channels whose guide Relay has already loaded. **Search the whole TV guide** downloads your provider's full guide for your languages and favourite channels (up to 1,500) every 12 hours. An external XMLTV guide, if set, is searched instead.
 - **Start over** in the channel panel plays the current programme from its beginning on channels with catch-up.
+- **How Watch next chooses:** it starts from the films you finished, the series you finished an episode of, and your My list, most recent first. With a TMDB key it asks TMDB for recommendations for the last five of them (kept for a week) and keeps only titles your provider has, matched by TMDB number or by title and year. Without a key it ranks your library by the same type (Sports, Kids, Documentary and so on), category, language and years, then rating and how recently it was added. It never offers anything this profile has watched or started (in any copy), anything a kids profile or hidden category rules out, or anything marked Not interested. Each profile has its own; "Not interested" and Up next choices sync between screens. Nothing about it leaves the screen except the TMDB question, which carries only TMDB's number for the title.
 - **Continue watching on the home screen** (Google TV and Android TV): movies and episodes you're partway through appear on the TV's own home screen. Choosing one opens Relay and resumes it on the same profile. Kids profiles and adult categories never appear there.
 
 </details>
@@ -467,8 +482,12 @@ app/src/main/java/dev/relay/tv/
                     backups, restrictions, languages, content-type chips,
                     channel versions, a saved copy of the prepared library for
                     fast start-up, kids limits, TMDB and Rotten Tomatoes,
-                    trailers, mergeable records and encryption for sync
-  ui/               Compose screens for TV and phone
+                    trailers and which app opens them, mergeable records and
+                    encryption for sync, Watch next rules (Up next, title
+                    versions, recommendations, dismissals) and a 7-day TMDB cache
+  ui/               Compose screens for TV and phone: the sidebar and phone bar
+                    (NavShell), the Home hero, My list, detail pages, and
+                    Suggestions, which feeds Watch next from the library
   player/           Media3 player, per-session pause-buffer recorder, stream recovery
   companion/        scoped phone companion web page, library editor, and the small
                     home-network HTTP helpers it shares with Play on TV

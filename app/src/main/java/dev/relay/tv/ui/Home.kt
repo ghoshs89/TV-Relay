@@ -58,19 +58,17 @@ import dev.relay.tv.tv.WatchNext
 import dev.relay.tv.data.HistoryEdits
 import dev.relay.tv.data.ProviderNames
 
-private val TABS = listOf("Home", "Live TV", "Movies", "Series", "Search", "Settings")
 
 @Composable
 fun HomeScreen() {
     val app = RelayApp.instance
     val ui = app.ui
     val catalog = app.catalog
-    val tabFocus = remember { FocusRequester() }
+    val nav = LocalNav.current
 
     // In the app's scope: opening another screen mustn't cancel a load halfway.
     LaunchedEffect(Unit) { app.appScope.launch { catalog.load() } }
-    LaunchedEffect(ui.tab) { AppLog.d("Nav", "Tab: ${TABS.getOrNull(ui.tab) ?: ui.tab}") }
-    InitialFocus(tabFocus)
+    LaunchedEffect(ui.tab) { AppLog.d("Nav", "Tab: ${Dest.active(ui).label}") }
 
     // While Relay is in front, refresh the library once it's 6 hours old (the external guide
     // looks after its own 12 hours). Nothing runs while the player is open on top.
@@ -93,7 +91,6 @@ fun HomeScreen() {
     }
 
     // A restore can remove or change the current profile: pick up the change, or go back to the picker.
-    val nav = LocalNav.current
 
     // "Continue watching" on the TV home screen: resume that title if it belongs to this profile.
     val resumeCtx = LocalContext.current
@@ -116,11 +113,8 @@ fun HomeScreen() {
             nav.push(Route.Setup)
         } else if (!app.session.autoStartDone) {
             when (st.startScreen) {
-                "live" -> app.ui.tab = 1
-                "guide" -> {
-                    app.ui.tab = 1
-                    app.ui.liveGrid = true
-                }
+                "live" -> Dest.LIVE.open(app.ui)
+                "guide" -> Dest.GUIDE.open(app.ui)
             }
         }
     }
@@ -212,50 +206,52 @@ fun HomeScreen() {
         Playback.live(ctx, list, list.indexOfFirst { it.id == id }.coerceAtLeast(0))
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 40.dp, end = 40.dp, top = 22.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Relay", color = Palette.accent, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.width(28.dp))
-            TABS.forEachIndexed { i, t ->
-                TabChip(
-                    t, selected = ui.tab == i, key = "tab:$i",
-                    focusRequester = if (i == ui.tab) tabFocus else null,
-                ) { ui.tab = i }
-                Spacer(Modifier.width(6.dp))
-            }
-            Spacer(Modifier.weight(1f))
-            if (catalog.loading) {
-                CircularProgressIndicator(Modifier.size(18.dp), color = Palette.accent, strokeWidth = 2.dp)
-                Spacer(Modifier.width(8.dp))
-                catalog.progress?.percent?.let {
-                    Text("$it%", color = Palette.dim, fontSize = Type.small, maxLines = 1)
-                    Spacer(Modifier.width(12.dp))
-                }
-            }
-            // A 1080p TV is only 960 dp wide, so the update badge takes the name and clock's place.
-            if (Updater.pending != null) {
-                PillButton("Update", { Updater.dialogOpen = true }, key = "tab:update", primary = true, icon = Icons.Filled.Refresh)
-            } else {
-                app.session.profile?.let {
-                    Text(it.name, color = Palette.dim, fontSize = Type.body, maxLines = 1)
-                    Spacer(Modifier.width(16.dp))
-                }
-                Clock()
-            }
+    // Back: an open panel or dialog closes first (their own handlers come later in composition). Then,
+    // on a TV, focus moves from the content to the sidebar; from the sidebar (or on a phone) Back goes to
+    // Home, and from Home it asks Close Relay? (MainActivity).
+    val tv = rememberIsTv()
+    val requesters = remember { Dest.entries.associateWith { FocusRequester() } }
+    val profileRequester = remember { FocusRequester() }
+    var sidebarFocused by remember { mutableStateOf(false) }
+    val gate = rememberParentGate()
+    val switchProfile: () -> Unit = {
+        val leave = {
+            val approval = app.session.profileSwitchLock(app.store)
+            app.session.profile = null
+            app.ui = UiState()
+            nav.openProfilePicker(approval)
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        if (app.session.profileSwitchLock(app.store) != null) gate.run("Parent PIN to leave the kids profile", leave) else leave()
+    }
+    val onTop = LocalFocusEnabled.current
+    androidx.activity.compose.BackHandler(enabled = onTop && ((tv && !sidebarFocused) || ui.tab != Tabs.HOME || ui.liveGrid)) {
+        if (tv && !sidebarFocused) {
+            runCatching { requesters.getValue(Dest.active(ui)).requestFocus() }
+        } else {
+            Dest.HOME.open(ui)
+            if (tv) runCatching { requesters.getValue(Dest.HOME).requestFocus() }
+        }
+    }
+    // On a TV the sidebar's current item gets focus first; Right goes into the content.
+    if (tv) InitialFocus(requesters.getValue(Dest.active(ui)))
+
+    NavFrame(
+        tv = tv,
+        sidebar = { TvSidebar(requesters, profileRequester, { sidebarFocused = it }, switchProfile) },
+        bar = { PhoneBar(switchProfile) },
+    ) {
+        Column(Modifier.fillMaxSize()) {
+          Box(Modifier.weight(1f).fillMaxWidth()) {
             when (ui.tab) {
-                0 -> HomeTab()
-                1 -> LiveTab()
-                2 -> MoviesTab()
-                3 -> SeriesTab()
-                4 -> SearchTab()
-                else -> SettingsTab()
+                Tabs.HOME -> HomeTab()
+                Tabs.LIVE -> Padded { LiveTab() }
+                Tabs.MOVIES -> Padded { MoviesTab() }
+                Tabs.SERIES -> Padded { SeriesTab() }
+                Tabs.SEARCH -> Padded { SearchTab() }
+                Tabs.MY_LIST -> Padded { MyListTab() }
+                else -> Padded { SettingsTab() }
             }
-            if (catalog.isEmpty && catalog.loading && ui.tab != 5) {
+            if (catalog.isEmpty && catalog.loading && ui.tab != Tabs.SETTINGS) {
                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = Palette.accent)
                     Spacer(Modifier.height(16.dp))
@@ -275,20 +271,28 @@ fun HomeScreen() {
                     color = Color.White, fontSize = Type.bodyLarge, fontWeight = FontWeight.SemiBold,
                 )
             }
-        }
-        // Below the content (not on top of it) so D-pad down from the last row reaches the buttons.
-        catalog.error?.let { msg ->
-            ErrorBar(
-                msg,
-                onRetry = { app.appScope.launch { catalog.load(force = true) } },
-                onDismiss = { catalog.error = null },
-            )
+          }
+          // Below the content (not on top of it) so D-pad down from the last row reaches the buttons.
+          catalog.error?.let { msg ->
+              ErrorBar(
+                  msg,
+                  onRetry = { app.appScope.launch { catalog.load(force = true) } },
+                  onDismiss = { catalog.error = null },
+              )
+          }
         }
     }
 }
 
+
+/** Every tab but Home starts a little below the top edge, where the old tab bar was. */
+@Composable
+private fun Padded(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().padding(top = 14.dp)) { content() }
+}
+
 /** What a long press on a Home card offers: [action] is the title, [title] the item, [run] does it. */
-private class Removal(val action: String, val title: String, val run: () -> Unit)
+private class Removal(val action: String, val title: String, val confirm: String = "Remove", val run: () -> Unit)
 
 /** A load problem you can act on: try again, or put the message away. */
 @Composable
@@ -309,39 +313,7 @@ private fun ErrorBar(message: String, onRetry: () -> Unit, onDismiss: () -> Unit
     }
 }
 
-@Composable
-private fun TabChip(
-    text: String,
-    selected: Boolean,
-    key: String,
-    focusRequester: FocusRequester?,
-    onClick: () -> Unit,
-) {
-    Focusable(onClick, key = key, shape = RoundedCornerShape(50), focusRequester = focusRequester) { f ->
-        Text(
-            text,
-            Modifier
-                .background(if (f) Palette.accent else if (selected) Palette.surface2 else Color.Transparent)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            color = if (f) Color.Black else if (selected) Palette.text else Palette.dim,
-            fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Normal,
-            fontSize = Type.bodyLarge,
-        )
-    }
-}
 
-@Composable
-private fun Clock() {
-    var now by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
-        val fmt = SimpleDateFormat("h:mm a", Locale.getDefault())
-        while (true) {
-            now = fmt.format(Date())
-            delay(15_000)
-        }
-    }
-    Text(now, color = Palette.text, fontSize = Type.bodyLarge)
-}
 
 @Composable
 fun HomeTab() {
@@ -392,6 +364,23 @@ fun HomeTab() {
         }.distinctBy { it.kind to it.id }
     }
 
+    // Watch next: worked out off the screen thread whenever history, favourites, dismissals or the library change.
+    val suggestions = app.suggestions
+    store.dismissed(pid.orEmpty())
+    val stamp = Suggestions.stamp(app, favs)
+    LaunchedEffect(stamp) { suggestions.refresh(stamp) }
+    val watchNext = suggestions.state.takeIf { it.stamp.startsWith(pid.orEmpty() + "|") }
+    val upNext = watchNext?.upNext.orEmpty()
+    val recs = watchNext?.rows ?: dev.relay.tv.data.Recommendations.Rows.EMPTY
+
+    // The hero follows the focused card; before anything has focus it shows the first thing worth watching.
+    var hero by remember { mutableStateOf<HeroFocus?>(null) }
+    val firstHero = remember(continueWatching, upNext, recs) {
+        continueWatching.firstOrNull()?.let { heroOf(app, it) }
+            ?: upNext.firstOrNull()?.let { heroOfUpNext(app, it) }
+            ?: recs.forYou.firstOrNull()?.let { HeroFocus.Title(it.title.name, null, it.title, reason = it.reason) }
+    }
+
     // Long press (or the Menu key) on a card offers to take it off its row.
     var removal by remember { mutableStateOf<Removal?>(null) }
     removal?.let { r ->
@@ -401,7 +390,7 @@ fun HomeTab() {
             Text(r.action, fontSize = Type.title, fontWeight = FontWeight.Bold, color = Palette.text)
             Text(r.title, fontSize = Type.bodyLarge, color = Palette.dim, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                PillButton("Remove", { r.run(); removal = null }, focusRequester = first, primary = true, key = "rm:ok")
+                PillButton(r.confirm, { r.run(); removal = null }, focusRequester = first, primary = true, key = "rm:ok")
                 PillButton("Cancel", { removal = null }, key = "rm:cancel")
             }
         }
@@ -426,10 +415,44 @@ fun HomeTab() {
     val rows = HomeLayout.resolve(app.session.profile?.homeRows, featured)
     val hidden = st.hiddenCats
 
-    LazyColumn(Modifier.fillMaxSize().fadeEdges(), state = app.ui.homeList, contentPadding = PaddingValues(top = 20.dp, bottom = 48.dp)) {
+    val tv = rememberIsTv()
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+    val heroHeight = if (tv) maxHeight * 0.42f else (maxHeight * 0.38f).coerceIn(120.dp, 170.dp)
+    Column(Modifier.fillMaxSize()) {
+    HomeHero(hero ?: firstHero, heroHeight, compact = !tv)
+    LazyColumn(Modifier.weight(1f).fillMaxWidth().fadeEdges(), state = app.ui.homeList, contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp)) {
         rows.forEach { row ->
             item(key = row) {
                 when {
+                    row == HomeLayout.UP_NEXT -> Rail(HomeLayout.label(row), upNext, key = { it.key }, hint = "Hold OK to remove") { u ->
+                        val series = catalog.seriesById[u.seriesId]
+                        val ep = u.episode
+                        PosterCard(
+                            series?.name ?: "Next episode", ep.image ?: series?.cover,
+                            {
+                                val all = dev.relay.tv.data.UpNext.ordered(suggestions.episodesOf(u.seriesId).orEmpty())
+                                val i = all.indexOfFirst { it.id == ep.id }
+                                if (series != null && i >= 0) Playback.episodes(ctx, series, all, i, 0)
+                            },
+                            key = "un:${u.key}", width = 260.dp, aspect = 16f / 9f,
+                            subtitle = "S${ep.season} E${ep.number} · ${ep.title}",
+                            onFocused = { hero = heroOfUpNext(app, u) },
+                            onLongClick = {
+                                removal = Removal("Remove from Up next", series?.name ?: ep.title) { suggestions.hideUpNext(u.seriesId) }
+                            },
+                        )
+                    }
+                    row == HomeLayout.RECOMMENDED -> Rail(HomeLayout.label(row), recs.forYou, key = { it.title.key }, hint = "Hold OK: not interested") { pick ->
+                        RecCard(pick, "rec", onFocused = { hero = it }) { removal = it }
+                    }
+                    row == HomeLayout.BECAUSE_1 || row == HomeLayout.BECAUSE_2 -> {
+                        val group = recs.because.getOrNull(if (row == HomeLayout.BECAUSE_1) 0 else 1)
+                        if (group != null) {
+                            Rail("Because you watched ${group.first.name}", group.second, key = { it.title.key }) { pick ->
+                                RecCard(pick, row, onFocused = { hero = it }) { removal = it }
+                            }
+                        }
+                    }
                     row == HomeLayout.CONTINUE -> Rail(
                         HomeLayout.label(row), continueWatching, key = { it.key }, hint = "Hold OK to remove",
                         footer = {
@@ -453,6 +476,7 @@ fun HomeTab() {
                             e.title, e.image, { resume(e) }, key = "cw:${e.key}", width = 260.dp, aspect = 16f / 9f,
                             subtitle = e.subtitle ?: "${fmtDuration(e.duration - e.position)} left",
                             progress = e.position.toFloat() / e.duration.coerceAtLeast(1),
+                            onFocused = { hero = heroOf(app, e) },
                             onLongClick = {
                                 removal = Removal("Remove from Continue watching", e.title) {
                                     store.removeHistory(pid, e.key)
@@ -465,12 +489,14 @@ fun HomeTab() {
                         ChannelTile(
                             ch, { Playback.live(ctx, favChannels, favChannels.indexOf(ch)) },
                             key = "fc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
+                            onFocused = { hero = HeroFocus.Live(ch) },
                         )
                     }
                     row == HomeLayout.RECENT_CHANNELS -> Rail(HomeLayout.label(row), recentChannels, key = { it.id }, hint = "Hold OK to remove") { ch ->
                         ChannelTile(
                             ch, { Playback.live(ctx, recentChannels, recentChannels.indexOf(ch)) },
                             key = "rc:${ch.id}", nowPlaying = catalog.nowPlaying(ch.id),
+                            onFocused = { hero = HeroFocus.Live(ch) },
                             onLongClick = {
                                 removal = Removal("Remove from Recently watched", ProviderNames.clean(ch.name)) {
                                     store.removeChannelHistory(pid, ch.id.toString())
@@ -482,7 +508,9 @@ fun HomeTab() {
                         PosterCard(f.name, f.image, {
                             if (f.kind == "movie") catalog.movieById[f.id]?.takeIf { restrictions.allowsCategory(it.categoryId) }?.let { nav.push(Route.MovieDetail(it)) }
                             else catalog.seriesById[f.id]?.takeIf { restrictions.allowsCategory(it.categoryId) }?.let { nav.push(Route.SeriesDetail(it)) }
-                        }, key = "ml:${f.kind}:${f.id}")
+                        }, key = "ml:${f.kind}:${f.id}", onFocused = {
+                            hero = HeroFocus.Title(f.name, f.image, suggestions.ref(f.kind == "series", f.id))
+                        })
                     }
                     row.startsWith(HomeLayout.LANG) -> {
                         val lang = row.removePrefix(HomeLayout.LANG)
@@ -498,26 +526,29 @@ fun HomeTab() {
                             if (kept == null) cache[lang] = inputs to built
                             list = built
                         }
-                        Rail(HomeLayout.label(row), list, key = { it.railKey }) { t -> TitleCard(t, "nl:$lang") }
+                        Rail(HomeLayout.label(row), list, key = { it.railKey }) { t -> TitleCard(t, "nl:$lang") { hero = it } }
                     }
                     row == HomeLayout.NEW_MOVIES -> {
                         val list = remember(catalog.moviesByAdded, restrict, hidden) {
                             catalog.moviesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
                         }
-                        Rail(HomeLayout.label(row), list, key = { it.id }) { m -> TitleCard(HomeTitle.M(m), "ram") }
+                        Rail(HomeLayout.label(row), list, key = { it.id }) { m -> TitleCard(HomeTitle.M(m), "ram") { hero = it } }
                     }
                     row == HomeLayout.NEW_SERIES -> {
                         val list = remember(catalog.seriesByAdded, restrict, hidden) {
                             catalog.seriesByAdded.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
                         }
-                        Rail(HomeLayout.label(row), list, key = { it.id }) { x -> TitleCard(HomeTitle.S(x), "ras") }
+                        Rail(HomeLayout.label(row), list, key = { it.id }) { x -> TitleCard(HomeTitle.S(x), "ras") { hero = it } }
                     }
                     row == HomeLayout.TOP_MOVIES -> {
                         val list = remember(catalog.moviesByRating, restrict, hidden) {
                             catalog.moviesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "vod:${it.categoryId}" !in hidden }.take(30).toList()
                         }
                         Rail(HomeLayout.label(row), list, key = { it.id }) { m ->
-                            PosterCard(m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "trm:${m.id}", badge = "%.1f".format(m.rating), badgeStar = true)
+                            PosterCard(
+                                m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "trm:${m.id}", badge = "%.1f".format(m.rating), badgeStar = true,
+                                onFocused = { hero = HeroFocus.Title(m.name, m.poster, suggestions.ref(false, m.id)) },
+                            )
                         }
                     }
                     row == HomeLayout.TOP_SERIES -> {
@@ -525,12 +556,17 @@ fun HomeTab() {
                             catalog.seriesByRating.asSequence().filter { catalog.allowed(it.categoryId, restrict) && "series:${it.categoryId}" !in hidden }.take(30).toList()
                         }
                         Rail(HomeLayout.label(row), list, key = { it.id }) { x ->
-                            PosterCard(x.name, x.cover, { nav.push(Route.SeriesDetail(x)) }, key = "trs:${x.id}", badge = "%.1f".format(x.rating), badgeStar = true)
+                            PosterCard(
+                                x.name, x.cover, { nav.push(Route.SeriesDetail(x)) }, key = "trs:${x.id}", badge = "%.1f".format(x.rating), badgeStar = true,
+                                onFocused = { hero = HeroFocus.Title(x.name, x.cover, suggestions.ref(true, x.id)) },
+                            )
                         }
                     }
                 }
             }
         }
+    }
+    }
     }
 }
 
@@ -564,8 +600,9 @@ fun newIn(catalog: dev.relay.tv.data.Catalog, lang: String, restrict: Boolean, h
 }
 
 @Composable
-private fun TitleCard(t: HomeTitle, keyPrefix: String) {
+private fun TitleCard(t: HomeTitle, keyPrefix: String, onHero: (HeroFocus) -> Unit = {}) {
     val nav = LocalNav.current
+    val sug = RelayApp.instance.suggestions
     when (t) {
         is HomeTitle.M -> {
             val m = t.movie
@@ -573,6 +610,7 @@ private fun TitleCard(t: HomeTitle, keyPrefix: String) {
             PosterCard(
                 m.name, m.poster, { nav.push(Route.MovieDetail(m)) }, key = "$keyPrefix:m:${m.id}", subtitle = m.year,
                 badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
+                onFocused = { onHero(HeroFocus.Title(m.name, m.poster, sug.ref(false, m.id))) },
             )
         }
         is HomeTitle.S -> {
@@ -581,7 +619,51 @@ private fun TitleCard(t: HomeTitle, keyPrefix: String) {
             PosterCard(
                 x.name, x.cover, { nav.push(Route.SeriesDetail(x)) }, key = "$keyPrefix:s:${x.id}", subtitle = x.year,
                 badge = rt?.first, badgeColor = rt?.second ?: Palette.accent,
+                onFocused = { onHero(HeroFocus.Title(x.name, x.cover, sug.ref(true, x.id))) },
             )
         }
     }
+}
+
+/** A recommended title: opens its page; holding OK offers "Not interested". */
+@Composable
+private fun RecCard(pick: dev.relay.tv.data.Recommendations.Pick, keyPrefix: String, onFocused: (HeroFocus) -> Unit, onRemove: (Removal) -> Unit) {
+    val app = RelayApp.instance
+    val nav = LocalNav.current
+    val t = pick.title
+    val image = if (t.tv) app.catalog.seriesById[t.id]?.cover else app.catalog.movieById[t.id]?.poster
+    PosterCard(
+        t.name, image,
+        {
+            if (t.tv) app.catalog.seriesById[t.id]?.let { nav.push(Route.SeriesDetail(it)) }
+            else app.catalog.movieById[t.id]?.let { nav.push(Route.MovieDetail(it)) }
+        },
+        key = "$keyPrefix:${t.key}", subtitle = t.year,
+        onFocused = { onFocused(HeroFocus.Title(t.name, image, t, reason = pick.reason)) },
+        onLongClick = {
+            onRemove(Removal("Not interested", "${dev.relay.tv.data.TitleParts.parse(t.name).title} won't be recommended to this profile again.", "Not interested") {
+                app.suggestions.notInterested(t)
+            })
+        },
+    )
+}
+
+/** The hero for a Continue watching entry. */
+private fun heroOf(app: RelayApp, e: WatchEntry): HeroFocus.Title {
+    val ref = when (e.kind) {
+        "movie" -> e.streamId.toIntOrNull()?.let { app.suggestions.ref(false, it) }
+        "episode" -> e.seriesId?.let { app.suggestions.ref(true, it) }
+        else -> null
+    }
+    val left = "${fmtDuration(e.duration - e.position)} left"
+    return HeroFocus.Title(e.title, e.image, ref, subtitle = listOfNotNull(e.subtitle, left).joinToString("  ·  "), wide = e.image.takeIf { e.kind == "episode" })
+}
+
+/** The hero for an Up next episode. */
+private fun heroOfUpNext(app: RelayApp, u: dev.relay.tv.data.UpNext.Item): HeroFocus.Title {
+    val s = app.catalog.seriesById[u.seriesId]
+    return HeroFocus.Title(
+        s?.name ?: u.episode.title, s?.cover, app.suggestions.ref(true, u.seriesId),
+        subtitle = "Up next: S${u.episode.season} E${u.episode.number} · ${u.episode.title}", wide = u.episode.image,
+    )
 }

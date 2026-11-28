@@ -760,12 +760,13 @@ fun ChannelTile(
     nowPlaying: String? = null,
     width: Dp = 168.dp,
     onLongClick: (() -> Unit)? = null,
+    onFocused: () -> Unit = {},
 ) {
     val (tag, rawTitle) = remember(ch.name) { splitChannelName(ch.name) }
     val title = remember(rawTitle) { dev.relay.tv.data.ProviderNames.clean(rawTitle) }
     var logoOk by remember(ch.logo) { mutableStateOf(false) }
     Column(Modifier.width(width)) {
-        Focusable(onClick, Modifier.fillMaxWidth().aspectRatio(1.25f), key = key, shape = RoundedCornerShape(14.dp), onLongClick = onLongClick) { f ->
+        Focusable(onClick, Modifier.fillMaxWidth().aspectRatio(1.25f), key = key, shape = RoundedCornerShape(14.dp), onLongClick = onLongClick, onFocused = onFocused) { f ->
             Box(
                 Modifier.fillMaxSize().background(
                     androidx.compose.ui.graphics.Brush.verticalGradient(

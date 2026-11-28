@@ -33,6 +33,20 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 ## Check on a device
 
+The Watch next pre-release (sidebar, Modern home, detail pages, trailers in other apps), on the TV with the remote and on a phone in landscape:
+
+| Item | What to look for |
+|---|---|
+| Sidebar | Icons only until you move into it, then names. Left from Home's rows, the Live TV categories, the guide's channels, Movies, Series and Settings reaches it; Right returns to the same item. Back: content → sidebar → Home → **Close Relay?**. |
+| Phone bar | Home, Live TV, Movies, Series, Search and More (Guide, My list, Settings, Switch profile) all open, nothing is cut off. |
+| Home hero | Scroll quickly across a row: nothing stutters, and the picture changes once you stop. With a TMDB key, the title's logo and summary show; without one, the poster and name. A channel card shows now and next. |
+| Up next | Finish an episode: the next one appears in **Up next**, not in Continue watching. Hold OK to remove it; it returns after you play that series again. |
+| Recommendations | **Recommended for you** and **Because you watched …** appear after finishing a film or two; nothing already watched shows. Hold OK → **Not interested** removes it at once, and it stays away on another screen after a sync. Kids profiles show only kids-safe titles. |
+| Detail pages | Full-width picture, logo or title, Play/Resume, Start over, Trailer, My list, Play on TV; cast with photos (TMDB key); seasons and episode cards; **More like this** at the bottom. |
+| Trailers | With SmartTube installed, Trailer opens SmartTube; without SmartTube, Morphe, ReVanced or YouTube in that order; with none, the QR code. Which app opened is in the log ("Opened in …"). |
+| End-of-film card | In the last 30 seconds of an episode, "Up next in N s" counts down; OK starts it now, Back hides it. After a film, the card suggests a recommendation that starts only with OK. |
+| Older screens | A screen still on 1.0.144 keeps syncing with a beta screen, without "Update Relay on this screen to keep syncing". |
+
 For the beta pre-release rollout, try the following on a TV with a remote and on a phone in landscape.
 
 | Check | What to look for |
@@ -193,6 +207,7 @@ Older checks:
 | Release | What |
 |---|---|
 | Pre-release | Content-type filter chips (Sports, News, Movies, Kids, Documentary, Music, Entertainment and VOD genres) plus quick language chips; opt-in anonymous usage stats with clear privacy notice, direct crash/log uploads (`#CODE`), and Cloudflare Worker + D1 dashboard; serialized household sync and main-thread store access; live streams stopped in the background and re-tuned on return; updater verification and dismissible install dialog; parental category checks across Home, details, reminders, favourites and versions; PBKDF2 v2 PIN verification with 5-try cooldown; active pairing lock; 256 MB XMLTV cap; cleartext traffic disabled on external APIs |
+| Watch next (pre-release) | Left sidebar on TVs and a bottom bar on phones; a Modern Home with a hero that follows focus; Up next, Recommended for you, Because you watched and More like this (TMDB with a key, the library's own ranking without); new detail pages with cast and episode cards; a countdown card at the end of episodes; trailers open in SmartTube, Morphe, ReVanced or YouTube, with the QR code when none is installed. Release number filled in after publishing. |
 | 1.0.144 | Merged from `next-release` (pre-release 1.0.143): content-type filter chips in Live TV and genre and language chips in Movies and Series; kids and hidden categories applied across Home, favourites, history, details, reminders and channel versions; sync set-up, joining and background syncs no longer overlap; pairing lock; update downloads only from GitHub and checked for version and signing key; external guides capped at 256 MB; provider messages ignore billing and support links; live channels stop in the background; optional usage stats and diagnostic report upload (needs `RELAY_TELEMETRY_URL` in the build) |
 | 1.0.139 | Per-screen **Update channel** (Stable only, or Stable and beta pre-releases) in About & diagnostics; **Run workflow** can publish a pre-release |
 | 1.0.135 | Shows the current title on pause, groups Settings by task, preserves concurrent sync edits and deletions, cancels interrupted provider requests, and plays HLS returned by `.ts` addresses. Removed the former household sync file from the app repository after migration. |
