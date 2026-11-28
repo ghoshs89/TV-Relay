@@ -105,21 +105,22 @@ class Suggestions(private val app: RelayApp) {
         val dismissed = app.store.dismissed(pid)
         val allowedSeries = allowed(restrict, s.hiddenCats)
 
-        // Up next: fetch episode lists for recently finished series that are missing or older than 12 hours.
-        loadEpisodes(UpNext.seriesToLoad(history))
+        // Up next: fetch episode lists for recently finished eligible series that are missing or older than 12 hours.
+        val allowSeriesId: (Int) -> Boolean = { sid -> ref(true, sid)?.let(allowedSeries) ?: false }
+        loadEpisodes(UpNext.seriesToLoad(history, dismissed = dismissed, allowed = allowSeriesId))
         val upNext = UpNext.build(
             history, ::episodesOf, dismissed,
-            allowed = { sid -> ref(true, sid)?.let(allowedSeries) ?: false },
+            allowed = allowSeriesId,
         )
 
-        val seeds = Recommendations.seeds(history, favs, ::ref)
+        val seeds = Recommendations.seeds(history, favs, ::ref, allowed = allowedSeries)
         val filter = filterFor(pid, restrict, s.hiddenCats)
         val key = s.tmdbKey
         val rows = if (key.isNotBlank() && seeds.isNotEmpty()) {
             val recs = coroutineScope {
                 seeds.map { seed ->
                     async {
-                        val id = seed.title.tmdbId?.takeIf { it.isNotBlank() && it.all(Char::isDigit) }
+                        val id = Tmdb.validTmdbId(seed.title.tmdbId)
                             ?: app.tmdb.lookup(key, seed.title.tv, null, seed.title.name, seed.title.year)?.id
                         TitleVersions.groupKey(seed.title) to (id?.let { app.tmdb.recommendations(key, seed.title.tv, it) }.orEmpty())
                     }
@@ -163,40 +164,68 @@ class Suggestions(private val app: RelayApp) {
     }
 
     /**
-     * Finds the library's copies of TMDB titles: by TMDB id first, then by cleaned title and year. One pass
-     * over the library's normalised names (shared with Search), only for the titles TMDB named.
+     * Finds the library's copies of TMDB titles: by TMDB id and by cleaned title + year. Scans the
+     * library directly with an anchor-word filter (longest word of each wanted title) so it never
+     * allocates the Search index or runs O(library * recs) substring loops.
      */
     private fun matcher(recs: List<Tmdb.Rec>): (Tmdb.Rec) -> List<TitleRef> {
+        if (recs.isEmpty()) return { emptyList() }
         val c = app.catalog
-        val wantMovieIds = recs.filter { !it.tv }.map { it.id }.toHashSet()
-        val wantSeriesIds = recs.filter { it.tv }.map { it.id }.toHashSet()
         val byId = HashMap<String, MutableList<TitleRef>>()
         val byName = HashMap<String, MutableList<TitleRef>>()
-        val names = recs.map { SearchText.norm(Tmdb.cleanTitle(it.title)) }.filter { it.length >= 3 }.toHashSet()
-        fun scan(tv: Boolean) {
-            val list: List<Any> = if (tv) c.series else c.movies
-            val norm = if (tv) c.searchSeries.of(c.series) else c.searchMovies.of(c.movies)
-            for (i in list.indices) {
-                val item = list[i]
-                val tmdb = if (tv) (item as dev.relay.tv.data.Series).tmdbId else (item as dev.relay.tv.data.Movie).tmdbId
-                val id = if (tv) (item as dev.relay.tv.data.Series).id else (item as dev.relay.tv.data.Movie).id
-                if (tmdb != null && tmdb in (if (tv) wantSeriesIds else wantMovieIds)) {
-                    ref(tv, id)?.let { byId.getOrPut("${if (tv) "s" else "m"}:$tmdb") { ArrayList() }.add(it) }
-                    continue
+
+        fun scan(tv: Boolean, kindRecs: List<Tmdb.Rec>) {
+            if (kindRecs.isEmpty()) return
+            val prefix = if (tv) "s" else "m"
+            val wantIds = kindRecs.mapNotNull { Tmdb.validTmdbId(it.id) }.toHashSet()
+            val wantNames = HashSet<String>(kindRecs.size * 2)
+            val anchors = HashSet<String>(kindRecs.size * 2)
+            for (r in kindRecs) {
+                val clean = SearchText.norm(Tmdb.cleanTitle(r.title))
+                if (clean.length < 3) continue
+                wantNames += clean
+                val anchor = clean.split(' ').maxByOrNull { it.length } ?: continue
+                if (anchor.length >= 2) anchors += anchor
+            }
+            val minLen = anchors.minOfOrNull { it.length } ?: 0
+            val maxLen = anchors.maxOfOrNull { it.length } ?: 0
+            val buf = StringBuilder(32)
+            if (tv) {
+                for (item in c.series) {
+                    val tmdb = Tmdb.validTmdbId(item.tmdbId)
+                    if (tmdb != null && tmdb in wantIds) {
+                        ref(true, item.id)?.let { byId.getOrPut("$prefix:$tmdb") { ArrayList() }.add(it) }
+                        continue
+                    }
+                    if (!SearchText.containsAnyWord(item.name, anchors, minLen, maxLen, buf)) continue
+                    val clean = SearchText.norm(Tmdb.cleanTitle(item.name))
+                    if (clean in wantNames) ref(true, item.id)?.let { byName.getOrPut("$prefix:$clean") { ArrayList() }.add(it) }
                 }
-                val n = norm.getOrNull(i) ?: continue
-                if (names.none { n.contains(it) }) continue
-                val r = ref(tv, id) ?: continue
-                val clean = SearchText.norm(Tmdb.cleanTitle(r.name))
-                if (clean in names) byName.getOrPut("${if (tv) "s" else "m"}:$clean") { ArrayList() }.add(r)
+            } else {
+                for (item in c.movies) {
+                    val tmdb = Tmdb.validTmdbId(item.tmdbId)
+                    if (tmdb != null && tmdb in wantIds) {
+                        ref(false, item.id)?.let { byId.getOrPut("$prefix:$tmdb") { ArrayList() }.add(it) }
+                        continue
+                    }
+                    if (!SearchText.containsAnyWord(item.name, anchors, minLen, maxLen, buf)) continue
+                    val clean = SearchText.norm(Tmdb.cleanTitle(item.name))
+                    if (clean in wantNames) ref(false, item.id)?.let { byName.getOrPut("$prefix:$clean") { ArrayList() }.add(it) }
+                }
             }
         }
-        if (recs.any { !it.tv }) scan(false)
-        if (recs.any { it.tv }) scan(true)
+        scan(false, recs.filter { !it.tv })
+        scan(true, recs.filter { it.tv })
         return { rec ->
             val k = if (rec.tv) "s" else "m"
-            byId["$k:${rec.id}"] ?: byName["$k:${SearchText.norm(Tmdb.cleanTitle(rec.title))}"].orEmpty()
+            val idHits = byId["$k:${rec.id}"].orEmpty()
+            val nameHits = byName["$k:${SearchText.norm(Tmdb.cleanTitle(rec.title))}"].orEmpty()
                 .filter { t -> rec.year == null || t.year == null || t.year.take(4) == rec.year }
+            when {
+                nameHits.isEmpty() -> idHits
+                idHits.isEmpty() -> nameHits
+                else -> (idHits + nameHits).distinctBy { it.id }
+            }
         }
     }
 
@@ -231,7 +260,7 @@ class Suggestions(private val app: RelayApp) {
         val filter = filterFor(pid, restrict, s.hiddenCats)
         val key = s.tmdbKey
         val tmdb = if (key.isBlank()) null else {
-            val id = title.tmdbId?.takeIf { it.isNotBlank() && it.all(Char::isDigit) }
+            val id = Tmdb.validTmdbId(title.tmdbId)
                 ?: app.tmdb.lookup(key, title.tv, null, title.name, title.year)?.id
             id?.let { app.tmdb.recommendations(key, title.tv, it) }
         }
@@ -261,11 +290,13 @@ class Suggestions(private val app: RelayApp) {
         fun stamp(app: RelayApp, favs: List<FavItem>): String {
             val pid = app.session.profileId.orEmpty()
             val s = app.store.settings
-            val hist = app.store.history(pid).firstOrNull()?.let { "${it.key}@${it.updated}/${it.position}" }.orEmpty()
-            val dis = app.store.dismissed(pid).values.maxOrNull() ?: 0L
+            val histList = app.store.history(pid)
+            val hist = histList.firstOrNull()?.let { "${it.key}@${it.updated}/${it.position}" }.orEmpty()
+            val disMap = app.store.dismissed(pid)
+            val dis = "${disMap.size}:${disMap.values.maxOrNull() ?: 0L}"
             return listOf(
-                pid, hist, app.store.history(pid).size, favs.size, favs.firstOrNull()?.at ?: 0L, dis,
-                app.catalog.libraryVersion, s.tmdbKey.isNotBlank(), app.session.restrict(s), s.hiddenCats.size,
+                pid, hist, histList.size, favs.size, favs.firstOrNull()?.at ?: 0L, dis,
+                app.catalog.libraryVersion, s.tmdbKey.hashCode(), app.session.restrict(s), s.hiddenCats.hashCode(),
                 app.session.langOrder(s).joinToString(","),
             ).joinToString("|")
         }

@@ -10,9 +10,10 @@ package dev.relay.tv.data
  */
 object Recommendations {
 
-    /** A title the profile watched, that recommendations are based on. [weight] is higher for recent ones. */
-    data class Seed(val title: TitleRef, val weight: Double, val at: Long) {
+    /** A title the profile watched (or saved to My list), that recommendations are based on. [weight] is higher for recent ones. */
+    data class Seed(val title: TitleRef, val weight: Double, val at: Long, val fromMyList: Boolean = false) {
         val name: String get() = Tmdb.cleanTitle(title.name).ifBlank { title.name }
+        val becauseLabel: String get() = if (fromMyList) "Because you saved $name" else "Because you watched $name"
     }
 
     /** A recommended title and why. */
@@ -30,22 +31,25 @@ object Recommendations {
     /**
      * The profile's seeds: finished films and series with at least one finished episode, most recent
      * first, plus titles on My list. [lookup] turns a history or favourite entry into a library title.
+     * [allowed] drops titles from hidden or restricted categories so they never leak into headers.
      */
     fun seeds(
         history: List<WatchEntry>,
         myList: List<FavItem>,
         lookup: (tv: Boolean, id: Int) -> TitleRef?,
         max: Int = MAX_SEEDS,
+        allowed: (TitleRef) -> Boolean = { true },
     ): List<Seed> {
-        val out = LinkedHashMap<String, Pair<TitleRef, Long>>()
+        val out = LinkedHashMap<String, Triple<TitleRef, Long, Boolean>>()
         for (e in history.sortedByDescending { it.updated }) {
             val ref = when (e.kind) {
                 "movie" -> if (e.finished || e.position >= e.duration * 0.6 && e.duration > 0) e.streamId.toIntOrNull()?.let { lookup(false, it) } else null
                 "episode" -> if (e.finished) e.seriesId?.let { lookup(true, it) } else null
                 else -> null
             } ?: continue
+            if (!allowed(ref)) continue
             val g = TitleVersions.groupKey(ref)
-            if (g !in out) out[g] = ref to e.updated
+            if (g !in out) out[g] = Triple(ref, e.updated, false)
         }
         for (f in myList.sortedByDescending { it.at }) {
             val ref = when (f.kind) {
@@ -53,10 +57,11 @@ object Recommendations {
                 "series" -> lookup(true, f.id)
                 else -> null
             } ?: continue
+            if (!allowed(ref)) continue
             val g = TitleVersions.groupKey(ref)
-            if (g !in out) out[g] = ref to f.at
+            if (g !in out) out[g] = Triple(ref, f.at, true)
         }
-        return out.values.take(max).mapIndexed { i, (ref, at) -> Seed(ref, 1.0 / (1 + i * 0.5), at) }
+        return out.values.take(max).mapIndexed { i, (ref, at, saved) -> Seed(ref, 1.0 / (1 + i * 0.5), at, fromMyList = saved) }
     }
 
     /** Title groups the profile has watched or started, which are never recommended. */
@@ -189,7 +194,7 @@ object Recommendations {
         return if (s >= 1.0) s else 0.0
     }
 
-    private fun because(seed: Seed) = "Because you watched ${seed.name}"
+    private fun because(seed: Seed) = seed.becauseLabel
 
     /** Small nudges: the viewer's languages first, then better rated titles. */
     private fun bonus(t: TitleRef, langs: LangRank): Double {

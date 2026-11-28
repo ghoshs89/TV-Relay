@@ -149,8 +149,9 @@ fun TvSidebar(
                 onFocusChanged(it.hasFocus)
             }
             .onPreviewKeyEvent { e ->
-                // Right leaves the sidebar for the item that had focus in the content.
-                e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && memory.restore()
+                // Right leaves the sidebar for the item that had focus in the content, or its first item
+                // so the expanded sidebar never makes Compose's geometric search skip the first column.
+                e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && memory.restoreOrFirst()
             }
             .padding(horizontal = 10.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),

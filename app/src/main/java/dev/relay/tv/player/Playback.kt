@@ -26,26 +26,27 @@ object Playback {
     private val pid get() = app.session.profileId
 
     /** Every play request passes the profile's restrictions here; blocked items never reach the player. */
-    private fun launch(ctx: Context, req: PlayRequest) {
+    private fun launch(ctx: Context, req: PlayRequest): Boolean {
         val lock = app.session.profileSwitchLock(app.store)
-        if (lock != null && req.profileId != lock.profileId) return
+        if (lock != null && req.profileId != lock.profileId) return false
         val r = app.catalog.restrictions(app.session.restrict(app.store.settings))
         val limit = app.store.viewingVerdict(req.profileId)
         if (limit is KidsLimits.Verdict.Blocked) {
             AppLog.i("Access", "Viewing limit: ${limit.reason}")
             Toast.makeText(ctx, limit.reason + " A parent can add time in Settings.", Toast.LENGTH_LONG).show()
-            return
+            return false
         }
         val ok = r.admit(req)
         if (ok == null) {
             AppLog.i("Access", "Blocked on this profile: ${req.items.getOrNull(req.index)?.kind}")
             Toast.makeText(ctx, "Not available on this profile", Toast.LENGTH_SHORT).show()
-            return
+            return false
         }
         app.pendingPlay = ok
         val intent = Intent(ctx, PlayerActivity::class.java)
         if (ctx !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         ctx.startActivity(intent)
+        return true
     }
 
     /** Entries for live channels, created only as the player reaches them (see [LazyItems]). */
@@ -79,7 +80,7 @@ object Playback {
         AppLog.d("Player", "Play request for ${visible.size} channels built in ${SystemClock.elapsedRealtime() - t} ms")
     }
 
-    fun movie(ctx: Context, m: Movie, ext: String, resumeMs: Long) {
+    fun movie(ctx: Context, m: Movie, ext: String, resumeMs: Long): Boolean =
         launch(
             ctx,
             PlayRequest(
@@ -93,11 +94,10 @@ object Playback {
                 0,
             ),
         )
-    }
 
     /** Queues every episode in order so "next episode" works across seasons. */
-    fun episodes(ctx: Context, s: Series, all: List<Episode>, index: Int, resumeMs: Long) {
-        if (all.isEmpty()) return
+    fun episodes(ctx: Context, s: Series, all: List<Episode>, index: Int, resumeMs: Long): Boolean {
+        if (all.isEmpty()) return false
         val items = all.mapIndexed { i, e ->
             PlayItem(
                 key = "ep:${e.id}", kind = "episode", title = s.name,
@@ -105,7 +105,7 @@ object Playback {
                 streamId = e.id, ext = e.ext, seriesId = s.id, resumeMs = if (i == index) resumeMs else 0,
             )
         }
-        launch(ctx, PlayRequest(pid, items, index.coerceIn(0, items.lastIndex)))
+        return launch(ctx, PlayRequest(pid, items, index.coerceIn(0, items.lastIndex)))
     }
 
     fun catchup(ctx: Context, ch: Channel, e: EpgEntry, resumeMs: Long = 0) {
@@ -154,7 +154,7 @@ object Playback {
         if (info == null) {
             Toast.makeText(ctx, "Couldn't load the whole series; playing just this episode", Toast.LENGTH_LONG).show()
         }
-        val all: List<Episode> = info?.let { inf -> inf.seasons.keys.sorted().flatMap { inf.seasons[it].orEmpty() } }.orEmpty()
+        val all: List<Episode> = info?.let { inf -> dev.relay.tv.data.UpNext.ordered(inf.seasons.values.flatten()) }.orEmpty()
         val idx = all.indexOfFirst { "ep:${it.id}" == e.key }
         if (series != null && idx >= 0) episodes(ctx, series, all, idx, positionMs) else resume(ctx, e, positionMs)
     }

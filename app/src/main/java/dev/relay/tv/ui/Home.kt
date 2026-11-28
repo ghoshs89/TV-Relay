@@ -224,16 +224,17 @@ fun HomeScreen() {
         if (app.session.profileSwitchLock(app.store) != null) gate.run("Parent PIN to leave the kids profile", leave) else leave()
     }
     val onTop = LocalFocusEnabled.current
-    androidx.activity.compose.BackHandler(enabled = onTop && ((tv && !sidebarFocused) || ui.tab != Tabs.HOME || ui.liveGrid)) {
+    val activeDest = Dest.active(ui)
+    androidx.activity.compose.BackHandler(enabled = onTop && ((tv && !sidebarFocused) || activeDest != Dest.HOME)) {
         if (tv && !sidebarFocused) {
-            runCatching { requesters.getValue(Dest.active(ui)).requestFocus() }
+            runCatching { requesters.getValue(activeDest).requestFocus() }
         } else {
             Dest.HOME.open(ui)
             if (tv) runCatching { requesters.getValue(Dest.HOME).requestFocus() }
         }
     }
     // On a TV the sidebar's current item gets focus first; Right goes into the content.
-    if (tv) InitialFocus(requesters.getValue(Dest.active(ui)))
+    if (tv) InitialFocus(requesters.getValue(activeDest))
 
     NavFrame(
         tv = tv,
@@ -375,10 +376,13 @@ fun HomeTab() {
 
     // The hero follows the focused card; before anything has focus it shows the first thing worth watching.
     var hero by remember { mutableStateOf<HeroFocus?>(null) }
-    val firstHero = remember(continueWatching, upNext, recs) {
+    val firstHero = remember(continueWatching, upNext, recs, catalog.libraryVersion) {
         continueWatching.firstOrNull()?.let { heroOf(app, it) }
             ?: upNext.firstOrNull()?.let { heroOfUpNext(app, it) }
-            ?: recs.forYou.firstOrNull()?.let { HeroFocus.Title(it.title.name, null, it.title, reason = it.reason) }
+            ?: recs.forYou.firstOrNull()?.let { pick ->
+                val img = if (pick.title.tv) catalog.seriesById[pick.title.id]?.cover else catalog.movieById[pick.title.id]?.poster
+                HeroFocus.Title(pick.title.name, img, pick.title, reason = pick.reason)
+            }
     }
 
     // Long press (or the Menu key) on a card offers to take it off its row.
@@ -448,7 +452,7 @@ fun HomeTab() {
                     row == HomeLayout.BECAUSE_1 || row == HomeLayout.BECAUSE_2 -> {
                         val group = recs.because.getOrNull(if (row == HomeLayout.BECAUSE_1) 0 else 1)
                         if (group != null) {
-                            Rail("Because you watched ${group.first.name}", group.second, key = { it.title.key }) { pick ->
+                            Rail(group.first.becauseLabel, group.second, key = { it.title.key }) { pick ->
                                 RecCard(pick, row, onFocused = { hero = it }) { removal = it }
                             }
                         }

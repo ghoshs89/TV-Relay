@@ -1074,6 +1074,7 @@ class PlayerActivity : ComponentActivity() {
                         showFailure("This channel isn't responding")
                     }
                 } else {
+                    finishedOnLeave = true
                     saveProgress(finished = true)
                     app.store.flush()
                     finish()
@@ -1206,7 +1207,9 @@ class PlayerActivity : ComponentActivity() {
 
     private lateinit var upNext: UpNextCard
     private var upNextHiddenFor: String? = null
-    private var upNextRec: dev.relay.tv.data.Movie? = null
+    private var upNextPick: dev.relay.tv.data.Recommendations.Pick? = null
+    private var upNextLaunching = false
+    private var finishedOnLeave = false
 
     private fun updateUpNext() {
         if (!::player.isInitialized || !::upNext.isInitialized || req.live) return
@@ -1222,24 +1225,64 @@ class PlayerActivity : ComponentActivity() {
             UpNextRules.Recommend -> {
                 // Only this profile's own recommendations (worked out with its kids and hidden-category rules).
                 val state = app.suggestions.state.takeIf { it.stamp.startsWith(req.profileId + "|") }
-                val pick = state?.rows?.forYou?.firstOrNull { !it.title.tv && "movie:${it.title.id}" != item.key }
-                val m = pick?.let { app.catalog.movieById[it.title.id] }
-                upNextRec = m
-                if (pick == null || m == null) return upNext.hide()
-                upNext.show(pick.reason, dev.relay.tv.data.TitleParts.parse(m.name).title)
+                val currentKey = if (item.kind == "episode" && item.seriesId != null) "series:${item.seriesId}" else item.key
+                val pick = state?.rows?.forYou?.firstOrNull { p ->
+                    p.title.key != currentKey &&
+                        if (p.title.tv) app.catalog.seriesById.containsKey(p.title.id) else app.catalog.movieById.containsKey(p.title.id)
+                }
+                upNextPick = pick
+                if (pick == null) return upNext.hide()
+                upNext.show(pick.reason, dev.relay.tv.data.TitleParts.parse(pick.title.name).title)
             }
         }
     }
 
     private fun upNextPlayNow() {
+        if (upNextLaunching) return
         upNext.hide()
-        val rec = upNextRec
         if (player.hasNextMediaItem()) {
-            player.seekToNextMediaItem()
-        } else if (rec != null) {
             saveProgress(finished = true)
-            Playback.movie(this, rec, rec.ext, 0)
-            finish()
+            player.seekToNextMediaItem()
+            return
+        }
+        val pick = upNextPick ?: return
+        val t = pick.title
+        if (!t.tv) {
+            val m = app.catalog.movieById[t.id] ?: return
+            if (Playback.movie(this, m, m.ext, 0)) {
+                finishedOnLeave = true
+                saveProgress(finished = true)
+                app.store.flush()
+                finish()
+            }
+        } else {
+            val s = app.catalog.seriesById[t.id] ?: return
+            upNextLaunching = true
+            lifecycleScope.launch {
+                try {
+                    val cached = app.suggestions.episodesOf(s.id)
+                    val raw = cached ?: withTimeoutOrNull(8_000) {
+                        try {
+                            app.api.seriesInfo(s.id).seasons.values.flatten().also { app.suggestions.rememberEpisodes(s.id, it) }
+                        } catch (ce: kotlinx.coroutines.CancellationException) {
+                            throw ce
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                    val ordered = dev.relay.tv.data.UpNext.ordered(raw.orEmpty())
+                    if (ordered.isNotEmpty() && Playback.episodes(this@PlayerActivity, s, ordered, 0, 0)) {
+                        finishedOnLeave = true
+                        saveProgress(finished = true)
+                        app.store.flush()
+                        finish()
+                    } else {
+                        Toast.makeText(this@PlayerActivity, "Couldn't start ${dev.relay.tv.data.TitleParts.parse(s.name).title}", Toast.LENGTH_SHORT).show()
+                    }
+                } finally {
+                    upNextLaunching = false
+                }
+            }
         }
     }
 
@@ -1362,7 +1405,7 @@ class PlayerActivity : ComponentActivity() {
             reminder.watch(r)
             return true
         }
-        if (::upNext.isInitialized && upNext.shown && event.action == KeyEvent.ACTION_DOWN &&
+        if (::upNext.isInitialized && upNext.shown && !view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
             upNextPlayNow()
@@ -1555,7 +1598,7 @@ class PlayerActivity : ComponentActivity() {
             limits.pause()
         }
         if (::player.isInitialized) {
-            saveProgress(finished = false)
+            if (!finishedOnLeave) saveProgress(finished = false)
             if (!req.live) resumeVodAfterStop = player.playWhenReady
             player.pause()
             val screenOn = (getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive != false

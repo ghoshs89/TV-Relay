@@ -18,4 +18,13 @@ class TmdbParseTest {
         assertEquals("/hi.png", Tmdb.pickLogo((logos as kotlinx.serialization.json.JsonArray).toList(), "hi"))
         assertEquals("/en.png", Tmdb.pickLogo(logos.toList(), "fr"))
     }
+
+    @Test
+    fun zeroAndNonNumericTmdbIdsAreRejected() {
+        assertEquals("438631", Tmdb.validTmdbId(" 438631 "))
+        assertEquals(null, Tmdb.validTmdbId("0"))
+        assertEquals(null, Tmdb.validTmdbId(""))
+        assertEquals(null, Tmdb.validTmdbId("tt12345"))
+        assertEquals(null, Tmdb.validTmdbId(null))
+    }
 }

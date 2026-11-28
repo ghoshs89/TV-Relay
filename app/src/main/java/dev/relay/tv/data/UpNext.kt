@@ -15,9 +15,22 @@ object UpNext {
         val key: String get() = "ep:${episode.id}"
     }
 
-    /** Series to fetch episode lists for: the [max] most recently played ones with a finished last episode. */
-    fun seriesToLoad(history: List<WatchEntry>, max: Int = 8): List<Int> =
-        latestPerSeries(history).filter { it.second.finished }.take(max).map { it.first }
+    /** Series to fetch episode lists for: the [max] most recently played eligible ones with a finished last episode. */
+    fun seriesToLoad(
+        history: List<WatchEntry>,
+        max: Int = 8,
+        dismissed: Map<String, Long> = emptyMap(),
+        allowed: (Int) -> Boolean = { true },
+    ): List<Int> =
+        latestPerSeries(history)
+            .filter { (sid, last) ->
+                last.finished &&
+                    allowed(sid) &&
+                    !Dismissals.hidesUpNext(dismissed, sid, last.updated) &&
+                    history.none { it.kind == "episode" && it.seriesId == sid && it.inProgress }
+            }
+            .take(max)
+            .map { it.first }
 
     /**
      * Up next for [history] (one profile). [episodes] gives a series' episodes, or null when they are not

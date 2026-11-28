@@ -100,8 +100,8 @@ class FocusMemory {
     var lastKey: String? = null
     var restoreTick by mutableIntStateOf(0)
 
-    // Items on screen that have a key, by key. Main thread only.
-    private val requesters = HashMap<String, FocusRequester>()
+    // Items on screen that have a key, by key, in composition order. Main thread only.
+    private val requesters = LinkedHashMap<String, FocusRequester>()
 
     fun register(key: String, requester: FocusRequester) {
         requesters[key] = requester
@@ -115,6 +115,15 @@ class FocusMemory {
     fun restore(): Boolean {
         val requester = lastKey?.let { requesters[it] } ?: return false
         return runCatching { requester.requestFocus() }.isSuccess
+    }
+
+    /** Focuses the remembered item, or the first registered content item in composition order. */
+    fun restoreOrFirst(): Boolean {
+        if (restore()) return true
+        for (requester in requesters.values) {
+            if (runCatching { requester.requestFocus() }.isSuccess) return true
+        }
+        return false
     }
 }
 

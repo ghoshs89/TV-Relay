@@ -250,8 +250,8 @@ fun SeriesDetailScreen(s: Series) {
     }
 
     val seasons = info?.seasons.orEmpty()
-    val seasonKeys = seasons.keys.sorted()
-    val all: List<Episode> = seasonKeys.flatMap { seasons[it].orEmpty() }
+    val seasonKeys = seasons.keys.sortedWith(compareBy { if (it <= 0) Int.MAX_VALUE else it })
+    val all: List<Episode> = dev.relay.tv.data.UpNext.ordered(seasons.values.flatten())
     LaunchedEffect(all) { app.suggestions.rememberEpisodes(s.id, all) }
     val history = store.history(pid)
 

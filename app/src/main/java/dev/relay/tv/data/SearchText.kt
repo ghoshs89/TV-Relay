@@ -22,6 +22,27 @@ object SearchText {
         return out.toString()
     }
 
+    /**
+     * True when any word in [raw] (using the same word boundaries as [norm]) is in [words].
+     * Reuses [buf] so scanning 166,000 titles allocates no lists or retained search arrays.
+     */
+    fun containsAnyWord(raw: String, words: Set<String>, minLen: Int, maxLen: Int, buf: StringBuilder = StringBuilder(32)): Boolean {
+        if (words.isEmpty()) return false
+        buf.setLength(0)
+        var i = 0
+        while (i < raw.length) {
+            val cp = raw.codePointAt(i)
+            i += Character.charCount(cp)
+            if (isWordChar(cp)) {
+                buf.appendCodePoint(Character.toLowerCase(cp))
+            } else if (buf.isNotEmpty()) {
+                if (buf.length in minLen..maxLen && buf.toString() in words) return true
+                buf.setLength(0)
+            }
+        }
+        return buf.length in minLen..maxLen && buf.toString() in words
+    }
+
     // The same characters as the regex classes \p{L} and \p{N}.
     private fun isWordChar(cp: Int): Boolean = when (Character.getType(cp).toByte()) {
         Character.UPPERCASE_LETTER, Character.LOWERCASE_LETTER, Character.TITLECASE_LETTER,

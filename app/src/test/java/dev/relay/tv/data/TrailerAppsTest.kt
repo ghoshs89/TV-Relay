@@ -29,6 +29,8 @@ class TrailerAppsTest {
     fun browsersKidsAndMusicAreNeverChosen() {
         assertNull(TrailerApps.pick(listOf("com.android.chrome", "org.mozilla.firefox", "com.google.android.apps.youtube.kids")))
         assertNull(TrailerApps.pick(listOf("com.google.android.youtube.tvkids", "com.google.android.apps.youtube.music")))
+        assertNull(TrailerApps.pick(listOf("app.revanced.android.apps.youtube.music", "app.rvx.android.apps.youtube.music", "app.revanced.manager.flutter", "app.morphe.manager")))
+        assertEquals("com.google.android.youtube", TrailerApps.pick(listOf("app.revanced.android.apps.youtube.music", "com.google.android.youtube")))
         assertNull(TrailerApps.pick(emptyList()))
     }
 }

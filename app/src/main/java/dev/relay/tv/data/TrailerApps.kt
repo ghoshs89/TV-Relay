@@ -24,12 +24,12 @@ object TrailerApps {
     /** The family of [pkg], or null for an app that is not a YouTube client Relay trusts. */
     fun familyOf(pkg: String): Family? {
         val p = pkg.lowercase()
+        if (p == "com.teamsmart.videomanager.tv" || p.startsWith("com.liskovsoft.smarttube")) return Family.SMARTTUBE
+        if (p.contains("kids") || p.contains("music") || p.contains("creator") || p.contains("manager")) return null
         return when {
-            p == "com.teamsmart.videomanager.tv" || p.startsWith("com.liskovsoft.smarttube") -> Family.SMARTTUBE
-            p.startsWith("app.morphe.") -> Family.MORPHE
-            p.startsWith("app.revanced.") || p.startsWith("app.rvx.") -> Family.REVANCED
-            p == "com.google.android.youtube" || p.startsWith("com.google.android.youtube.") &&
-                !p.contains("kids") && !p.contains("music") && !p.contains("creator") -> Family.YOUTUBE
+            p.startsWith("app.morphe.") && p.contains("youtube") -> Family.MORPHE
+            (p.startsWith("app.revanced.") || p.startsWith("app.rvx.")) && p.contains("youtube") -> Family.REVANCED
+            p == "com.google.android.youtube" || p.startsWith("com.google.android.youtube.") -> Family.YOUTUBE
             else -> null
         }
     }

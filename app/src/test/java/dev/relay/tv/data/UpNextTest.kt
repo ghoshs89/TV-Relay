@@ -55,5 +55,8 @@ class UpNextTest {
     fun seriesToLoadAreTheRecentFinishedOnes() {
         val hist = listOf(h("ep:a", 1, 990_000, 300), h("ep:a", 2, 10_000, 400), h("ep:b", 3, 990_000, 100))
         assertEquals(listOf(1, 3), UpNext.seriesToLoad(hist))
+        val dismissed = mapOf(Dismissals.upNext(1) to 350L)
+        assertEquals(listOf(3), UpNext.seriesToLoad(hist, max = 1, dismissed = dismissed))
+        assertEquals(listOf(1), UpNext.seriesToLoad(hist, max = 2, allowed = { it != 3 }))
     }
 }

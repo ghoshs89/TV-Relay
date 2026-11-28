@@ -57,4 +57,13 @@ class SearchTextTest {
         assertFalse(SearchText.oneEdit("kitten", "sittin"))
         assertFalse(SearchText.oneEdit("kitten", "kit"))
     }
+
+    @Test
+    fun containsAnyWordMatchesWholeWordsOnly() {
+        val words = setOf("her", "amélie", "interstellar")
+        assertTrue(SearchText.containsAnyWord("EN - Her (2013)", words, 3, 12))
+        assertFalse(SearchText.containsAnyWord("My Brother's Hero There", words, 3, 12))
+        assertTrue(SearchText.containsAnyWord("FR: Amélie (2001) FHD", words, 3, 12))
+        assertTrue(SearchText.containsAnyWord("Interstellar 4K", words, 3, 12))
+    }
 }

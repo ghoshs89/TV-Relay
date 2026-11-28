@@ -72,11 +72,15 @@ fun HomeHero(focus: HeroFocus?, height: Dp, compact: Boolean) {
     val settled = rememberDebounced(focus, 280)
     val app = RelayApp.instance
     val key = app.store.settings.tmdbKey
-    var info by remember(settled) { mutableStateOf<Tmdb.Info?>(null) }
+    var info by remember(settled) {
+        mutableStateOf(
+            (settled as? HeroFocus.Title)?.ref?.let { r -> app.tmdb.cached(r.tv, r.tmdbId, r.name) },
+        )
+    }
     LaunchedEffect(settled, key) {
         val t = settled as? HeroFocus.Title ?: return@LaunchedEffect
         val r = t.ref ?: return@LaunchedEffect
-        info = app.tmdb.cached(r.tv, r.tmdbId, r.name)
+        if (info == null) info = app.tmdb.cachedOrDisk(r.tv, r.tmdbId, r.name)
         if (info == null && key.isNotBlank()) info = app.tmdb.lookup(key, r.tv, r.tmdbId, r.name, r.year)
     }
     Box(Modifier.fillMaxWidth().height(height)) {
@@ -153,7 +157,11 @@ private fun TitleText(f: HeroFocus.Title, info: Tmdb.Info?, compact: Boolean) {
 private fun LiveText(ch: Channel) {
     val app = RelayApp.instance
     val name = remember(ch.name) { ProviderNames.clean(splitChannelName(ch.name).second) }
-    LaunchedEffect(ch.id) { app.catalog.shortEpgOrNull(ch.id) }
+    var epgLoaded by remember(ch.id) { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(ch.id) {
+        if (app.catalog.shortEpgOrNull(ch.id) != null) epgLoaded++
+    }
+    epgLoaded
     val nn = app.catalog.nowNext(ch.id)
     val fmt = remember { SimpleDateFormat("h:mm", Locale.getDefault()) }
     Text(name, color = Palette.text, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)

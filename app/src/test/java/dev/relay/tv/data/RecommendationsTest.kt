@@ -83,4 +83,13 @@ class RecommendationsTest {
         assertFalse(more.any { it.tmdbId == "329865" })
         assertTrue(more.isNotEmpty())
     }
+
+    @Test
+    fun disallowedSeedsAreExcludedAndMyListSeedsSaySaved() {
+        val hist = listOf(watched(6, 500))
+        val favs = listOf(FavItem("movie", 1, "Dune", at = 100L))
+        val seeds = Recommendations.seeds(hist, favs, lookup, allowed = { it.kind != "kids" })
+        assertEquals(listOf(1), seeds.map { it.title.id })
+        assertEquals("Because you saved Dune", seeds.single().becauseLabel)
+    }
 }
