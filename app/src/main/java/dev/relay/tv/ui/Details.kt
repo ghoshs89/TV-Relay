@@ -406,8 +406,7 @@ fun SeriesDetailScreen(s: Series) {
 /**
  * **Trailer** when one is known, otherwise a quieter **Find a trailer** once the details have
  * loaded. Hidden on kids profiles: YouTube is outside Relay's kids limits and parent PIN.
- * On a TV both show the address as a QR code ([showQr]), so the trailer plays on the viewer's own phone
- * and nothing opens on the TV. On a phone they open YouTube, and [showQr] is only used when nothing can.
+ * Both open the best installed YouTube app ([TrailerLauncher]); [showQr] is used only when there is none.
  */
 @Composable
 private fun TrailerButton(
@@ -421,14 +420,8 @@ private fun TrailerButton(
     showQr: (String) -> Unit,
 ) {
     if (!allowed) return
-    val tv = rememberIsTv()
     val go: (String) -> Unit = { url ->
-        if (tv) {
-            AppLog.i("Trailer", "QR code shown for ${displayTitle(name)}")
-            showQr(url)
-        } else if (!TrailerLauncher.open(ctx, url, displayTitle(name))) {
-            showQr(url)
-        }
+        if (!TrailerLauncher.open(ctx, url, displayTitle(name))) showQr(url)
     }
     if (trailerId != null) {
         val url = Trailers.watchUrl(trailerId)

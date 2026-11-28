@@ -14,6 +14,35 @@
             <action android:name="android.intent.action.SEND" />
             <data android:mimeType="text/plain" />
         </intent>
+        <!--
+          Trailers open in a YouTube app (SmartTube, Morphe, ReVanced, then YouTube; see TrailerApps).
+          Without these, Android 11+ hides those apps and Relay could only show the QR code.
+        -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="www.youtube.com" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="youtube.com" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="youtu.be" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="vnd.youtube" />
+        </intent>
+        <package android:name="com.teamsmart.videomanager.tv" />
+        <package android:name="com.liskovsoft.smarttubetv.beta" />
+        <package android:name="com.liskovsoft.smarttubetv" />
+        <package android:name="app.morphe.android.youtube" />
+        <package android:name="app.revanced.android.youtube" />
+        <package android:name="app.rvx.android.youtube" />
+        <package android:name="com.google.android.youtube.tv" />
+        <package android:name="com.google.android.youtube.googletv" />
+        <package android:name="com.google.android.youtube" />
         <!-- Voice key on Relay's keyboard. -->
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />

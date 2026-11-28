@@ -17,6 +17,7 @@ object Trailers {
     const val SEARCH_ENABLED = true
 
     /** One entry of TMDB's `videos.results`. */
+    @kotlinx.serialization.Serializable
     data class Video(
         val site: String,
         val type: String,

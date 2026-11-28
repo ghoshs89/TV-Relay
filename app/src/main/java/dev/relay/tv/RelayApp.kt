@@ -46,6 +46,9 @@ class RelayApp : Application(), ImageLoaderFactory {
 
     val session = Session()
 
+    /** Watch next: Up next and recommendations for the profile on screen. */
+    val suggestions by lazy { dev.relay.tv.ui.Suggestions(this) }
+
     /** Outlives any screen; used for work that must not be cancelled by navigation. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     var ui by mutableStateOf(UiState())
@@ -68,6 +71,7 @@ class RelayApp : Application(), ImageLoaderFactory {
             .build()
         store = Store(this)
         registerActivityLifecycleCallbacks(dev.relay.tv.data.FlushOnStop(store))
+        store.addWatchNextRows()
         AppLog.secrets = {
             val acc = store.account
             val liveAcc = if (::api.isInitialized) api.account else null
@@ -117,7 +121,7 @@ class RelayApp : Application(), ImageLoaderFactory {
         Palette.neutral = store.settings.neutralTheme
         ReminderCenter.start(appScope)
         sync = dev.relay.tv.sync.SyncRunner(this)
-        tmdb = Tmdb(http)
+        tmdb = Tmdb(http, java.io.File(cacheDir, "tmdb"))
         ratings = Ratings(http, java.io.File(filesDir, "ratings.json"))
         AppLog.stateDump = { stateDump() }
         AppLog.i("App", deviceLine())

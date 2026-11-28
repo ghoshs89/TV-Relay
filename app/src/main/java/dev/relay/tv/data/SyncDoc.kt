@@ -189,7 +189,7 @@ object SyncMerge {
         return null
     }
 
-    private val OWNED = listOf("hist:", "fav:", "favorder:", "use:", "allow:")
+    private val OWNED = listOf("hist:", "fav:", "favorder:", "use:", "allow:", "dis:")
 
     /** The newest time on any record, for [SyncClock.observe]. */
     fun latest(doc: SyncDoc): Long = doc.recs.values.maxOfOrNull { it.at } ?: 0L

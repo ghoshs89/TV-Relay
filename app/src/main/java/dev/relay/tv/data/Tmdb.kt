@@ -12,9 +12,22 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-/** Optional TMDB enrichment: better backdrops, ratings and cast when the provider's data is thin. */
-class Tmdb(private val http: OkHttpClient) {
+/**
+ * Optional TMDB enrichment: better backdrops, title logos, ratings, cast and recommendations when the
+ * provider's data is thin. Answers are kept in memory and, when [diskDir] is given, on disk for 7 days,
+ * so the home hero and detail pages show them at once on the next start.
+ */
+class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
 
+    /** A cast member with their photo (w185), when TMDB has one. */
+    @kotlinx.serialization.Serializable
+    data class Person(val name: String, val character: String? = null, val photo: String? = null)
+
+    /** A title TMDB recommends; [tv] tells a series from a film. */
+    @kotlinx.serialization.Serializable
+    data class Rec(val id: String, val tv: Boolean, val title: String, val year: String? = null, val rating: Double? = null)
+
+    @kotlinx.serialization.Serializable
     data class Info(
         val overview: String?,
         val backdrop: String?,
@@ -29,9 +42,22 @@ class Tmdb(private val http: OkHttpClient) {
         val country: String? = null,
         /** TMDB's videos for the title (trailers, teasers, clips), see [Trailers.pick]. */
         val videos: List<Trailers.Video> = emptyList(),
+        /** The title's logo (w500 PNG), in the title's own language, English or without text. */
+        val logo: String? = null,
+        /** Cast with photos; [cast] keeps the names alone. */
+        val people: List<Person> = emptyList(),
     )
 
     private val cache = ConcurrentHashMap<String, Info>()
+    private val recCache = ConcurrentHashMap<String, List<Rec>>()
+    private val disk = diskDir?.let { TmdbDiskCache(it) }
+
+    /** What is already known about a title without asking TMDB (memory, then disk); null when nothing is. */
+    fun cached(tv: Boolean, tmdbId: String?, title: String): Info? {
+        val cacheKey = "${if (tv) "tv" else "movie"}:${tmdbId ?: title}"
+        cache[cacheKey]?.let { return it }
+        return disk?.read(cacheKey, Info.serializer())?.also { cache[cacheKey] = it }
+    }
 
     suspend fun lookup(key: String, tv: Boolean, tmdbId: String?, title: String, year: String?): Info? =
         withContext(Dispatchers.IO) {
@@ -39,6 +65,10 @@ class Tmdb(private val http: OkHttpClient) {
             val type = if (tv) "tv" else "movie"
             val cacheKey = "$type:${tmdbId ?: title}"
             cache[cacheKey]?.let { return@withContext it }
+            disk?.read(cacheKey, Info.serializer())?.let {
+                cache[cacheKey] = it
+                return@withContext it
+            }
             try {
                 val id = tmdbId?.takeIf { s -> s.isNotEmpty() && s.all { it.isDigit() } } ?: run {
                     val b = "https://api.themoviedb.org/3/search/$type".toHttpUrl().newBuilder()
@@ -51,12 +81,17 @@ class Tmdb(private val http: OkHttpClient) {
 
                 val d = get(
                     "https://api.themoviedb.org/3/$type/$id".toHttpUrl().newBuilder()
-                        .addQueryParameter("append_to_response", "credits,videos")
+                        .addQueryParameter("append_to_response", "credits,videos,images")
                         .addQueryParameter("include_video_language", "en,null")
+                        .addQueryParameter("include_image_language", "en,null")
                         .build(),
                     key,
                 )
                 val language = d.at("original_language").str()
+                val people = d.at("credits").at("cast").arr()?.take(12)?.mapNotNull { c ->
+                    val n = c.at("name").str() ?: return@mapNotNull null
+                    Person(n, c.at("character").str()?.takeIf { it.isNotBlank() }, c.at("profile_path").str()?.let { "https://image.tmdb.org/t/p/w185$it" })
+                }.orEmpty()
                 var videos = Trailers.parse(d.at("videos"))
                 if (language != null && language != "en" && videos.none { it.language.equals(language, ignoreCase = true) }) {
                     // Trailers in the film's own language are not part of the first answer; ask once more.
@@ -75,8 +110,11 @@ class Tmdb(private val http: OkHttpClient) {
                     country = d.at("production_countries").arr()?.firstOrNull().at("iso_3166_1").str()
                         ?: d.at("origin_country").arr()?.firstOrNull().str(),
                     videos = videos,
+                    logo = pickLogo(d.at("images").at("logos").arr().orEmpty(), language)?.let { "https://image.tmdb.org/t/p/w500$it" },
+                    people = people,
                 )
                 cache[cacheKey] = info
+                disk?.write(cacheKey, info, Info.serializer())
                 CacheLimits.capSize(cache, max = 500, drop = 100)
                 info
             } catch (e: CancellationException) {
@@ -85,6 +123,33 @@ class Tmdb(private val http: OkHttpClient) {
                 null
             }
         }
+
+    /**
+     * Titles TMDB recommends for the title [tmdbId] (a film unless [tv]), at most 20, newest knowledge
+     * first. Kept for 7 days. Empty without a key, on any failure, or when TMDB has none.
+     */
+    suspend fun recommendations(key: String, tv: Boolean, tmdbId: String): List<Rec> = withContext(Dispatchers.IO) {
+        if (key.isBlank() || tmdbId.isEmpty() || !tmdbId.all { it.isDigit() }) return@withContext emptyList()
+        val type = if (tv) "tv" else "movie"
+        val cacheKey = "rec:$type:$tmdbId"
+        recCache[cacheKey]?.let { return@withContext it }
+        disk?.read(cacheKey, kotlinx.serialization.builtins.ListSerializer(Rec.serializer()))?.let {
+            recCache[cacheKey] = it
+            return@withContext it
+        }
+        try {
+            val d = get("https://api.themoviedb.org/3/$type/$tmdbId/recommendations".toHttpUrl(), key)
+            val recs = parseRecs(d, tv)
+            recCache[cacheKey] = recs
+            CacheLimits.capSize(recCache, max = 200, drop = 50)
+            disk?.write(cacheKey, recs, kotlinx.serialization.builtins.ListSerializer(Rec.serializer()))
+            recs
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
 
     private fun ownLanguageVideos(type: String, id: String, language: String, key: String): List<Trailers.Video> =
         try {
@@ -136,6 +201,35 @@ class Tmdb(private val http: OkHttpClient) {
         private val PREFIX = Regex("^\\s*[\\[(|]?\\s*[A-Z]{2,4}\\s*[\\])|]?\\s*[-:|]\\s+")
         private val TAGS = Regex("(?i)\\b(4k|uhd|fhd|hd|sd|hevc|h265|multi|vostfr|sub|dub)\\b")
         private val YEAR = Regex("[(\\[]\\s*(19|20)\\d{2}\\s*[)\\]]")
+
+        /** TMDB's recommendation results as [Rec]s (media type from [tv] unless the result says otherwise). */
+        internal fun parseRecs(d: JsonElement, tv: Boolean): List<Rec> =
+            d.at("results").arr().orEmpty().take(20).mapNotNull { r ->
+                val id = r.at("id").str()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                val isTv = when (r.at("media_type").str()) {
+                    "tv" -> true
+                    "movie" -> false
+                    else -> tv
+                }
+                val title = (if (isTv) r.at("name").str() else r.at("title").str()) ?: r.at("title").str() ?: r.at("name").str()
+                    ?: return@mapNotNull null
+                val date = r.at("release_date").str() ?: r.at("first_air_date").str()
+                Rec(id, isTv, title, date?.take(4)?.takeIf { it.length == 4 }, r.at("vote_average").dbl()?.takeIf { it > 0 })
+            }
+
+        /** The best logo: the title's own language, then English, then one without text; most votes first. */
+        internal fun pickLogo(logos: List<JsonElement>, language: String?): String? {
+            fun rank(l: JsonElement): Int = when (l.at("iso_639_1").str()) {
+                null -> 2
+                language -> 0
+                "en" -> 1
+                else -> 3
+            }
+            return logos
+                .filter { it.at("file_path").str()?.endsWith(".svg") == false }
+                .sortedWith(compareBy<JsonElement> { rank(it) }.thenByDescending { it.at("vote_average").dbl() ?: 0.0 })
+                .firstOrNull()?.at("file_path").str()
+        }
 
         fun cleanTitle(raw: String): String = TitleParts.parse(raw).title
             .replace(PREFIX, "")

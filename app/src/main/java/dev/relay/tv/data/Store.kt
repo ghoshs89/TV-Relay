@@ -156,6 +156,27 @@ class Store(ctx: Context) {
         )
     }
 
+    /**
+     * Once per screen: profiles with their own Home layout get the Watch next rows (see
+     * [HomeLayout.withWatchNext]). Profiles on the default layout get them with the new defaults.
+     */
+    fun addWatchNextRows() {
+        if (prefs.getBoolean(WATCH_NEXT_ROWS, false)) return
+        val ps = profiles
+        val next = ps.map { p -> p.homeRows?.let { p.copy(homeRows = HomeLayout.withWatchNext(it)) } ?: p }
+        if (next != ps) profiles = next
+        prefs.edit().putBoolean(WATCH_NEXT_ROWS, true).apply()
+    }
+
+    // ---------- Dismissals ("Not interested", Up next) ----------
+
+    /** What this profile dismissed, item key to when (see [Dismissals]). */
+    fun dismissed(pid: String): Map<String, Long> = read<Map<String, Long>>("dis_$pid", emptyMap())
+
+    fun dismiss(pid: String, item: String) {
+        write("dis_$pid", Dismissals.add(dismissed(pid), item, System.currentTimeMillis()))
+    }
+
     // ---------- History / resume ----------
 
     fun history(pid: String): List<WatchEntry> = read<List<WatchEntry>>("hist_$pid", emptyList())
@@ -275,6 +296,7 @@ class Store(ctx: Context) {
                 .mapNotNull { k -> k.removePrefix("trk_").toIntOrNull()?.let { id -> trackPref(id)?.let { id to it } } }
                 .toMap(),
             reminders = reminders,
+            dismissed = ps.associate { it.id to dismissed(it.id) }.filterValues { it.isNotEmpty() },
         )
         return Backups.encode(b)
     }
@@ -316,13 +338,14 @@ class Store(ctx: Context) {
         b.favourites.filterKeys { it in ids }.forEach { (pid, list) -> put("fav_$pid", j.encodeToString(list)) }
         b.history.filterKeys { it in ids }.forEach { (pid, list) -> put("hist_$pid", j.encodeToString(list)) }
         b.seriesTracks.forEach { (sid, t) -> put("trk_$sid", j.encodeToString(t)) }
+        b.dismissed.filterKeys { it in ids }.forEach { (pid, m) -> put("dis_$pid", j.encodeToString(m)) }
         if (lastProfileId !in ids) edit.remove("last_profile")
         // Applied in one write so a restore can't stop halfway.
         if (!edit.commit()) throw java.io.IOException("Couldn't save the restored data")
         cache.clear()
         // A restore is a change made now, so with sync on it spreads to the other screens.
         listOf("profiles", "settings", "chcustom", "pincats", "livesort", "reminders").forEach { touched[it] = t }
-        ids.forEach { touched["fav_$it"] = t; touched["hist_$it"] = t }
+        ids.forEach { touched["fav_$it"] = t; touched["hist_$it"] = t; touched["dis_$it"] = t }
         b.seriesTracks.keys.forEach { touched["trk_$it"] = t }
         version.intValue++
         historyVersion.intValue++
@@ -339,6 +362,7 @@ class Store(ctx: Context) {
 
     companion object {
         const val PARENT_PIN = "parent_pin"
+        private const val WATCH_NEXT_ROWS = "home_rows_watch_next"
         private val CORRUPT = Any()
 
         /** Writes wait this long so quick repeats of one key are saved once. */
@@ -346,7 +370,7 @@ class Store(ctx: Context) {
 
         /** Keys a restore replaces as a whole; anything else (login, parent PIN) is left alone. */
         private val REPLACED = setOf("profiles", "settings", "settings_at", "chcustom", "pincats", "livesort", "reminders")
-        private val REPLACED_PREFIXES = listOf("fav_", "hist_", "trk_", "lastcat_")
+        private val REPLACED_PREFIXES = listOf("fav_", "hist_", "trk_", "lastcat_", "dis_")
 
         /** Shared settings a restore leaves as this screen had them. */
         private val RESTORE_KEEPS = setOf("tmdbKey", "ratingsKey")
@@ -397,6 +421,7 @@ class Store(ctx: Context) {
             useOwn = ps.mapNotNull { p -> prefs.getString("use_${p.id}", null)?.let { p.id to it } }.toMap(),
             useOthers = ps.associate { it.id to read<Map<String, String>>("usx_${it.id}", emptyMap()) }.filterValues { it.isNotEmpty() },
             allow = ps.mapNotNull { p -> prefs.getLong("allow_${p.id}", 0L).takeIf { it > 0 }?.let { p.id to it } }.toMap(),
+            dismissed = ps.associate { it.id to dismissed(it.id) }.filterValues { it.isNotEmpty() },
         )
     }
 
@@ -464,6 +489,9 @@ class Store(ctx: Context) {
                 write("hist_$pid", mergedHistory, history = true)
                 changes++
             }
+            go(snapshot.dismissed[pid].orEmpty(), target.dismissed[pid].orEmpty(), cur.dismissed[pid].orEmpty()) {
+                write("dis_$pid", target.dismissed[pid].orEmpty())
+            }
             go(snapshot.useOthers[pid].orEmpty(), target.useOthers[pid].orEmpty(), cur.useOthers[pid].orEmpty()) {
                 write("usx_$pid", target.useOthers[pid].orEmpty())
             }
@@ -517,6 +545,7 @@ class Store(ctx: Context) {
             recKey == "parentpin" -> touched[PARENT_PIN]
             recKey == "account" -> touched["account"]
             recKey.startsWith("allow:") -> touched["allow_${owner("allow:")}"]
+            recKey.startsWith("dis:") -> (v as? JsonPrimitive)?.content?.toLongOrNull() ?: touched["dis_${owner("dis:")}"]
             else -> null
         }
     }
@@ -535,6 +564,8 @@ class Store(ctx: Context) {
         if (mergedHistory.isNotEmpty()) write<List<WatchEntry>>("hist_${into.id}", mergedHistory, history = true, sync = true)
         write<List<FavItem>?>("fav_$from", null)
         write<List<WatchEntry>?>("hist_$from", null)
+        dismissed(from).takeIf { it.isNotEmpty() }?.let { m -> write("dis_${into.id}", Dismissals.merge(dismissed(into.id), m)) }
+        write<Map<String, Long>?>("dis_$from", null)
         val e = prefs.edit()
         sumTodayUsage(prefs.getString("use_${into.id}", null), prefs.getString("use_$from", null), today())
             ?.let { e.putString("use_${into.id}", it) }
@@ -546,6 +577,7 @@ class Store(ctx: Context) {
     }
 
     private fun removeProfileKeys(pid: String) {
+        write<Map<String, Long>?>("dis_$pid", null)
         write<List<FavItem>?>("fav_$pid", null)
         write<List<WatchEntry>?>("hist_$pid", null)
         write<Map<String, String>?>("usx_$pid", null)

@@ -10,7 +10,10 @@ class HomeLayoutTest {
     @Test
     fun defaultsPutYourRowsFirstThenFeaturedLanguages() {
         val rows = HomeLayout.defaults(listOf("en", "hi", "bn"))
-        assertEquals(listOf("continue", "favChannels", "recentChannels", "lang:en", "lang:hi", "lang:bn"), rows.take(6))
+        assertEquals(
+            listOf("continue", "upNext", "recommended", "because1", "because2", "favChannels", "recentChannels", "lang:en", "lang:hi", "lang:bn"),
+            rows.take(10),
+        )
         assertEquals(HomeLayout.CONTINUE, HomeLayout.liveFirst(emptyList())[2])
     }
 

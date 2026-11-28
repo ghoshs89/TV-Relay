@@ -11,16 +11,23 @@ object HomeLayout {
     const val TOP_MOVIES = "topMovies"
     const val TOP_SERIES = "topSeries"
     const val LANG = "lang:"
+    const val UP_NEXT = "upNext"
+    const val RECOMMENDED = "recommended"
+    const val BECAUSE_1 = "because1"
+    const val BECAUSE_2 = "because2"
+
+    /** The Watch next rows, added after Continue watching (1.0.145). */
+    val WATCH_NEXT = listOf(UP_NEXT, RECOMMENDED, BECAUSE_1, BECAUSE_2)
 
     private val TAIL = listOf(MY_LIST, NEW_MOVIES, NEW_SERIES, TOP_MOVIES, TOP_SERIES)
 
     /** Continue watching and your channels, then "New in" rows for featured languages, then the rest. */
     fun defaults(featured: List<String>): List<String> =
-        listOf(CONTINUE, FAV_CHANNELS, RECENT_CHANNELS) + featured.map { LANG + it } + TAIL
+        listOf(CONTINUE) + WATCH_NEXT + listOf(FAV_CHANNELS, RECENT_CHANNELS) + featured.map { LANG + it } + TAIL
 
     /** For live-TV viewers: channels first. */
     fun liveFirst(featured: List<String>): List<String> =
-        listOf(FAV_CHANNELS, RECENT_CHANNELS, CONTINUE) + featured.map { LANG + it } + TAIL
+        listOf(FAV_CHANNELS, RECENT_CHANNELS, CONTINUE) + WATCH_NEXT + featured.map { LANG + it } + TAIL
 
     /** Every row this profile could show, visible ones first in their order. */
     fun all(visible: List<String>, featured: List<String>): List<String> =
@@ -30,7 +37,22 @@ object HomeLayout {
     fun resolve(saved: List<String>?, featured: List<String>): List<String> =
         (saved ?: defaults(featured)).filter { !it.startsWith(LANG) || it.removePrefix(LANG) in Langs.GROUPS }
 
+    /**
+     * A layout chosen before Watch next existed, with its rows added once: right after Continue watching
+     * (or first when it was hidden). Rows already there, or [dropped] by the viewer since, are left alone.
+     */
+    fun withWatchNext(saved: List<String>): List<String> {
+        val missing = WATCH_NEXT.filter { it !in saved }
+        if (missing.isEmpty()) return saved
+        val at = saved.indexOf(CONTINUE).let { if (it < 0) 0 else it + 1 }
+        return saved.take(at) + missing + saved.drop(at)
+    }
+
     fun label(id: String): String = when (id) {
+        UP_NEXT -> "Up next"
+        RECOMMENDED -> "Recommended for you"
+        BECAUSE_1 -> "Because you watched (1)"
+        BECAUSE_2 -> "Because you watched (2)"
         CONTINUE -> "Continue watching"
         FAV_CHANNELS -> "Favourite channels"
         RECENT_CHANNELS -> "Recently watched channels"

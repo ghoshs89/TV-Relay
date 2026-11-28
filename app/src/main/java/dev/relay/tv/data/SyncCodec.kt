@@ -36,13 +36,15 @@ data class SyncData(
     val useOthers: Map<String, Map<String, String>> = emptyMap(),
     val allow: Map<String, Long> = emptyMap(),
     val screens: Map<String, Screen> = emptyMap(),
+    /** Per profile: what was dismissed ("Not interested", Up next) and when; see [Dismissals]. */
+    val dismissed: Map<String, Map<String, Long>> = emptyMap(),
 )
 
 /**
  * Turns [SyncData] into the document's items and back. An item is named by what it is:
  * `profile:<id>`, `fav:<profile>:<kind>:<id>`, `hist:<profile>:<key>`, `set:<setting>`, `trk:<series>`,
  * `rem:<channel>:<start>`, `livesort:<category>`, `use:<profile>:<screen>`, `allow:<profile>`,
- * `screen:<screen>`, and the single items `order:profiles`, `favorder:<profile>`, `pincats`, `chcustom`,
+ * `screen:<screen>`, `dis:<profile>:<item>` (a dismissal, worth its time), and the single items `order:profiles`, `favorder:<profile>`, `pincats`, `chcustom`,
  * `parentpin` and `account`. Something that is empty is left out rather than written, so a screen that
  * has never set it cannot overwrite another screen's value; emptying it later is recorded as a removal.
  */
@@ -120,6 +122,10 @@ object SyncCodec {
             }
         }
         for ((pid, until) in d.allow) if (pid in ids && until > now - DAY) out["allow:$pid"] = JsonPrimitive(until)
+        for ((pid, m) in d.dismissed) {
+            if (pid !in ids) continue
+            for ((item, at) in m) out["dis:$pid:$item"] = JsonPrimitive(at)
+        }
 
         for ((id, s) in d.screens) out["screen:$id"] = enc(s)
         return out
@@ -184,11 +190,19 @@ object SyncCodec {
             if (pid in ids) (v as? JsonPrimitive)?.content?.toLongOrNull()?.let { pid to it } else null
         }.toMap()
         val screens = live("screen:").mapNotNull { (id, v) -> dec<Screen>(v)?.let { id to it } }.toMap()
+        val dismissed = HashMap<String, MutableMap<String, Long>>()
+        for ((k, v) in live("dis:")) {
+            val pid = k.substringBefore(':')
+            val item = k.substringAfter(':', "")
+            val at = (v as? JsonPrimitive)?.content?.toLongOrNull() ?: continue
+            if (pid in ids && item.isNotEmpty()) dismissed.getOrPut(pid) { HashMap() }[item] = at
+        }
 
         return local.copy(
             profiles = profiles, favs = favs, history = history, settings = settings, tracks = tracks,
             reminders = reminders, liveSort = liveSort, pinnedCats = pincats, channels = channels,
             parentPin = parentPin, account = account, useOthers = others, allow = allow, screens = screens,
+            dismissed = dismissed,
         )
     }
 
