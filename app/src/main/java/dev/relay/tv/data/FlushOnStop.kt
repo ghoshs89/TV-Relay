@@ -4,9 +4,9 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 
-/** Saves what the store still holds in memory whenever a screen of the app pauses or stops. */
+/** Saves what the store still holds in memory whenever a screen of the app stops. */
 class FlushOnStop(private val store: Store) : Application.ActivityLifecycleCallbacks {
-    override fun onActivityPaused(activity: Activity) = store.flush()
+    override fun onActivityPaused(activity: Activity) = Unit
     override fun onActivityStopped(activity: Activity) = store.flush()
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
     override fun onActivityStarted(activity: Activity) = Unit

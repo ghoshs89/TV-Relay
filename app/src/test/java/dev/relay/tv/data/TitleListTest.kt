@@ -143,4 +143,17 @@ class TitleListTest {
         val sel = TitleSelection.Category("c1")
         assertSame(src.inCategory("c1"), buildTitleList(src, query(sel)))
     }
+
+    @Test
+    fun languageAndContentKindFiltersNarrowMixedLists() {
+        val kinds = mapOf("c1" to ContentKinds.ACTION, "c2" to ContentKinds.DOCS)
+        val withKinds = object : TitleSource<Movie> by src {
+            override fun kind(t: Movie) = kinds[t.categoryId]
+        }
+        val enOnly = TitleQuery(TitleSelection.Recent, blockedCats = setOf("adult"), hiddenCats = setOf("hid"), langOrder = listOf("hi", "en"), langFilter = "en")
+        assertEquals(listOf(2), ids(buildTitleList(withKinds, enOnly)))
+
+        val docsOnly = TitleQuery(TitleSelection.Recent, blockedCats = setOf("adult"), hiddenCats = setOf("hid"), langOrder = listOf("hi", "en"), kindFilter = ContentKinds.DOCS)
+        assertEquals(listOf(3, 5), ids(buildTitleList(withKinds, docsOnly)))
+    }
 }

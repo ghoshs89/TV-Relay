@@ -9,19 +9,23 @@ import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import dev.relay.tv.BuildConfig
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AppLog
 import dev.relay.tv.data.Profile
 import dev.relay.tv.data.ProfileFold
+import dev.relay.tv.data.SyncApplied
 import dev.relay.tv.data.SyncCodec
 import dev.relay.tv.data.SyncDoc
-import dev.relay.tv.data.SyncApplied
 import dev.relay.tv.data.SyncSeal
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -45,11 +49,17 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
     var status by mutableStateOf(Status(lastOk = settings.stateStore.load().lastOk))
         private set
 
+    private fun updateStatus(next: Status) {
+        Snapshot.withMutableSnapshot { status = next }
+    }
+
     val enabled: Boolean get() = settings.enabled
     val migrationNotice: String? get() = settings.config?.repo?.let(::repositoryProblem)
 
     private fun repositoryProblem(repo: Repo) = SyncInput.repositoryProblem(repo, BuildConfig.UPDATE_REPO)
 
+    /** Serialises background syncs with set-up, joining, stopping and key rotation. */
+    private val opLock = Mutex()
     private var running = false
     private var rerun = false
     private var failures = 0
@@ -100,10 +110,10 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
         if (repositoryProblem(cfg.repo) != null) return
         val now = System.currentTimeMillis()
         if (!manual && now - lastEnd < MIN_GAP_MS) {
-            if (running) rerun = true
+            if (running || opLock.isLocked) rerun = true
             return
         }
-        when (SyncSchedule.decide(now, running, app.catalog.loading, failures, lastFailAt, manual)) {
+        when (SyncSchedule.decide(now, running || opLock.isLocked, app.catalog.loading, failures, lastFailAt, manual)) {
             SyncSchedule.Decision.Busy -> {
                 rerun = true
                 return
@@ -120,11 +130,25 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
             SyncSchedule.Decision.Run -> Unit
         }
         running = true
-        status = Status(status.result, status.message, status.lastOk, running = true, screens = status.screens, note = status.note)
+        updateStatus(Status(status.result, status.message, status.lastOk, running = true, screens = status.screens, note = status.note))
         app.appScope.launch {
             val t0 = SystemClock.elapsedRealtime()
-            val outcome = withContext(Dispatchers.IO) { execute(cfg) }
-            finish(outcome, SystemClock.elapsedRealtime() - t0)
+            val outcome = try {
+                opLock.withLock {
+                    val active = settings.config ?: return@withLock null
+                    withContext(Dispatchers.IO) { execute(active) }
+                }
+            } catch (ce: CancellationException) {
+                running = false
+                updateStatus(Status(status.result, status.message, status.lastOk, running = false, screens = status.screens, note = status.note))
+                throw ce
+            }
+            if (outcome == null) {
+                running = false
+                updateStatus(Status())
+            } else {
+                finish(outcome, SystemClock.elapsedRealtime() - t0)
+            }
         }
     }
 
@@ -141,7 +165,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
             AppLog.w("Sync", "Sync stopped by an error", e)
             return SyncOutcome(SyncResult.Problem, "Sync stopped by an unexpected error (${e.javaClass.simpleName}).")
         } finally {
-            Process.setThreadPriority(tid, before)
+            runCatching { Process.setThreadPriority(tid, before) }
         }
     }
 
@@ -155,15 +179,17 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
             failures++
             lastFailAt = t
         }
-        val note = listOf(
+        val note = listOfNotNull(
             outcome.pulled.takeIf { it.isNotEmpty() }?.let { "Received $it" },
             outcome.pushed.takeIf { it.isNotEmpty() }?.let { "Sent $it" },
-        ).filterNotNull().joinToString(". ")
-        status = Status(
-            result = outcome.result, message = outcome.message,
-            lastOk = if (outcome.ok) t else status.lastOk,
-            screens = outcome.screens.ifEmpty { status.screens },
-            note = note,
+        ).joinToString(". ")
+        updateStatus(
+            Status(
+                result = outcome.result, message = outcome.message,
+                lastOk = if (outcome.ok) t else status.lastOk,
+                screens = outcome.screens.ifEmpty { status.screens },
+                note = note,
+            ),
         )
         val size = if (outcome.bytes > 0) ", wrote ${outcome.bytes / 1024} KB" else ""
         when {
@@ -200,6 +226,7 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
             }
         }
         if (a.libraryChanged && !a.accountChanged) app.catalog.applyCustom()
+        app.playReceiver.refresh()
     }
 
     // ---------- set-up and stopping ----------
@@ -208,52 +235,60 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
      * Turns sync on from this screen as the first one: checks the repository and token, makes the
      * household key, and does the first sync. Returns a sentence for the viewer if it did not work, null if it did.
      */
-    suspend fun setUp(repoText: String, tokenText: String): String? = withContext(Dispatchers.IO) {
-        SyncInput.problem(repoText, tokenText)?.let { return@withContext it }
-        val repo = Repo.parse(repoText)!!
-        repositoryProblem(repo)?.let { return@withContext it }
-        val token = SyncInput.token(tokenText)!!
-        val transport = GitHubTransport(app.http, repo, token)
-        transport.check()?.let { return@withContext it }
-        val existing = try {
-            transport.read()
-        } catch (e: TransportException) {
-            return@withContext e.message
-        }
-        if (existing != null) {
-            return@withContext "That repository already holds a Relay sync file. To add this screen to it, use Join sync from another screen in Settings, Sync between screens, on this screen, " +
-                "and Add a screen on a screen that already syncs."
-        }
-        val cfg = SyncSettings.Config(repo, token, SyncSeal.newKey())
-        settings.clear()
-        settings.config = cfg
-        val t0 = SystemClock.elapsedRealtime()
-        val outcome = execute(cfg)
-        if (!outcome.ok) {
+    suspend fun setUp(repoText: String, tokenText: String): String? = opLock.withLock {
+        withContext(Dispatchers.IO) {
+            SyncInput.problem(repoText, tokenText)?.let { return@withContext it }
+            val repo = Repo.parse(repoText)!!
+            repositoryProblem(repo)?.let { return@withContext it }
+            val token = SyncInput.token(tokenText)!!
+            val transport = GitHubTransport(app.http, repo, token)
+            transport.check()?.let { return@withContext it }
+            val existing = try {
+                transport.read()
+            } catch (e: TransportException) {
+                return@withContext e.message
+            }
+            if (existing != null) {
+                return@withContext "That repository already holds a Relay sync file. To add this screen to it, use Join sync from another screen in Settings, Sync between screens, on this screen, " +
+                    "and Add a screen on a screen that already syncs."
+            }
+            val cfg = SyncSettings.Config(repo, token, SyncSeal.newKey())
             settings.clear()
-            return@withContext outcome.message.ifBlank { "The first sync did not work." }
+            settings.config = cfg
+            val t0 = SystemClock.elapsedRealtime()
+            val outcome = execute(cfg)
+            if (!outcome.ok) {
+                settings.clear()
+                return@withContext outcome.message.ifBlank { "The first sync did not work." }
+            }
+            withContext(Dispatchers.Main) {
+                failures = 0
+                finish(outcome, SystemClock.elapsedRealtime() - t0)
+                app.playReceiver.refresh()
+            }
+            AppLog.i("Sync", "Sync is on (first screen)")
+            null
         }
-        withContext(Dispatchers.Main) {
-            failures = 0
-            finish(outcome, SystemClock.elapsedRealtime() - t0)
-        }
-        AppLog.i("Sync", "Sync is on (first screen)")
-        null
     }
 
     /** A new token for the repository this screen already syncs with (the old one expired). */
-    suspend fun replaceToken(tokenText: String): String? = withContext(Dispatchers.IO) {
-        val cfg = settings.config ?: return@withContext "Sync is not set up on this screen."
-        repositoryProblem(cfg.repo)?.let { return@withContext it }
-        val token = SyncInput.token(tokenText)
-            ?: return@withContext "That doesn't look like a GitHub token. Copy the whole token, it starts with github_pat_."
-        GitHubTransport(app.http, cfg.repo, token).check()?.let { return@withContext it }
-        settings.replaceToken(token)
-        withContext(Dispatchers.Main) {
-            failures = 0
-            request(manual = true)
+    suspend fun replaceToken(tokenText: String): String? = opLock.withLock {
+        val err = withContext(Dispatchers.IO) {
+            val cfg = settings.config ?: return@withContext "Sync is not set up on this screen."
+            repositoryProblem(cfg.repo)?.let { return@withContext it }
+            val token = SyncInput.token(tokenText)
+                ?: return@withContext "That doesn't look like a GitHub token. Copy the whole token, it starts with github_pat_."
+            GitHubTransport(app.http, cfg.repo, token).check()?.let { return@withContext it }
+            settings.replaceToken(token)
+            null
         }
-        null
+        if (err == null) {
+            withContext(Dispatchers.Main) {
+                failures = 0
+                request(manual = true)
+            }
+        }
+        err
     }
 
     /**
@@ -261,24 +296,30 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
      * repository, token, key and what was agreed. The data on this screen stays as it is.
      */
     suspend fun stop() {
-        val cfg = settings.config
-        if (cfg != null && repositoryProblem(cfg.repo) == null) {
-            withContext(Dispatchers.IO) {
-                try {
-                    val local = StoreSyncLocal(app, screenName())
-                    SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).forget(app.store.deviceId)
-                } catch (e: Exception) {
-                    AppLog.w("Sync", "Could not take this screen off the list", e)
-                }
-            }
-        }
-        settings.clear()
         debounce?.cancel()
         retry?.cancel()
-        failures = 0
-        rerun = false
-        status = Status()
-        AppLog.i("Sync", "Sync stopped on this screen")
+        opLock.withLock {
+            val cfg = settings.config
+            if (cfg != null && repositoryProblem(cfg.repo) == null) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val local = StoreSyncLocal(app, screenName())
+                        SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).forget(onMain { app.store.deviceId })
+                    } catch (e: Exception) {
+                        AppLog.w("Sync", "Could not take this screen off the list", e)
+                    }
+                }
+            }
+            settings.clear()
+            withContext(Dispatchers.Main) {
+                failures = 0
+                rerun = false
+                running = false
+                updateStatus(Status())
+                app.playReceiver.refresh()
+            }
+            AppLog.i("Sync", "Sync stopped on this screen")
+        }
     }
 
     // ---------- adding, removing and locking out screens ----------
@@ -295,35 +336,39 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
      * sync, which brings this screen's data together with the others'. If it does not work, what this
      * screen had before (sync on or off) is put back. Returns a sentence for the viewer on failure.
      */
-    suspend fun join(b: PairBundle): String? = withContext(Dispatchers.IO) {
-        val repo = Repo.parse(b.repo) ?: return@withContext "The pairing details are not valid."
-        repositoryProblem(repo)?.let { return@withContext it }
-        val token = SyncInput.token(b.token) ?: return@withContext "The pairing details are not valid."
-        val key = SyncSeal.keyFromText(b.key) ?: return@withContext "The pairing details are not valid."
-        GitHubTransport(app.http, repo, token).check()?.let { return@withContext it }
-        foldMatchingProfiles(GitHubTransport(app.http, repo, token), key)
-        val previous = settings.config
-        val previousState = settings.stateStore.load()
-        val cfg = SyncSettings.Config(repo, token, key)
-        settings.config = cfg
-        settings.stateStore.save(SyncState())
-        val t0 = SystemClock.elapsedRealtime()
-        val outcome = execute(cfg)
-        if (!outcome.ok) {
-            if (previous != null) {
-                settings.config = previous
-                settings.stateStore.save(previousState)
-            } else {
-                settings.clear()
+    suspend fun join(b: PairBundle): String? = opLock.withLock {
+        withContext(Dispatchers.IO) {
+            val repo = Repo.parse(b.repo) ?: return@withContext "The pairing details are not valid."
+            repositoryProblem(repo)?.let { return@withContext it }
+            val token = SyncInput.token(b.token) ?: return@withContext "The pairing details are not valid."
+            val key = SyncSeal.keyFromText(b.key) ?: return@withContext "The pairing details are not valid."
+            GitHubTransport(app.http, repo, token).check()?.let { return@withContext it }
+            foldMatchingProfiles(GitHubTransport(app.http, repo, token), key)
+            val previous = settings.config
+            val previousState = settings.stateStore.load()
+            val cfg = SyncSettings.Config(repo, token, key)
+            settings.config = cfg
+            settings.stateStore.save(SyncState())
+            val t0 = SystemClock.elapsedRealtime()
+            val outcome = execute(cfg)
+            if (!outcome.ok) {
+                if (previous != null) {
+                    settings.config = previous
+                    settings.stateStore.save(previousState)
+                } else {
+                    settings.clear()
+                }
+                withContext(Dispatchers.Main) { app.playReceiver.refresh() }
+                return@withContext outcome.message.ifBlank { "Joining did not work." }
             }
-            return@withContext outcome.message.ifBlank { "Joining did not work." }
+            withContext(Dispatchers.Main) {
+                failures = 0
+                finish(outcome, SystemClock.elapsedRealtime() - t0)
+                app.playReceiver.refresh()
+            }
+            AppLog.i("Sync", "Joined sync from another screen")
+            null
         }
-        withContext(Dispatchers.Main) {
-            failures = 0
-            finish(outcome, SystemClock.elapsedRealtime() - t0)
-        }
-        AppLog.i("Sync", "Joined sync from another screen")
-        null
     }
 
     /**
@@ -336,7 +381,8 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
             val remote = transport.read() ?: return
             val doc = SyncDoc.parse(String(SyncSeal.open(remote.bytes, key), Charsets.UTF_8))
             val theirs: List<Profile> = SyncCodec.profilesIn(doc.recs)
-            val plan: Map<String, Profile> = ProfileFold.plan(app.store.profiles, theirs)
+            val ours: List<Profile> = onMain { app.store.profiles }
+            val plan: Map<String, Profile> = ProfileFold.plan(ours, theirs)
             if (plan.isEmpty()) return
             onMain {
                 for ((from, into) in plan) {
@@ -354,26 +400,36 @@ class SyncRunner(private val app: RelayApp) : Application.ActivityLifecycleCallb
      * Seals the sync file again with a new household key, so a screen that still has the old one (a lost
      * one) can no longer open it. The other screens must be added again.
      */
-    suspend fun newHouseholdKey(): String? = withContext(Dispatchers.IO) {
-        val cfg = settings.config ?: return@withContext "Sync is not set up on this screen."
-        repositoryProblem(cfg.repo)?.let { return@withContext it }
-        val newKey = SyncSeal.newKey()
-        val local = StoreSyncLocal(app, screenName())
-        val ok = SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).rekey(newKey)
-        if (!ok) return@withContext "The sync file could not be sealed again. Check the connection and try again."
-        settings.config = SyncSettings.Config(cfg.repo, cfg.token, newKey)
-        AppLog.i("Sync", "New household key made; other screens must be added again")
-        withContext(Dispatchers.Main) { request(manual = true) }
-        null
+    suspend fun newHouseholdKey(): String? = opLock.withLock {
+        val err = withContext(Dispatchers.IO) {
+            val cfg = settings.config ?: return@withContext "Sync is not set up on this screen."
+            repositoryProblem(cfg.repo)?.let { return@withContext it }
+            val newKey = SyncSeal.newKey()
+            val local = StoreSyncLocal(app, screenName())
+            val ok = SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).rekey(newKey)
+            if (!ok) return@withContext "The sync file could not be sealed again. Check the connection and try again."
+            settings.config = SyncSettings.Config(cfg.repo, cfg.token, newKey)
+            AppLog.i("Sync", "New household key made; other screens must be added again")
+            null
+        }
+        if (err == null) {
+            withContext(Dispatchers.Main) {
+                app.playReceiver.refresh()
+                request(manual = true)
+            }
+        }
+        err
     }
 
     /** Takes another screen off the list. Cosmetic: a screen that still has the key puts itself back when it syncs. */
     suspend fun removeScreen(id: String): Boolean {
-        val cfg = settings.config ?: return false
-        if (repositoryProblem(cfg.repo) != null) return false
-        val done = withContext(Dispatchers.IO) {
-            val local = StoreSyncLocal(app, screenName())
-            SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).forget(id)
+        val done = opLock.withLock {
+            val cfg = settings.config ?: return@withLock false
+            if (repositoryProblem(cfg.repo) != null) return@withLock false
+            withContext(Dispatchers.IO) {
+                val local = StoreSyncLocal(app, screenName())
+                SyncEngine(local, GitHubTransport(app.http, cfg.repo, cfg.token), cfg.key, settings.stateStore).forget(id)
+            }
         }
         if (done) request(manual = true)
         return done

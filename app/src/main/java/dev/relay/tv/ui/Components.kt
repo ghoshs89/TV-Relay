@@ -47,6 +47,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
@@ -637,25 +638,53 @@ fun TextEditDialog(
 fun PinDialog(title: String, onDismiss: () -> Unit, check: (String) -> Boolean, onOk: () -> Unit) {
     var pin by remember { mutableStateOf("") }
     var wrong by remember { mutableStateOf(false) }
+    var tries by remember { mutableIntStateOf(0) }
+    var lockedUntil by remember { mutableStateOf(0L) }
+    var waitSec by remember { mutableIntStateOf(0) }
     val fr = remember { FocusRequester() }
     InitialFocus(fr)
+    LaunchedEffect(lockedUntil) {
+        while (lockedUntil > 0L) {
+            val rem = ((lockedUntil - android.os.SystemClock.elapsedRealtime() + 999) / 1_000).toInt()
+            if (rem <= 0) {
+                waitSec = 0
+                lockedUntil = 0L
+                break
+            }
+            waitSec = rem
+            delay(500)
+        }
+    }
     val submit: () -> Unit = {
-        if (check(pin)) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now < lockedUntil) {
+            pin = ""
+        } else if (check(pin)) {
+            tries = 0
             onOk()
         } else {
+            tries++
             wrong = true
             pin = ""
+            if (tries >= 5) {
+                tries = 0
+                lockedUntil = now + 30_000L
+            }
         }
     }
     TvDialog(onDismiss, width = 440.dp) {
         Text(title, fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         TvTextField(
-            pin, { if (it.length <= 8) pin = it.filter(Char::isDigit) }, "PIN", Modifier.fillMaxWidth(),
+            pin, { if (it.length <= 8 && waitSec == 0) pin = it.filter(Char::isDigit) }, "PIN", Modifier.fillMaxWidth(),
             password = true, number = true, focusRequester = fr, imeAction = ImeAction.Done, onDone = submit,
         )
-        if (wrong) Text("Wrong PIN, try again", color = Palette.danger, fontSize = Type.small)
+        if (waitSec > 0) {
+            Text("Too many wrong tries. Wait ${waitSec}s before trying again.", color = Palette.danger, fontSize = Type.small)
+        } else if (wrong) {
+            Text("Wrong PIN, try again", color = Palette.danger, fontSize = Type.small)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PillButton("Unlock", submit, primary = true)
+            PillButton("Unlock", submit, primary = waitSec == 0)
             PillButton("Cancel", onDismiss)
         }
     }

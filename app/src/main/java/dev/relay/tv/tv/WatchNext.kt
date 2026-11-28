@@ -31,6 +31,7 @@ object WatchNext {
     // Lint flags the WatchNextProgram.Builder calls as library-internal; they are the documented
     // way to build a Watch Next entry and work on Google TV, so this is a false alarm.
     @SuppressLint("RestrictedApi")
+    @Synchronized
     fun update(ctx: Context, pid: String, e: WatchEntry) {
         if (!supported(ctx)) return
         val app = RelayApp.instance
@@ -81,6 +82,7 @@ object WatchNext {
     }
 
     /** Takes one title off the home screen's Continue watching row. Call off the main thread. */
+    @Synchronized
     fun remove(ctx: Context, pid: String, entryKey: String) {
         if (!supported(ctx)) return
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -95,7 +97,26 @@ object WatchNext {
         prefs.edit().remove(key).apply()
     }
 
+    /** Removes every Watch Next card belonging to a deleted profile [pid]. Call off the main thread. */
+    @Synchronized
+    fun clearProfile(ctx: Context, pid: String) {
+        if (!supported(ctx)) return
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefix = "$pid|"
+        val matching = prefs.all.filterKeys { it.startsWith(prefix) }
+        if (matching.isEmpty()) return
+        val edit = prefs.edit()
+        for ((k, v) in matching) {
+            if (v is Long && v >= 0) {
+                runCatching { ctx.contentResolver.delete(TvContractCompat.buildWatchNextProgramUri(v), null, null) }
+            }
+            edit.remove(k)
+        }
+        edit.apply()
+    }
+
     /** Removes every entry Relay added, e.g. when the setting is turned off or on sign-out. */
+    @Synchronized
     fun clear(ctx: Context) {
         if (!supported(ctx)) return
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

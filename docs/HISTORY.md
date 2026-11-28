@@ -16,23 +16,16 @@ Plans 1 to 4 are finished and their full text is in the repository's history (`g
 | Play on TV | A phone of the household hands a channel, film or episode to a TV that has Relay open (1.0.115); then catch-up, Start over and series pages (1.0.116). Sealed with a key from the household sync key; the TV plays from its own library under its own profile | 1.0.115, 1.0.116 | Google Cast, parked (see TODO.md) |
 | Trailers and summaries | Trailers as a QR code on TVs; long summaries reachable with the remote and readable in full; "Read all" leftovers removed | 1.0.117 | |
 | Safety release | From the Gemini review and ChatGPT's notes on it (26 Nov): a joining screen's untouched settings no longer overwrite the household's; each phone page serves only what its screen opened it for, and only under the TV's own address; one folder per pause-buffer recording, and trimming that never leaves a rewind in a deleted piece; picture-in-picture settings kept current; the play list let go when the player closes; the release workflow split so the signing key and write access never meet the emulator, with every action pinned | 1.0.126 | Nine larger findings, to-do 14 |
+| Android reliability | Profile cleanup follows accepted sync changes; kids profile restored on screen recreation and gated by parent PIN; paused movies stay paused on return; backup avatar validation; guide rollover preserves focus; app-repo sync configurations paused | 1.0.127 to 1.0.132 | |
+| Playback and Settings | Active title shown while paused; Settings grouped into seven categories; item-level sync merges so local edits don't undo remote deletions; provider request cancellation closes active HTTP reads; `.ts` addresses returning HLS play as HLS; emulator screenshot gallery and browsing study | 1.0.135 | |
+| Update channel toggle | Per-screen **Update channel** toggle in About & diagnostics (Stable only vs Stable and beta pre-releases) and CI pre-release publishing | Phase 1 | |
+| Hardening, filters & telemetry | Content-type chips (Sports, News, Movies, Kids, Documentary, Music and genres) and quick language chips; serialized sync runner and main-thread store access; live background stop/re-tune and reconnect counter preservation; updater package/signature verification and dismissible install dialog; parental category checks across Home, detail, reminder and version views; PBKDF2 v2 PIN verification with 5-try cooldown; active pairing lock; 256 MB XMLTV cap; cleartext traffic disabled on external APIs; opt-in anonymous usage stats, direct crash/log uploads (`#CODE`), and Cloudflare Worker + D1 dashboard | Pre-release | Optional future wire bump for pairing commitment and v2 default PIN hash |
 
-## Playback and Settings release (1.0.135)
+### Notes on recent releases
 
-- The player displays the active title while paused. Episode details, movie years and live or catch-up programme information appear when available.
-- Settings opens by category. Back returns to the menu with focus on the category the viewer opened.
-- Household migration was confirmed. The app repository no longer tracks the sync file at its tip. Sync applies favourite and history changes per item so an unrelated edit does not undo a remote deletion.
-- Cancelling a provider request closes the active HTTP call through the response-body read. Incomplete lists are discarded and the saved library remains available. A live `.ts` address that returns a playlist is played as HLS.
-- The README gallery uses the fake provider on TV and phone emulators. The [browsing study](BROWSING.md) records the two candidate layouts and how their remote navigation compares.
+**Playback and Settings (1.0.135):** [Relay 1.0.135](https://github.com/ghoshs89/TV-Relay/releases/tag/v1.0.135) passed 692 unit tests and the Android emulator suite. The signed upgrade from 1.0.126 preserved the test profile, favourite, watch entry, resume position, and settings, and the household sync migration out of the app repository was completed. [Release verification](https://github.com/ghoshs89/TV-Relay/actions/runs/45914019573)
 
-
-[Relay 1.0.135](https://github.com/ghoshs89/TV-Relay/releases/tag/v1.0.135) passed 692 unit tests and the Android emulator suite. The signed upgrade from 1.0.126 preserved the test profile, favourite, watch entry, resume position, and settings. The published APK matched the tested build and Relay signing certificate. [Release verification](https://github.com/ghoshs89/TV-Relay/actions/runs/45914019573)
-
-## Android reliability release
-
-Profile cleanup follows accepted sync changes so a concurrent local edit does not lose favourites, history or kids' viewing time. Relay restores the kids profile after Android recreates the screen and checks the parent PIN before switching away. Paused movies and episodes stay paused on return. Backup validation rejects invalid avatar colours, and the guide advances its time window while preserving the viewer's place where possible. Relay pauses sync configurations that point at its app repository. The household has since moved sync to a separate private repository.
-
-The release branch passed 666 unit tests and four emulator tests covering the store, kids profile recreation, playback and guide listings. The lint gate reported six findings and zero critical findings. The signed APK started on a fresh install and preserved the test profile, favourite, history and resume position when upgrading from v1.0.117. Physical TV and phone checks are tracked separately. [Validation run](https://github.com/ghoshs89/TV-Relay/actions/runs/45399176619)
+**Android reliability:** Passed 666 unit tests and four emulator tests covering the store, kids profile recreation, playback and guide listings, with zero critical lint findings and verified upgrade from v1.0.117. [Validation run](https://github.com/ghoshs89/TV-Relay/actions/runs/45399176619)
 
 ## 2. Measurements from the TV
 
@@ -96,14 +89,14 @@ Plan 4 also found the channel stage on the JSON path 3 to 35% slower than `main`
 
 | Plan | Said | Did | Why |
 |---|---|---|---|
-| 1 | Player split into six classes, `PlayerActivity` under 450 lines | Three classes moved out (1,324 to 1,071 lines; later features brought it to about 1,200) | The rest holds the shared playback state and was too risky without a device |
+| 1 | Player split into six classes, `PlayerActivity` under 450 lines | Three classes moved out (1,324 to 1,071 lines; later features brought it to about 1,540) | The rest holds the shared playback state and was too risky without a device |
 | 2 | RGB 565 for posters | Dropped | Android 8 and later use hardware bitmaps; it would change nothing |
 | 3 | Removals leave a record when they happen | Each screen remembers a fingerprint of every record at the last sync; what has disappeared since is a removal | Catches removals made by code that knows nothing about sync |
 | 3 | Pairing with a 6-digit code as the key | The screens swap public keys (ECDH, P-256); the six digits only prove nobody is in the middle | A 6-digit key can be guessed offline |
 | 3 | A new token on one screen spreads to the others | Each screen keeps its own token; **Replace the token** on the phone page or **Join again from another screen** | A screen with an expired token can't read the file that would carry the new one |
 | 3 | Backup format 3 | Unchanged (format 2); sync keeps its own safety copies | Nothing new needed to be in the backup |
 | 4 | Release only if the saved copy is 4 times faster on the default benchmark library | Released on the owner's say after the numbers above | The gate was a poor test at that size: 0.8 s of every start is process start-up |
-| Safety release | Fix the review's findings (critical and high) in one release | Fixed the ones confirmed in the code; rated the claims about request cancelling, pairing timing, PIN hashing and the CI emulator lower and left them for later (to-do 14); revoking the old sync token moved to straight after a backup, not after the move | Several findings were real but larger, or not shown by the code; the token can write to the app repository today, so it can't wait for the move |
+| Safety release | Fix the review's findings (critical and high) in one release | Fixed the ones confirmed in the code; request cancelling shipped in 1.0.135, and sync serialization, pairing session lock, stricter provider parsing, async store/guide reads, kids Home filtering, XMLTV size cap and PBKDF2 v2 PIN verification followed in the hardening release | Kept each release focused while revoking the old sync token straight after a backup |
 
 ## 6. Known gaps in what has been checked
 

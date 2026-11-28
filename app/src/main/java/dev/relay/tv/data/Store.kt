@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit
  * [version] bumps on every write so Compose screens that read it recompose.
  */
 class Store(ctx: Context) {
+    private val appCtx = ctx.applicationContext
     private val prefs = ctx.getSharedPreferences("relay", Context.MODE_PRIVATE)
     private val cache = ConcurrentHashMap<String, Any>()
 
@@ -31,14 +32,21 @@ class Store(ctx: Context) {
     val historyVersion = mutableIntStateOf(0)
 
     private inline fun <reified T> read(key: String, def: T): T {
-        (cache[key] as? T)?.let { return it }
+        val cached = cache[key]
+        if (cached === CORRUPT) return def
+        (cached as? T)?.let { return it }
         val raw = prefs.getString(key, null) ?: return def
         val v: T = try {
             Jsons.json.decodeFromString<T>(raw)
         } catch (e: Exception) {
+            AppLog.w("Store", "Corrupt stored value for $key; using default", e)
+            cache.putIfAbsent(key, CORRUPT)
             return def
         }
-        if (v != null) cache[key] = v as Any
+        if (v != null) {
+            val existing = cache.putIfAbsent(key, v as Any)
+            if (existing != null && existing !== CORRUPT) (existing as? T)?.let { return it }
+        }
         return v
     }
 
@@ -331,6 +339,7 @@ class Store(ctx: Context) {
 
     companion object {
         const val PARENT_PIN = "parent_pin"
+        private val CORRUPT = Any()
 
         /** Writes wait this long so quick repeats of one key are saved once. */
         private const val SAVE_DELAY_MS = 400L
@@ -341,6 +350,27 @@ class Store(ctx: Context) {
 
         /** Shared settings a restore leaves as this screen had them. */
         private val RESTORE_KEEPS = setOf("tmdbKey", "ratingsKey")
+
+        /**
+         * Applies incoming shared settings field-by-field onto [current], leaving per-screen settings and
+         * any shared field changed locally since [snapshot] untouched.
+         */
+        internal fun mergeSharedSettings(snapshot: Settings, target: Settings, current: Settings): Settings {
+            val snapObj = SettingsSplit.toObject(snapshot)
+            val targetObj = SettingsSplit.toObject(target)
+            val curObj = SettingsSplit.toObject(current)
+            val accepted = LinkedHashMap<String, JsonElement>()
+            for (f in SettingsSplit.SHARED) {
+                val t = targetObj[f]
+                if (t != null && t != snapObj[f] && curObj[f] == snapObj[f]) accepted[f] = t
+            }
+            return if (accepted.isEmpty()) current else SettingsSplit.withShared(current, accepted)
+        }
+
+        internal fun sumTodayUsage(intoRaw: String?, fromRaw: String?, today: String): String? {
+            val sum = DailyUsage.ms(intoRaw, today) + DailyUsage.ms(fromRaw, today)
+            return if (sum > 0L) DailyUsage.format(today, sum) else intoRaw?.takeIf { DailyUsage.ms(it, today) > 0L }
+        }
     }
 
     // ---------- Sync ----------
@@ -348,13 +378,14 @@ class Store(ctx: Context) {
     /** Everything that syncs, as plain values. The screens list is filled in by the caller. */
     fun syncSnapshot(): SyncData {
         val ps = profiles
+        val trkKeys = (prefs.all.keys + cache.keys).filter { it.startsWith("trk_") }
         return SyncData(
             profiles = ps,
             favs = ps.associate { it.id to favs(it.id) }.filterValues { it.isNotEmpty() },
             history = ps.associate { it.id to history(it.id) }.filterValues { it.isNotEmpty() },
             settings = settings,
             settingsAt = read<Map<String, Long>>("settings_at", emptyMap()),
-            tracks = prefs.all.keys.filter { it.startsWith("trk_") }
+            tracks = trkKeys
                 .mapNotNull { k -> k.removePrefix("trk_").toIntOrNull()?.let { id -> trackPref(id)?.let { id to it } } }
                 .toMap(),
             reminders = reminders,
@@ -412,10 +443,7 @@ class Store(ctx: Context) {
         val ids = appliedProfiles.map { it.id }.toSet()
         val gone = cur.profiles.map { it.id }.toSet() - ids
         for (pid in gone) {
-            write<List<FavItem>?>("fav_$pid", null)
-            write<List<WatchEntry>?>("hist_$pid", null)
-            write<Map<String, String>?>("usx_$pid", null)
-            prefs.edit().remove("use_$pid").remove("allow_$pid").apply()
+            removeProfileKeys(pid)
             changes++
         }
         val targetIds = target.profiles.map { it.id }.toSet()
@@ -440,14 +468,19 @@ class Store(ctx: Context) {
                 write("usx_$pid", target.useOthers[pid].orEmpty())
             }
             go(snapshot.allow[pid], target.allow[pid], cur.allow[pid]) {
-                target.allow[pid]?.let { prefs.edit().putLong("allow_$pid", it).apply() }
+                val until = target.allow[pid]
+                if (until == null) prefs.edit().remove("allow_$pid").apply()
+                else prefs.edit().putLong("allow_$pid", until).apply()
                 version.intValue++
             }
         }
-        val settingsChanged = go(snapshot.settings, target.settings, cur.settings) {
+        val mergedSettings = mergeSharedSettings(snapshot.settings, target.settings, cur.settings)
+        val settingsChanged = if (mergedSettings != cur.settings) {
             // Not through the setter: a change that came from another screen is not a change made here.
-            write("settings", target.settings)
-        }
+            write("settings", mergedSettings)
+            changes++
+            true
+        } else false
         for (sid in snapshot.tracks.keys + target.tracks.keys) {
             go(snapshot.tracks[sid], target.tracks[sid], cur.tracks[sid]) {
                 val t = target.tracks[sid]
@@ -503,16 +536,27 @@ class Store(ctx: Context) {
         write<List<FavItem>?>("fav_$from", null)
         write<List<WatchEntry>?>("hist_$from", null)
         val e = prefs.edit()
-        prefs.getString("use_$from", null)?.let { e.putString("use_${into.id}", it) }
+        sumTodayUsage(prefs.getString("use_${into.id}", null), prefs.getString("use_$from", null), today())
+            ?.let { e.putString("use_${into.id}", it) }
         prefs.getString("lastcat_$from", null)?.let { e.putString("lastcat_${into.id}", it) }
         e.remove("use_$from").remove("allow_$from").remove("lastcat_$from")
         if (prefs.getString("last_profile", null) == from) e.putString("last_profile", into.id)
         e.apply()
+        saver.execute { dev.relay.tv.tv.WatchNext.clearProfile(appCtx, from) }
+    }
+
+    private fun removeProfileKeys(pid: String) {
+        write<List<FavItem>?>("fav_$pid", null)
+        write<List<WatchEntry>?>("hist_$pid", null)
+        write<Map<String, String>?>("usx_$pid", null)
+        val e = prefs.edit().remove("use_$pid").remove("allow_$pid").remove("lastcat_$pid")
+        if (prefs.getString("last_profile", null) == pid) e.remove("last_profile")
+        e.apply()
+        saver.execute { dev.relay.tv.tv.WatchNext.clearProfile(appCtx, pid) }
     }
 
     fun deleteProfile(pid: String) {
         profiles = profiles.filterNot { it.id == pid }
-        write<List<FavItem>?>("fav_$pid", null)
-        write<List<WatchEntry>?>("hist_$pid", null)
+        removeProfileKeys(pid)
     }
 }

@@ -1,5 +1,6 @@
 package dev.relay.tv.player
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
@@ -16,6 +17,7 @@ import dev.relay.tv.data.PlayItem
 import dev.relay.tv.data.PlayRequest
 import dev.relay.tv.data.Series
 import dev.relay.tv.data.WatchEntry
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** Builds play requests and hands them to [PlayerActivity]. */
@@ -41,7 +43,9 @@ object Playback {
             return
         }
         app.pendingPlay = ok
-        ctx.startActivity(Intent(ctx, PlayerActivity::class.java))
+        val intent = Intent(ctx, PlayerActivity::class.java)
+        if (ctx !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(intent)
     }
 
     /** Entries for live channels, created only as the player reaches them (see [LazyItems]). */
@@ -137,7 +141,15 @@ object Playback {
             kotlinx.coroutines.delay(500)
             Toast.makeText(ctx, "Opening ${e.title}…", Toast.LENGTH_SHORT).show()
         }
-        val info = kotlinx.coroutines.withTimeoutOrNull(8_000) { runCatching { app.api.seriesInfo(sid) }.getOrNull() }
+        val info = kotlinx.coroutines.withTimeoutOrNull(8_000) {
+            try {
+                app.api.seriesInfo(sid)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Exception) {
+                null
+            }
+        }
         hint.cancel()
         if (info == null) {
             Toast.makeText(ctx, "Couldn't load the whole series; playing just this episode", Toast.LENGTH_LONG).show()

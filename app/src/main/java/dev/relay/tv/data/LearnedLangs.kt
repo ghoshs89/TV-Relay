@@ -25,6 +25,11 @@ class LearnedLangs {
     fun series(id: Int): String? = series[id]
     val size: Int get() = movies.size + series.size
 
+    fun clear() {
+        movies.clear()
+        series.clear()
+    }
+
     fun load(saved: Map<String, String>) {
         for ((k, v) in saved) {
             val (movie, id) = parse(k) ?: continue

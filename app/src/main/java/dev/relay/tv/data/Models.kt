@@ -165,6 +165,8 @@ data class Settings(
     // Batch 9: stop playing after this many minutes (0 = off), and ask "Are you still watching?" (see player/WatchBreaks).
     val sleepMinutes: Int = 0,
     val askStillWatching: Boolean = true,
+    /** Anonymous usage stats rollup toggle (see About & diagnostics for what is sent vs never sent). */
+    val shareUsageStats: Boolean = true,
     /** When true on this screen, in-app update checks include GitHub pre-releases. */
     val includePrereleases: Boolean = false,
 )

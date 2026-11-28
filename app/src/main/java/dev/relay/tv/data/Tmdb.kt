@@ -77,6 +77,7 @@ class Tmdb(private val http: OkHttpClient) {
                     videos = videos,
                 )
                 cache[cacheKey] = info
+                CacheLimits.capSize(cache, max = 500, drop = 100)
                 info
             } catch (e: CancellationException) {
                 throw e

@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -122,7 +123,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val now = System.currentTimeMillis()
         if (!force && now - lastProgressAt < 200) return
         lastProgressAt = now
-        progress = LoadProgress(step, percent)
+        val next = LoadProgress(step, percent)
+        Snapshot.withMutableSnapshot { progress = next }
     }
 
     /** Seconds since this process started, for the log: shows how long a cold start took to reach each point. */
@@ -142,6 +144,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
      * leaving a screen doesn't cancel it halfway.
      */
     suspend fun load(force: Boolean = false) {
+        guide?.ensureLoaded()
         val wait = loadLocked(force)
         if (wait > 0) {
             // An overdue library waits a little after start-up (outside the lock and with nothing shown as loading),
@@ -500,15 +503,41 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         seriesByAdded = emptyList(); seriesByRating = emptyList()
         moviesByName = emptyList(); seriesByName = emptyList()
         libraryVersion++
+        langVersion++
         adultCats = emptySet()
         rawChannels = emptyList()
         channelById = emptyMap(); movieById = emptyMap(); seriesById = emptyMap()
+        liveCatLang = emptyMap(); vodCatLang = emptyMap(); seriesCatLang = emptyMap()
+        liveCatKind = emptyMap(); vodCatKind = emptyMap(); seriesCatKind = emptyMap()
+        chLang = emptyMap(); mvLang = emptyMap(); srLang = emptyMap()
+        chKind = emptyMap()
+        channelLangCounts = emptyMap()
+        channelKindCounts = emptyMap()
+        versionKey = emptyMap(); versionsByKey = emptyMap(); versionRank = emptyMap()
+        sortKeys = emptyMap(); hdIds = emptySet()
+        rawVersionKeys = emptyMap(); rawQuality = emptyMap(); rawSortKeys = emptyMap(); rawHd = emptySet()
+        installedAt = -1L
+        updatedAt = 0L
         epgCache.clear()
+        gridCache.clear()
+        epgVersion++
+        learned.clear()
+        guide?.clear()
         searchChannels.clear(); searchMovies.clear(); searchSeries.clear()
         error = null
         snapGen.incrementAndGet()
+        customGen.incrementAndGet()
         snapshotStatus = "cleared"
-        dir.deleteRecursively()
+        val currentDir = File(ctx.filesDir, "catalog")
+        val deadDir = File(ctx.filesDir, "catalog_del_${System.nanoTime()}")
+        val deadLearned = File(ctx.filesDir, "learned_del_${System.nanoTime()}")
+        val renamedDir = currentDir.exists() && currentDir.renameTo(deadDir)
+        val renamedLearned = learnedFile.exists() && learnedFile.renameTo(deadLearned)
+        val cleanup = {
+            if (renamedDir) deadDir.deleteRecursively() else currentDir.deleteRecursively()
+            if (renamedLearned) deadLearned.delete() else learnedFile.delete()
+        }
+        appScope?.launch(Dispatchers.IO) { cleanup() } ?: cleanup()
     }
 
     /** Times each step of preparing a library and reports progress as it goes. */
@@ -537,6 +566,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val liveCatLang: Map<String, String>,
         val vodCatLang: Map<String, String>,
         val seriesCatLang: Map<String, String>,
+        val liveCatKind: Map<String, String>,
+        val vodCatKind: Map<String, String>,
+        val seriesCatKind: Map<String, String>,
         val chLang: Map<Int, String>,
         val versionKeys: Map<Int, String>,
         val quality: Map<Int, Int>,
@@ -548,6 +580,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                 val live = LibraryDerive.categoryLangs(p.liveCats)
                 val vod = LibraryDerive.categoryLangs(p.vodCats)
                 val series = LibraryDerive.categoryLangs(p.seriesCats)
+                val liveKinds = ContentKinds.liveCategoryKinds(p.liveCats)
+                val vodKinds = ContentKinds.titleCategoryKinds(p.vodCats)
+                val seriesKinds = ContentKinds.titleCategoryKinds(p.seriesCats)
                 // One pass: each name is cleaned once and yields language, version key, quality, sort key and HD flag.
                 // On a refresh, channels that did not change take their facts from the library already installed.
                 val m = LibraryDerive.channels(p.channels, live, previous)
@@ -557,6 +592,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                 laps.lap("channel texts", 0.7f)
                 return ChannelStage(
                     p.liveCats, p.vodCats, p.seriesCats, p.channels, live, vod, series,
+                    liveKinds, vodKinds, seriesKinds,
                     m.lang, m.versionKeys, m.quality, m.sortKeys, m.hd,
                 )
             }
@@ -565,9 +601,13 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                 val live = LibraryDerive.categoryLangs(cats.live)
                 val vod = LibraryDerive.categoryLangs(cats.vod)
                 val series = LibraryDerive.categoryLangs(cats.series)
+                val liveKinds = ContentKinds.liveCategoryKinds(cats.live)
+                val vodKinds = ContentKinds.titleCategoryKinds(cats.vod)
+                val seriesKinds = ContentKinds.titleCategoryKinds(cats.series)
                 laps.lap("channel texts", 0.7f)
                 return ChannelStage(
                     cats.live, cats.vod, cats.series, ch.channels, live, vod, series,
+                    liveKinds, vodKinds, seriesKinds,
                     ch.lang, ch.versionKeys, ch.quality, ch.sortKeys, ch.hd,
                 )
             }
@@ -687,11 +727,12 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val chLaps = stage("Preparing channels", 0, 35)
         val (cs, chIndex) = withContext(Dispatchers.Default) {
             val st = stages.channels(chLaps)
-            val ci = buildChannelIndex(st.channels, renames, st.versionKeys, st.quality, st.sortKeys, st.hd, st.chLang)
+            val ci = buildChannelIndex(st.channels, renames, st.versionKeys, st.quality, st.sortKeys, st.hd, st.chLang, st.liveCatKind)
             chLaps.lap("channel index", 1f)
             st to ci
         }
         liveCatLang = cs.liveCatLang; vodCatLang = cs.vodCatLang; seriesCatLang = cs.seriesCatLang
+        liveCatKind = cs.liveCatKind; vodCatKind = cs.vodCatKind; seriesCatKind = cs.seriesCatKind
         chLang = cs.chLang
         rawVersionKeys = cs.versionKeys
         rawQuality = cs.quality
@@ -741,14 +782,18 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         AppLog.i("Catalog", loadSummary().replace("\n", "; ") + "; ${versionsByKey.size} channels with several versions")
     }
 
-    // ---------- Languages ----------
+    // ---------- Languages and content types ----------
 
     private var liveCatLang: Map<String, String> = emptyMap()
     private var vodCatLang: Map<String, String> = emptyMap()
     private var seriesCatLang: Map<String, String> = emptyMap()
+    @Volatile private var liveCatKind: Map<String, String> = emptyMap()
+    @Volatile private var vodCatKind: Map<String, String> = emptyMap()
+    @Volatile private var seriesCatKind: Map<String, String> = emptyMap()
     @Volatile private var chLang: Map<Int, String> = emptyMap()
     @Volatile private var mvLang: Map<Int, String> = emptyMap()
     @Volatile private var srLang: Map<Int, String> = emptyMap()
+    @Volatile private var chKind: Map<Int, String> = emptyMap()
 
     /** Original languages learned from TMDB when a title is opened; they correct the guesses. Saved. */
     private val learnedFile: File get() = File(ctx.filesDir, "learned_langs.json")
@@ -772,6 +817,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     fun liveCatLang(id: String): String? = liveCatLang[id]
     fun vodCatLang(id: String): String? = vodCatLang[id]
     fun seriesCatLang(id: String): String? = seriesCatLang[id]
+    fun vodCatKindOf(id: String): String? = vodCatKind[id]
+    fun seriesCatKindOf(id: String): String? = seriesCatKind[id]
 
     /** TMDB's original language for a title ("hi", "bn", "en", "ta"...), mapped to Relay's groups. */
     fun learnLanguage(key: String, isoCode: String?, region: String? = null) {
@@ -847,6 +894,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val sortKey: Map<Int, String>,
         val hd: Set<Int>,
         val langCounts: Map<String?, Int>,
+        val kind: Map<Int, String>,
+        val kindCounts: Map<String, Int>,
     )
 
     private fun buildChannelIndex(
@@ -857,6 +906,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         rawSortKeys: Map<Int, String>,
         rawHd: Set<Int>,
         lang: Map<Int, String>,
+        catKinds: Map<String, String>,
     ): ChannelIndex {
         val ch = if (renames.isEmpty()) raw else raw.map { c -> renames[c.id]?.let { c.copy(name = it) } ?: c }
         val byId = ch.associateBy { it.id }
@@ -884,11 +934,17 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             .mapValues { (_, g) -> g.withIndex().sortedWith(compareBy({ -(quality[it.value.id] ?: 0) }, { it.index })).map { it.value } }
         val rank = HashMap<Int, Int>()
         groups.values.forEach { g -> g.forEachIndexed { i, c -> rank[c.id] = i } }
-        // Language counts, worked out once here so list screens don't redo them per rebuild.
+        // Language and content-type counts, worked out once here so list screens don't redo them per rebuild.
         val langCounts = HashMap<String?, Int>()
+        val kinds = HashMap<Int, String>()
+        val kindCounts = HashMap<String, Int>()
         for (c in ch) {
             val l = lang[c.id]
             langCounts[l] = (langCounts[l] ?: 0) + 1
+            ContentKinds.ofChannel(c.name, catKinds[c.categoryId])?.let { k ->
+                kinds[c.id] = k
+                kindCounts[k] = (kindCounts[k] ?: 0) + 1
+            }
         }
         return ChannelIndex(
             channels = ch,
@@ -900,6 +956,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
             sortKey = sortKeys,
             hd = hd,
             langCounts = langCounts,
+            kind = kinds,
+            kindCounts = kindCounts,
         )
     }
 
@@ -913,6 +971,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         sortKeys = ix.sortKey
         hdIds = ix.hd
         channelLangCounts = ix.langCounts
+        chKind = ix.kind
+        channelKindCounts = ix.kindCounts
     }
 
     /** Re-applies channel renames after the user edits them. */
@@ -925,13 +985,14 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val sortKeys = rawSortKeys
         val hd = rawHd
         val lang = chLang
+        val catKinds = liveCatKind
         val scope = appScope
         if (scope == null) {
-            install(buildChannelIndex(raw, renames, keys, quality, sortKeys, hd, lang))
+            install(buildChannelIndex(raw, renames, keys, quality, sortKeys, hd, lang, catKinds))
             return
         }
         scope.launch {
-            val ix = withContext(Dispatchers.Default) { buildChannelIndex(raw, renames, keys, quality, sortKeys, hd, lang) }
+            val ix = withContext(Dispatchers.Default) { buildChannelIndex(raw, renames, keys, quality, sortKeys, hd, lang, catKinds) }
             // A newer edit, or a newly loaded library, makes this result stale.
             if (gen == customGen.get() && raw === rawChannels) install(ix)
         }
@@ -947,8 +1008,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     @Volatile private var sortKeys: Map<Int, String> = emptyMap()
     @Volatile private var hdIds: Set<Int> = emptySet()
 
-    /** Channels per language group (null = unknown), counted with the index; read with [channels]. */
+    /** Channels per language group (null = unknown) and content type, counted with the index; read with [channels]. */
     @Volatile var channelLangCounts: Map<String?, Int> = emptyMap(); private set
+    @Volatile var channelKindCounts: Map<String, Int> = emptyMap(); private set
 
     private var rawVersionKeys: Map<Int, String> = emptyMap()
     private var rawQuality: Map<Int, Int> = emptyMap()
@@ -982,6 +1044,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         override fun byId(id: Int): Channel? = channelById[id]
         override fun inCategory(cat: String): List<Channel> = channelsByCat[cat].orEmpty()
         override fun lang(id: Int): String? = chLang[id]
+        override fun kind(ch: Channel): String? = chKind[ch.id]
         override fun sortKey(ch: Channel): String = sortKeys[ch.id] ?: ChannelKeys.sortKey(ch.name)
         override fun isHd(ch: Channel): Boolean = ch.id in hdIds
         override fun hasGuide(ch: Channel): Boolean = guide?.entries(ch.id)?.isNotEmpty() == true
@@ -996,6 +1059,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         override fun inCategory(cat: String): List<Movie> = moviesByCat[cat].orEmpty()
         override fun byId(id: Int): Movie? = movieById[id]
         override fun lang(id: Int): String? = movieLang(id)
+        override fun kind(t: Movie): String? = vodCatKind[t.categoryId]
         override fun id(t: Movie): Int = t.id
         override fun category(t: Movie): String = t.categoryId
     }
@@ -1007,6 +1071,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         override fun inCategory(cat: String): List<Series> = seriesByCat[cat].orEmpty()
         override fun byId(id: Int): Series? = seriesById[id]
         override fun lang(id: Int): String? = seriesLang(id)
+        override fun kind(t: Series): String? = seriesCatKind[t.categoryId]
         override fun id(t: Series): Int = t.id
         override fun category(t: Series): String = t.categoryId
     }
@@ -1035,6 +1100,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val nowSec = now / 1000
         val list = shift(provider).ifEmpty {
             // Provider has nothing for this channel: fall back to the external XMLTV guide.
+            guide?.ensureLoaded()
             shift(guide?.entries(id).orEmpty()).filter { it.end > nowSec }.take(10)
         }
         if (failed && list.isEmpty()) return null
@@ -1073,7 +1139,10 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
                 failed = true
                 emptyList()
             }
-            shift(provider).ifEmpty { shift(guide?.entries(ch.id).orEmpty()) }
+            shift(provider).ifEmpty {
+                guide?.ensureLoaded()
+                shift(guide?.entries(ch.id).orEmpty())
+            }
         }
         if (failed && list.isEmpty()) return null
         gridCache[ch.id] = now to list

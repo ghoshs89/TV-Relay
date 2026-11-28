@@ -141,11 +141,13 @@ object AppLog {
         for (secret in secrets()) {
             if (secret.length >= 3) r = r.replace(secret, "***")
         }
+        r = PATH_SECRET.replace(r) { "/${it.groupValues[1]}/***/***/" }
         r = QUERY_SECRET.replace(r) { "${it.groupValues[1]}=***" }
         r = BEARER.replace(r, "Bearer ***")
         return r
     }
 
+    private val PATH_SECRET = Regex("(?i)/(live|movie|series|timeshift)/[^/\\s\"']+/[^/\\s\"']+/")
     private val QUERY_SECRET = Regex("(?i)\\b(username|password|api_key|apikey|token)=[^&\\s]+")
     private val BEARER = Regex("(?i)Bearer\\s+\\S+")
 

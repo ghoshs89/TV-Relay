@@ -14,6 +14,7 @@ import kotlinx.serialization.json.JsonObject
 import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -61,6 +62,8 @@ class XtreamApi(
         return b.build()
     }
 
+    private class LoginRejectedException(msg: String) : IOException(msg)
+
     private suspend fun <T> withHosts(params: Map<String, String>, block: (Response) -> T): T =
         withContext(Dispatchers.IO) {
             val acc = account ?: throw IOException("Not signed in")
@@ -83,9 +86,10 @@ class XtreamApi(
                         stage = HostHealth.STATUS
                         httpCode = r.code
                         if (!r.isSuccessful) throw IOException("HTTP ${r.code} from ${r.request.url.host}")
-                        health.answered(h, (System.nanoTime() - t0) / 1_000_000)
                         stage = HostHealth.BODY
-                        block(r)
+                        val parsed = block(r)
+                        health.answered(h, (System.nanoTime() - t0) / 1_000_000)
+                        parsed
                     }
                     if (host != h) {
                         host = h
@@ -94,6 +98,8 @@ class XtreamApi(
                     return@withContext result
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: LoginRejectedException) {
+                    throw IOException(e.message)
                 } catch (e: Exception) {
                     currentCoroutineContext().ensureActive()
                     AppLog.w("Api", "${params["action"] ?: "login"} failed on $h", e)
@@ -135,7 +141,7 @@ class XtreamApi(
                     tmp.outputStream().use { out ->
                         val buf = ByteArray(64 * 1024)
                         while (true) {
-                        caller.ensureActive()
+                            caller.ensureActive()
                             val n = input.read(buf)
                             if (n < 0) break
                             out.write(buf, 0, n)
@@ -145,6 +151,7 @@ class XtreamApi(
                     }
                 }
                 caller.ensureActive()
+                if (!startsWithJsonArray(tmp)) throw InvalidListException(action)
                 // Rename over the previous file only after the whole download has succeeded.
                 if (!tmp.renameTo(dest)) throw IOException("Couldn't save $action")
                 Downloaded(total, r.request.url.host, length)
@@ -154,13 +161,13 @@ class XtreamApi(
         }
     }
 
-    suspend fun authenticate(): AccountInfo {
-        val root = getJson(emptyMap())
+    suspend fun authenticate(): AccountInfo = withHosts(emptyMap()) { r ->
+        val root = Jsons.json.parseToJsonElement(r.body!!.string())
         val ui = root.at("user_info") ?: throw IOException("Server didn't return account info. Check the URL.")
         val auth = ui.at("auth")
-        if (auth != null && auth.int() == 0) throw IOException("Login rejected. Check username and password.")
+        if (auth != null && auth.int() == 0) throw LoginRejectedException("Login rejected. Check username and password.")
         root.at("server_info").at("timezone").str()?.let { serverTz = TimeZone.getTimeZone(it) }
-        return AccountInfo(
+        AccountInfo(
             status = ui.at("status").str(),
             expires = ui.at("exp_date").long(),
             maxConnections = ui.at("max_connections").int(),
@@ -299,13 +306,41 @@ class XtreamApi(
     }
 
     companion object {
-        /** Accepts "host:port", "http://host", or a pasted player_api/get.php URL. */
-        fun normalizeHost(raw: String): String {
+        private fun startsWithJsonArray(file: File): Boolean {
+            file.inputStream().use { input ->
+                var b = input.read()
+                // Skip UTF-8 BOM (EF BB BF) and leading whitespace.
+                if (b == 0xEF) {
+                    if (input.read() != 0xBB || input.read() != 0xBF) return false
+                    b = input.read()
+                }
+                while (b == ' '.code || b == '\n'.code || b == '\r'.code || b == '\t'.code) {
+                    b = input.read()
+                }
+                return b == '['.code
+            }
+        }
+
+        private fun isLoopbackOrUnspecified(host: String): Boolean {
+            val h = host.lowercase()
+            return h == "localhost" || h == "0.0.0.0" || h == "::1" || h == "::" || h.startsWith("127.")
+        }
+
+        /** Accepts "host:port", "http://host", or a pasted player_api/get.php URL; rejects fragments and loopback hosts. */
+        fun normalizeHost(raw: String, allowLoopback: Boolean = false): String {
             var h = raw.trim()
             if (h.isEmpty() || h == "http://" || h == "https://") return ""
             if (!h.startsWith("http://", true) && !h.startsWith("https://", true)) h = "http://$h"
-            h = h.substringBefore("/player_api.php").substringBefore("/get.php").substringBefore("?")
-            return h.trimEnd('/')
+            h = h.substringBefore("#").substringBefore("?")
+                .replace(Regex("(?i)/(player_api|get)\\.php.*$"), "")
+                .trimEnd('/')
+            val parsed = h.toHttpUrlOrNull() ?: return ""
+            if (!allowLoopback && isLoopbackOrUnspecified(parsed.host)) return ""
+            val defaultPort = if (parsed.isHttps) 443 else 80
+            val portSuffix = if (parsed.port != defaultPort) ":${parsed.port}" else ""
+            val hostPart = if (':' in parsed.host) "[${parsed.host}]" else parsed.host
+            val basePath = parsed.encodedPath.trimEnd('/').takeIf { it.isNotEmpty() && it != "/" }.orEmpty()
+            return "${parsed.scheme}://$hostPart$portSuffix$basePath"
         }
     }
 }

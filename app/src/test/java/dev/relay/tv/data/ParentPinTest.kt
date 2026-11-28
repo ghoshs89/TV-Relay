@@ -38,4 +38,14 @@ class ParentPinTest {
         assertFalse(ParentPin.isValid("123456789"))
         assertFalse(ParentPin.isValid("12a4"))
     }
+
+    @Test
+    fun pbkdf2V2HashesVerifyAlongsideLegacyV1Hashes() {
+        val v2 = ParentPin.hashV2("4826", iterations = 2_000)
+        assertTrue(v2.startsWith("v2\$"))
+        assertTrue(ParentPin.verify("4826", v2))
+        assertFalse(ParentPin.verify("4827", v2))
+        assertFalse(ParentPin.verify("4826", "v2\$10\$abc\$def"))
+        assertFalse(ParentPin.verify("4826", "v2\$bad"))
+    }
 }

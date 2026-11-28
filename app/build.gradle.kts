@@ -7,7 +7,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-val runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
 
 // Signing: CI provides the key through repository secrets (see README). A local
 // signing.properties also works. With neither, release falls back to the debug key.
@@ -38,8 +38,11 @@ android {
         // In-app updates read the public repository's releases, which needs no token. A build made for a
         // private copy of the repository can set RELAY_UPDATE_TOKEN (read-only, Contents) to read it.
         val updateToken = (System.getenv("RELAY_UPDATE_TOKEN") ?: "").trim()
+        val updateRepo = (System.getenv("RELAY_UPDATE_REPO") ?: "").trim().ifEmpty { "ghoshs89/TV-Relay" }
+        val telemetryUrl = (System.getenv("RELAY_TELEMETRY_URL") ?: "").trim().trimEnd('/')
         buildConfigField("String", "UPDATE_TOKEN", "\"$updateToken\"")
-        buildConfigField("String", "UPDATE_REPO", "\"ghoshs89/TV-Relay\"")
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
+        buildConfigField("String", "TELEMETRY_URL", "\"$telemetryUrl\"")
         // True only in the benchmark build used by CI to drive the app on an emulator.
         buildConfigField("boolean", "BENCH", "false")
     }

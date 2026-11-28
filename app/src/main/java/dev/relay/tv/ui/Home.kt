@@ -150,12 +150,30 @@ fun HomeScreen() {
     }
     if (Updater.dialogOpen) UpdateDialog()
 
+    var crashPrompt by remember { mutableStateOf(false) }
+    LaunchedEffect(app.session.profileId) {
+        if (!crashPrompt && app.telemetry.configured && app.session.profile?.kids != true) {
+            val crashAt = AppLog.lastCrash()
+            if (crashAt != null && crashAt > app.telemetry.lastPromptedCrashAt) {
+                crashPrompt = true
+            }
+        }
+    }
+    if (crashPrompt) CrashReportDialog(onDismiss = { crashPrompt = false })
+
     // Expiry warning: only within 7 days of the end date, only for 5 s after the app starts.
     var expiryNote by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         if (app.session.expiryChecked) return@LaunchedEffect
+        val info = try {
+            app.api.authenticate()
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            null
+        } ?: return@LaunchedEffect
         app.session.expiryChecked = true
-        val exp = runCatching { app.api.authenticate() }.getOrNull()?.expires ?: return@LaunchedEffect
+        val exp = info.expires ?: return@LaunchedEffect
         val msLeft = exp * 1000 - System.currentTimeMillis()
         if (msLeft > 7 * 86_400_000L) return@LaunchedEffect
         val days = (msLeft / 86_400_000L).toInt()
@@ -170,15 +188,21 @@ fun HomeScreen() {
         expiryNote = null
     }
 
-    // Optional: go straight to the last live channel when the app starts.
+    // Optional: go straight to the last live channel when the app starts (unless opened from a TV Home resume card).
     val ctx = LocalContext.current
+    var resumingDeepLink by remember { mutableStateOf(app.pendingResume != null) }
+    LaunchedEffect(app.pendingResume) {
+        if (app.pendingResume != null) resumingDeepLink = true
+    }
     LaunchedEffect(Unit) {
         if (app.session.autoStartDone) return@LaunchedEffect
         app.session.autoStartDone = true
+        if (resumingDeepLink || app.pendingResume != null) return@LaunchedEffect
         if (!app.store.settings.startOnLastChannel) return@LaunchedEffect
         val last = app.store.history(app.session.profileId).firstOrNull { it.kind == "live" } ?: return@LaunchedEffect
         val id = last.streamId.toIntOrNull() ?: return@LaunchedEffect
         withTimeoutOrNull(30_000) { snapshotFlow { catalog.channels.isNotEmpty() }.first { it } }
+        if (resumingDeepLink || app.pendingResume != null) return@LaunchedEffect
         val ch = catalog.channelById[id] ?: return@LaunchedEffect
         // The same limits as browsing: a restricted profile can't reach a category this way that it can't open.
         val access = catalog.restrictions(app.session.restrict(app.store.settings))
@@ -331,20 +355,42 @@ fun HomeTab() {
     store.historyVersion.intValue
     val pid = app.session.profileId
     val restrict = app.session.restrict(store.settings)
+    val restrictions = remember(restrict, catalog.adultCats, catalog.libraryVersion) { catalog.restrictions(restrict) }
 
     // The store hands back the same list until something is written, so these are worked out
     // again only when the history, favourites or channels really change.
     val history = store.history(pid)
-    val continueWatching = remember(history) { history.filter { it.kind != "live" && it.inProgress }.distinctBy { it.key }.take(20) }
-    val recentChannels = remember(history, catalog.channels) {
-        history.filter { it.kind == "live" }.mapNotNull { e -> e.streamId.toIntOrNull()?.let { catalog.channelById[it] } }
+    val continueWatching = remember(history, restrict, catalog.adultCats, catalog.libraryVersion) {
+        history.filter { e ->
+            e.kind != "live" && e.inProgress && (!restrict || when (e.kind) {
+                "movie" -> e.streamId.toIntOrNull()?.let { catalog.movieById[it]?.categoryId }?.let(restrictions::allowsCategory) == true
+                "episode" -> e.seriesId?.let { catalog.seriesById[it]?.categoryId }?.let(restrictions::allowsCategory) == true
+                else -> false
+            })
+        }.distinctBy { it.key }.take(20)
+    }
+    val recentChannels = remember(history, catalog.channels, restrict, catalog.adultCats) {
+        history.filter { it.kind == "live" }
+            .mapNotNull { e -> e.streamId.toIntOrNull()?.let { catalog.channelById[it] } }
+            .filter { restrictions.allowsCategory(it.categoryId) }
             .distinctBy { it.id }.take(20)
     }
     val favs = store.favs(pid)
-    val favChannels = remember(favs, catalog.channels) {
-        favs.filter { it.kind == "live" }.mapNotNull { catalog.channelById[it.id] }.distinctBy { it.id }
+    val favChannels = remember(favs, catalog.channels, restrict, catalog.adultCats) {
+        favs.filter { it.kind == "live" }
+            .mapNotNull { catalog.channelById[it.id] }
+            .filter { restrictions.allowsCategory(it.categoryId) }
+            .distinctBy { it.id }
     }
-    val myList = remember(favs) { favs.filter { it.kind != "live" }.distinctBy { it.kind to it.id } }
+    val myList = remember(favs, restrict, catalog.adultCats, catalog.libraryVersion) {
+        favs.filter { f ->
+            f.kind != "live" && (!restrict || when (f.kind) {
+                "movie" -> catalog.movieById[f.id]?.categoryId?.let(restrictions::allowsCategory) == true
+                "series" -> catalog.seriesById[f.id]?.categoryId?.let(restrictions::allowsCategory) == true
+                else -> false
+            })
+        }.distinctBy { it.kind to it.id }
+    }
 
     // Long press (or the Menu key) on a card offers to take it off its row.
     var removal by remember { mutableStateOf<Removal?>(null) }
@@ -391,7 +437,7 @@ fun HomeTab() {
                                 PillButton(
                                     "Clear all",
                                     {
-                                        val n = HistoryEdits.continueEntries(history).size
+                                        val n = continueWatching.size
                                         removal = Removal("Clear Continue watching", "$n title${if (n == 1) "" else "s"} will be taken off this row.") {
                                             val gone = HistoryEdits.continueEntries(store.history(pid))
                                             store.clearContinue(pid)
@@ -434,8 +480,8 @@ fun HomeTab() {
                     }
                     row == HomeLayout.MY_LIST -> Rail(HomeLayout.label(row), myList, key = { "${it.kind}:${it.id}" }) { f ->
                         PosterCard(f.name, f.image, {
-                            if (f.kind == "movie") catalog.movieById[f.id]?.let { nav.push(Route.MovieDetail(it)) }
-                            else catalog.seriesById[f.id]?.let { nav.push(Route.SeriesDetail(it)) }
+                            if (f.kind == "movie") catalog.movieById[f.id]?.takeIf { restrictions.allowsCategory(it.categoryId) }?.let { nav.push(Route.MovieDetail(it)) }
+                            else catalog.seriesById[f.id]?.takeIf { restrictions.allowsCategory(it.categoryId) }?.let { nav.push(Route.SeriesDetail(it)) }
                         }, key = "ml:${f.kind}:${f.id}")
                     }
                     row.startsWith(HomeLayout.LANG) -> {
@@ -443,7 +489,7 @@ fun HomeTab() {
                         // Finding the newest titles in one language can mean walking the whole library, so it is done
                         // off the screen thread. The last answer stays up (and is kept while the row is scrolled away)
                         // until the new one is ready.
-                        val inputs = listOf(catalog.movies, catalog.series, restrict, catalog.langVersion, hidden)
+                        val inputs = listOf(catalog.libraryVersion, restrict, catalog.langVersion, hidden)
                         val cache = app.ui.homeLangRows
                         var list by remember(lang) { mutableStateOf(cache[lang]?.second ?: emptyList()) }
                         LaunchedEffect(lang, inputs) {

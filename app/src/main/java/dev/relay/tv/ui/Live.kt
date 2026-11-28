@@ -77,6 +77,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import dev.relay.tv.data.ChannelGroup
+import dev.relay.tv.data.ContentKinds
 import dev.relay.tv.data.LiveQuery
 import dev.relay.tv.data.LiveSelection
 import dev.relay.tv.data.Store
@@ -210,12 +211,16 @@ fun LiveTab() {
     val merge = st.mergeVariants && cat != UiState.FAV && cat != UiState.HISTORY && !cat.startsWith(ChannelEdits.GROUP)
     // Typing in Find rebuilds the list once you pause, not after every letter.
     val find = rememberDebounced(ui.liveFind, DeviceTier.current.findPauseMs) { it.isEmpty() }
+    val kindCounts = remember(catalog.channels, catalog.langVersion) { catalog.channelKindCounts }
+    val availableKinds = remember(kindCounts) { ContentKinds.LIVE_ORDER.filter { (kindCounts[it] ?: 0) > 0 } }
+    val activeKind = ui.liveKind?.takeIf { it in availableKinds }
     val query = LiveQuery(
         cat = cat, selection = selection, sort = sort, filters = ui.liveFilters, find = find,
         blockedCats = if (restrict) catalog.adultCats else emptySet(), hiddenCats = hiddenIds,
         langOrder = langOrder, merge = merge,
         favIds = if (sort == 3 || selection is LiveSelection.Favourites) favSet.toList() else emptyList(),
         preferred = st.preferredVersions,
+        kind = activeKind,
     )
     // The list is built off the screen thread. A new query cancels the one still running, and the
     // previous list stays up until the new one is ready.
@@ -299,6 +304,12 @@ fun LiveTab() {
                         Chip(if (ui.liveFind.isBlank()) "Find" else "Find: ${ui.liveFind}", ui.liveFind.isNotBlank(), "tb:find") { finding = true }
                     }
                     if (ui.liveFind.isNotBlank()) item { Chip("Clear find", false, "tb:clear") { ui.liveFind = "" } }
+                    items(availableKinds, key = { "tb:kind:$it" }) { kind ->
+                        Chip(ContentKinds.label(kind), activeKind == kind, "tb:kind:$kind") {
+                            ui.liveKind = if (activeKind == kind) null else kind
+                            scope.launch { ui.liveChList.scrollToItem(0) }
+                        }
+                    }
                     item { FilterChip("Catch-up", LiveBrowse.F_CATCHUP) }
                     item { FilterChip("HD / 4K", LiveBrowse.F_HD) }
                     item { FilterChip("Has guide", LiveBrowse.F_GUIDE) }
@@ -413,7 +424,7 @@ private fun FilterChip(label: String, filter: String) {
 }
 
 @Composable
-private fun Chip(label: String, on: Boolean, key: String, compact: Boolean = false, onClick: () -> Unit) {
+internal fun Chip(label: String, on: Boolean, key: String, compact: Boolean = false, onClick: () -> Unit) {
     Focusable(onClick, key = key, shape = RoundedCornerShape(50), scaleOnFocus = 1.06f) { f ->
         Text(
             if (on && !compact) "✓ $label" else label,
@@ -608,7 +619,11 @@ private fun ChannelDetails(ch: Channel, groupId: String?) {
         Spacer(Modifier.height(12.dp))
         val fav = store.isFav(pid, "live", ch.id)
         val current = epg?.firstOrNull { it.start <= nowSec && nowSec < it.end }
-        val versions = remember(ch.id, app.catalog.channels, store.settings.preferredVersions) { app.catalog.versionsOf(ch.id) }
+        val restrict = app.session.restrict(store.settings)
+        val restrictions = remember(restrict, app.catalog.adultCats) { app.catalog.restrictions(restrict) }
+        val versions = remember(ch.id, app.catalog.channels, store.settings.preferredVersions, restrict, app.catalog.adultCats) {
+            app.catalog.versionsOf(ch.id).filter { restrictions.allowsCategory(it.categoryId) }
+        }
         // Two buttons per row, so up to five of them leave room for the programme list on a 540 dp screen.
         val actions = buildList {
             add(PanelAction("Favourite", if (fav) Icons.Filled.Star else Icons.Filled.Add, "pf:${ch.id}") {
@@ -707,7 +722,9 @@ private fun ChannelVersionsDialog(ch: Channel, onDismiss: () -> Unit) {
     val store = app.store
     store.version.intValue
     val ctx = LocalContext.current
-    val versions = app.catalog.versionsOf(ch.id)
+    val restrict = app.session.restrict(store.settings)
+    val restrictions = remember(restrict, app.catalog.adultCats) { app.catalog.restrictions(restrict) }
+    val versions = app.catalog.versionsOf(ch.id).filter { restrictions.allowsCategory(it.categoryId) }
     val key = app.catalog.versionKeyOf(ch.id)
     val chosen = key?.let { store.settings.preferredVersions[it] }
     val first = remember { FocusRequester() }

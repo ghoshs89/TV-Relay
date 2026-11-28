@@ -59,7 +59,13 @@ object ReminderCenter {
         val now = System.currentTimeMillis() / 1000
         val list = app.store.reminders
         if (list.isEmpty()) return
-        val fire = if (due == null) list.firstOrNull { now >= it.start - 30 && now < it.start + 300 } else null
+        val access = app.catalog.restrictions(app.session.restrict(app.store.settings))
+        val fire = if (due == null) {
+            list.firstOrNull { r ->
+                now >= r.start - 30 && now < r.start + 300 &&
+                    (!access.restrict || app.catalog.channelById[r.channelId]?.let { access.allowsCategory(it.categoryId) } == true)
+            }
+        } else null
         val keep = list.filter { it != fire && it.end > now }
         if (keep.size != list.size) app.store.reminders = keep
         if (fire != null) {

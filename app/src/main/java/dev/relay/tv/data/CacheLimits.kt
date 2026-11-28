@@ -9,6 +9,12 @@ object CacheLimits {
         if (map.size <= max) return
         map.entries.sortedBy { it.value.first }.take(drop).forEach { map.remove(it.key, it.value) }
     }
+
+    /** Caps an un-timestamped concurrent cache at [max] entries by dropping [drop] entries. */
+    fun <K : Any, V : Any> capSize(map: ConcurrentHashMap<K, V>, max: Int, drop: Int) {
+        if (map.size <= max) return
+        map.keys.take(drop).forEach { map.remove(it) }
+    }
 }
 
 /**

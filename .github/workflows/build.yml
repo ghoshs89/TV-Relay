@@ -28,6 +28,7 @@ env:
   # SHA-256 of the release signing certificate (public, safe to commit).
   # Builds fail if the APK is signed with anything else.
   RELAY_CERT_SHA256: 165d1842e00291d7adc2dcab4f76604bc6372ac3cdf151ced8486ff00c2a6b82
+  RELAY_TELEMETRY_URL: ${{ vars.RELAY_TELEMETRY_URL }}
 
 # Each job gets only what it needs. Only "publish" can write to the repository, and it runs no code
 # from the repository: it checks the APK that "build" made and attaches it to a release. The signing
@@ -59,10 +60,11 @@ jobs:
       - name: Unit tests
         run: |
           set +e
-          ./gradlew :app:testReleaseUnitTest --stacktrace --no-daemon
+          set -o pipefail
+          ./gradlew :app:testReleaseUnitTest --stacktrace --no-daemon 2>&1 | tee /tmp/unit-test.log
           STATUS=$?
           python3 - <<'PY'
-          import glob, xml.etree.ElementTree as ET
+          import glob, os, xml.etree.ElementTree as ET
           t = f = 0
           for p in glob.glob("app/build/test-results/testReleaseUnitTest/*.xml"):
               r = ET.parse(p).getroot()
@@ -73,6 +75,10 @@ jobs:
                   for x in list(c.findall("failure")) + list(c.findall("error")):
                       print(f"::error::{c.get('classname')}.{c.get('name')}: {(x.get('message') or '')[:300]}")
           print(f"Total: {t} tests, {f} failed")
+          if os.path.exists("/tmp/unit-test.log"):
+              errs = [line.strip() for line in open("/tmp/unit-test.log") if line.startswith("e: ") or "FAILURE:" in line or "Exception:" in line]
+              for line in errs[:12]:
+                  print(f"::error::{line[:300]}")
           PY
           exit $STATUS
 
