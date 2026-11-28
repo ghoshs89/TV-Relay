@@ -86,8 +86,11 @@ object LanguageDetector {
             "MALAYALAM", "KANNADA", "KOLLYWOOD", "MOLLYWOOD", "SANDALWOOD",
         ),
         Langs.BN to listOf("BANGLA", "BENGALI", "KOLKATA", "KOLKATTA", "WEST BENGAL"),
+        Langs.EN to listOf(
+            "ENGLISH", "HOLLYWOOD", "HINDI DUBBED", "HINDI DUB", "DUBBED IN HINDI", "DUAL AUDIO",
+            "ENGLISH DUBBED",
+        ),
         Langs.HI to listOf("HINDI", "BOLLYWOOD"),
-        Langs.EN to listOf("ENGLISH", "HOLLYWOOD"),
         Langs.OTHER to listOf(
             "ARABIC", "SPANISH", "LATINO", "FRENCH", "GERMAN", "TURKISH", "PORTUGUESE", "ITALIAN", "POLISH",
             "PUNJABI", "URDU", "PAKISTAN", "PAKISTANI", "MARATHI", "GUJARATI", "KOREAN", "JAPANESE", "CHINESE",
@@ -120,10 +123,23 @@ object LanguageDetector {
             "COLORS CINEPLEX", "COLORS RISHTEY", "AAJ TAK", "ABP NEWS", "NDTV INDIA", "INDIA TV", "ZEE NEWS",
             "REPUBLIC BHARAT", "B4U", "DANGAL", "SHEMAROO", "NEWS18 INDIA", "TV9 BHARATVARSH", "HINDI",
         ),
-        Langs.EN to listOf("ENGLISH"),
+        Langs.EN to listOf(
+            "ENGLISH", "STAR MOVIES", "SONY PIX", "MOVIES NOW", "MNX", "ROMEDY NOW", "&FLIX", "AND FLIX",
+            "HBO", "WION", "TIMES NOW", "NDTV 24X7", "REPUBLIC TV", "CNN NEWS18", "INDIA TODAY", "MIRROR NOW",
+            "DISCOVERY", "NATIONAL GEOGRAPHIC", "NAT GEO", "CARTOON NETWORK", "POGO", "NICKELODEON",
+            "DISNEY CHANNEL", "STAR SPORTS", "SONY SPORTS", "TEN SPORTS", "CNN", "BBC", "ESPN",
+        ),
     )
 
     private val NON_WORD = Regex("[^A-Z0-9&]+")
+    private val DUBBED_TITLE_WORDS = listOf(
+        " HINDI DUBBED ", " HINDI DUB ", " DUBBED IN HINDI ", " DUAL AUDIO ",
+        " ENGLISH DUBBED ", " HINDI & ENG ", " ENG & HINDI ",
+    )
+    private val SOUTH_WORDS = listOf(
+        " SOUTH ", " TAMIL ", " TELUGU ", " MALAYALAM ", " KANNADA ",
+        " KOLLYWOOD ", " MOLLYWOOD ", " SANDALWOOD ",
+    )
 
     // Compiled once. These were built inside ofCategory and ofChannel, so every call compiled them again.
     private val CATEGORY_PREFIX = Regex("^\\s*[\\[(|]?\\s*([A-Za-z][A-Za-z\\-]{1,9})\\s*[\\])|]?\\s*[:|\\-–»]")
@@ -148,15 +164,57 @@ object LanguageDetector {
     /** Language group of a short code such as "HI", "SO-IN" or "UK"; null when unknown. */
     fun ofCode(code: String?): String? = code?.uppercase()?.let { CODES[it] }
 
+    /** Maps an ISO 639-1 / 639-2 code or language name (plus optional country) from TMDB/MDBList to a Relay group. */
+    fun fromApi(language: String?, country: String? = null): String? {
+        val lang = language?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
+        if (lang == "none" || lang == "und" || lang == "xx" || lang == "zxx") return null
+        val ctry = country?.trim()?.uppercase()
+        return when (lang) {
+            "en", "eng", "english" -> Langs.EN
+            "hi", "hin", "hindi" -> Langs.HI
+            "bn", "ben", "bengali", "bangla" ->
+                if (ctry == "BD" || ctry == "BGD" || ctry == "BANGLADESH") Langs.BD else Langs.BN
+            "ta", "tam", "tamil", "te", "tel", "telugu",
+            "ml", "mal", "malayalam", "kn", "kan", "kannada" -> Langs.SOUTH
+            else -> Langs.OTHER
+        }
+    }
+
+    /** True when the title or category name marks a dubbed or dual-audio track. */
+    fun isDubbed(title: String, categoryName: String? = null): Boolean {
+        val tw = wordsOfClean(ProviderNames.clean(title))
+        if (tw.contains(" DUBBED ") || tw.contains(" HINDI DUB ") || tw.contains(" DUAL AUDIO ")) return true
+        if (categoryName != null) {
+            val cw = wordsOfClean(ProviderNames.clean(categoryName))
+            if (cw.contains(" DUBBED ") || cw.contains(" HINDI DUB ") || cw.contains(" DUAL AUDIO ") ||
+                (cw.contains(" HOLLYWOOD ") && cw.contains(" HINDI ")) ||
+                (cw.contains(" SOUTH ") && cw.contains(" HINDI "))
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
     /** A provider category: words in its name, else its country or language prefix. */
     fun ofCategory(name: String): String? {
         firstMatch(ProviderNames.clean(name), CATEGORY_KEYS)?.let { return it }
         return ofCode(CATEGORY_PREFIX.find(name)?.groupValues?.get(1))
     }
 
-    /** A movie or series: its title tag wins, then its category. */
-    fun ofTitle(rawTitle: String, categoryLang: String?): String? =
-        ofCode(TitleParts.tagOf(rawTitle)) ?: categoryLang
+    /** A movie or series: Hindi-dubbed Hollywood titles map to EN (preserving South Indian), else tag then category. */
+    fun ofTitle(rawTitle: String, categoryLang: String?): String? {
+        val tag = ofCode(TitleParts.tagOf(rawTitle))
+        val w = wordsOfClean(ProviderNames.clean(rawTitle))
+        if (DUBBED_TITLE_WORDS.any { w.contains(it) } &&
+            tag != Langs.SOUTH &&
+            categoryLang != Langs.SOUTH &&
+            SOUTH_WORDS.none { w.contains(it) }
+        ) {
+            return Langs.EN
+        }
+        return tag ?: categoryLang
+    }
 
     /** A live channel: known channel names, then its category, then its country tag. */
     fun ofChannel(name: String, categoryLang: String?): String? =

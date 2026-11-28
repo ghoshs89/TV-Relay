@@ -19,13 +19,32 @@ import java.util.concurrent.TimeUnit
  */
 class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
 
-    /** A cast member with their photo (w185), when TMDB has one. */
+    /** A cast member with their photo (w185) and TMDB id, when TMDB has one. */
     @kotlinx.serialization.Serializable
-    data class Person(val name: String, val character: String? = null, val photo: String? = null)
+    data class Person(val name: String, val character: String? = null, val photo: String? = null, val id: String? = null)
 
-    /** A title TMDB recommends; [tv] tells a series from a film. */
+    /** A cast member's bio and combined filmography from TMDB. */
     @kotlinx.serialization.Serializable
-    data class Rec(val id: String, val tv: Boolean, val title: String, val year: String? = null, val rating: Double? = null)
+    data class PersonCredits(
+        val id: String,
+        val name: String,
+        val photo: String? = null,
+        val bio: String? = null,
+        val knownFor: String? = null,
+        val credits: List<Rec> = emptyList(),
+    )
+
+    /** A title TMDB recommends (or a person credit); [tv] tells a series from a film. */
+    @kotlinx.serialization.Serializable
+    data class Rec(
+        val id: String,
+        val tv: Boolean,
+        val title: String,
+        val year: String? = null,
+        val rating: Double? = null,
+        val adult: Boolean = false,
+        val genreIds: List<Int> = emptyList(),
+    )
 
     @kotlinx.serialization.Serializable
     data class Info(
@@ -46,10 +65,14 @@ class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
         val logo: String? = null,
         /** Cast with photos; [cast] keeps the names alone. */
         val people: List<Person> = emptyList(),
+        /** Age certification ("G", "PG", "PG-13", "TV-Y7", "R"...), parsed from release_dates / content_ratings. */
+        val certification: String? = null,
     )
 
     private val cache = ConcurrentHashMap<String, Info>()
     private val recCache = ConcurrentHashMap<String, List<Rec>>()
+    private val personCache = ConcurrentHashMap<String, PersonCredits>()
+    private val personNameToId = ConcurrentHashMap<String, String>()
     private val disk = diskDir?.let { TmdbDiskCache(it) }
 
     private fun cacheKey(tv: Boolean, tmdbId: String?, title: String): String =
@@ -57,6 +80,12 @@ class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
 
     /** What is already in RAM for a title (safe on the main thread); null when not yet loaded. */
     fun cached(tv: Boolean, tmdbId: String?, title: String): Info? = cache[cacheKey(tv, tmdbId, title)]
+
+    /** Cached filmography for a cast member (safe on the main thread). */
+    fun cachedPerson(personId: String?, name: String): PersonCredits? {
+        val id = validTmdbId(personId) ?: personNameToId[TitleVersions.normalize(name)] ?: return null
+        return personCache["person:$id"]
+    }
 
     /** What is already known about a title without asking TMDB (RAM, then 7-day disk cache on IO). */
     suspend fun cachedOrDisk(tv: Boolean, tmdbId: String?, title: String): Info? {
@@ -91,9 +120,10 @@ class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
                     get(b.build(), key).at("results").arr()?.firstOrNull().at("id").str()
                 } ?: return@withContext null
 
+                val certSection = if (tv) "content_ratings" else "release_dates"
                 val d = get(
                     "https://api.themoviedb.org/3/$type/$id".toHttpUrl().newBuilder()
-                        .addQueryParameter("append_to_response", "credits,videos,images")
+                        .addQueryParameter("append_to_response", "credits,videos,images,$certSection")
                         .addQueryParameter("include_video_language", "en,null")
                         .addQueryParameter("include_image_language", LOGO_LANGUAGES)
                         .build(),
@@ -102,7 +132,12 @@ class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
                 val language = d.at("original_language").str()
                 val people = d.at("credits").at("cast").arr()?.take(12)?.mapNotNull { c ->
                     val n = c.at("name").str() ?: return@mapNotNull null
-                    Person(n, c.at("character").str()?.takeIf { it.isNotBlank() }, c.at("profile_path").str()?.let { "https://image.tmdb.org/t/p/w185$it" })
+                    Person(
+                        name = n,
+                        character = c.at("character").str()?.takeIf { it.isNotBlank() },
+                        photo = c.at("profile_path").str()?.let { "https://image.tmdb.org/t/p/w185$it" },
+                        id = c.at("id").str()?.takeIf { it.isNotEmpty() },
+                    )
                 }.orEmpty()
                 var videos = Trailers.parse(d.at("videos"))
                 if (language != null && language != "en" && videos.none { it.language.equals(language, ignoreCase = true) }) {
@@ -128,6 +163,7 @@ class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
                     videos = videos,
                     logo = pickLogo(logos, language)?.let { "https://image.tmdb.org/t/p/w500$it" },
                     people = people,
+                    certification = parseCertification(d, tv),
                 )
                 cache[cacheKey] = info
                 disk?.write(cacheKey, info, Info.serializer())
@@ -167,6 +203,54 @@ class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
             emptyList()
         }
     }
+
+    /**
+     * Bio and combined filmography (movies + series, acting roles first) for a cast member, cached for 7 days.
+     * Uses [personId] directly when available, or resolves via TMDB person search by [name].
+     */
+    suspend fun personCredits(key: String, personId: String?, name: String): PersonCredits? =
+        withContext(Dispatchers.IO) {
+            if (key.isBlank()) return@withContext null
+            val normName = TitleVersions.normalize(name)
+            val resolvedId = validTmdbId(personId)
+                ?: personNameToId[normName]
+                ?: try {
+                    val q = cleanTitle(name).ifBlank { name.trim() }
+                    val url = "https://api.themoviedb.org/3/search/person".toHttpUrl().newBuilder()
+                        .addQueryParameter("query", q)
+                        .build()
+                    get(url, key).at("results").arr()?.firstOrNull().at("id").str()?.also { id ->
+                        if (normName.isNotEmpty() && validTmdbId(id) != null) personNameToId[normName] = id
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+            val cleanId = validTmdbId(resolvedId) ?: return@withContext null
+            val cacheKey = "person:$cleanId"
+            personCache[cacheKey]?.let { return@withContext it }
+            disk?.read(cacheKey, PersonCredits.serializer())?.let {
+                personCache[cacheKey] = it
+                return@withContext it
+            }
+            try {
+                val url = "https://api.themoviedb.org/3/person/$cleanId".toHttpUrl().newBuilder()
+                    .addQueryParameter("append_to_response", "combined_credits")
+                    .build()
+                val d = get(url, key)
+                val credits = parsePersonCredits(cleanId, d)
+                personCache[cacheKey] = credits
+                if (normName.isNotEmpty()) personNameToId[normName] = cleanId
+                CacheLimits.capSize(personCache, max = 100, drop = 25)
+                disk?.write(cacheKey, credits, PersonCredits.serializer())
+                credits
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        }
 
     private fun ownLanguageVideos(type: String, id: String, language: String, key: String): List<Trailers.Video> =
         try {
@@ -231,6 +315,7 @@ class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
     companion object {
         private val DEFAULT_LOGO_LANGS = setOf("en", "hi", "bn", "ta", "te", "ml", "kn")
         private const val LOGO_LANGUAGES = "en,hi,bn,ta,te,ml,kn,null"
+        private val CERT_COUNTRIES = listOf("US", "GB", "IN", "CA", "AU")
         private val PREFIX = Regex("^\\s*[\\[(|]?\\s*[A-Z]{2,4}\\s*[\\])|]?\\s*[-:|]\\s+")
         private val TAGS = Regex("(?i)\\b(4k|uhd|fhd|hd|sd|hevc|h265|multi|vostfr|sub|dub)\\b")
         private val YEAR = Regex("[(\\[]\\s*(19|20)\\d{2}\\s*[)\\]]")
@@ -239,20 +324,91 @@ class Tmdb(private val http: OkHttpClient, diskDir: java.io.File? = null) {
         fun validTmdbId(raw: String?): String? =
             raw?.trim()?.takeIf { it.isNotEmpty() && it != "0" && it.all(Char::isDigit) }
 
+        /** Parses US -> GB -> IN -> CA -> AU -> any age certification from release_dates or content_ratings. */
+        internal fun parseCertification(d: JsonElement, tv: Boolean): String? {
+            if (tv) {
+                val list = d.at("content_ratings").at("results").arr().orEmpty()
+                for (cc in CERT_COUNTRIES) {
+                    list.firstOrNull { it.at("iso_3166_1").str().equals(cc, true) }
+                        ?.at("rating").str()?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+                return list.firstNotNullOfOrNull { it.at("rating").str()?.takeIf { r -> r.isNotBlank() } }
+            }
+            val list = d.at("release_dates").at("results").arr().orEmpty()
+            fun fromCountry(entry: JsonElement): String? {
+                val dates = entry.at("release_dates").arr().orEmpty()
+                // Prefer theatrical (3) / digital (4) / physical (5), else any non-blank cert.
+                for (type in listOf(3, 4, 5)) {
+                    dates.firstOrNull { it.at("type").int() == type }
+                        ?.at("certification").str()?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+                return dates.firstNotNullOfOrNull { it.at("certification").str()?.takeIf { c -> c.isNotBlank() } }
+            }
+            for (cc in CERT_COUNTRIES) {
+                list.firstOrNull { it.at("iso_3166_1").str().equals(cc, true) }
+                    ?.let(::fromCountry)?.let { return it }
+            }
+            return list.firstNotNullOfOrNull(::fromCountry)
+        }
+
         /** TMDB's recommendation results as [Rec]s (media type from [tv] unless the result says otherwise). */
         internal fun parseRecs(d: JsonElement, tv: Boolean): List<Rec> =
             d.at("results").arr().orEmpty().take(20).mapNotNull { r ->
-                val id = r.at("id").str()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-                val isTv = when (r.at("media_type").str()) {
-                    "tv" -> true
-                    "movie" -> false
-                    else -> tv
-                }
-                val title = (if (isTv) r.at("name").str() else r.at("title").str()) ?: r.at("title").str() ?: r.at("name").str()
-                    ?: return@mapNotNull null
-                val date = r.at("release_date").str() ?: r.at("first_air_date").str()
-                Rec(id, isTv, title, date?.take(4)?.takeIf { it.length == 4 }, r.at("vote_average").dbl()?.takeIf { it > 0 })
+                parseRecItem(r, defaultTv = tv)
             }
+
+        private fun parseRecItem(r: JsonElement, defaultTv: Boolean): Rec? {
+            val id = r.at("id").str()?.takeIf { it.isNotEmpty() } ?: return null
+            val isTv = when (r.at("media_type").str()) {
+                "tv" -> true
+                "movie" -> false
+                else -> defaultTv
+            }
+            val title = (if (isTv) r.at("name").str() else r.at("title").str()) ?: r.at("title").str() ?: r.at("name").str()
+                ?: return null
+            val date = r.at("release_date").str() ?: r.at("first_air_date").str()
+            val genres = r.at("genre_ids").arr()?.mapNotNull { it.int() }.orEmpty()
+            return Rec(
+                id = id,
+                tv = isTv,
+                title = title,
+                year = date?.take(4)?.takeIf { it.length == 4 },
+                rating = r.at("vote_average").dbl()?.takeIf { it > 0 },
+                adult = r.at("adult").flag(),
+                genreIds = genres,
+            )
+        }
+
+        /** Parses `/3/person/{id}?append_to_response=combined_credits`, sorting top roles first. */
+        internal fun parsePersonCredits(id: String, d: JsonElement): PersonCredits {
+            val combined = d.at("combined_credits")
+            val knownFor = d.at("known_for_department").str()?.takeIf { it.isNotBlank() }
+            val cast = combined.at("cast").arr().orEmpty()
+            val rawList = if (cast.isNotEmpty()) cast else combined.at("crew").arr().orEmpty()
+            val talkChars = setOf("self", "herself", "himself", "guest", "")
+            val seen = HashSet<String>()
+            val ranked = rawList.mapNotNull { item ->
+                val rec = parseRecItem(item, defaultTv = false) ?: return@mapNotNull null
+                val key = "${if (rec.tv) "s" else "m"}:${rec.id}"
+                if (!seen.add(key)) return@mapNotNull null
+                val ch = item.at("character").str()?.trim()?.lowercase().orEmpty()
+                val isTalkGuest = (10767 in rec.genreIds || 10763 in rec.genreIds) && (ch in talkChars)
+                val pop = (item.at("popularity").dbl() ?: 0.0) + (item.at("vote_count").dbl() ?: 0.0) / 100.0
+                val rank = if (isTalkGuest) pop - 1000.0 else pop
+                rec to rank
+            }
+                .sortedByDescending { it.second }
+                .take(80)
+                .map { it.first }
+            return PersonCredits(
+                id = id,
+                name = d.at("name").str().orEmpty(),
+                photo = d.at("profile_path").str()?.let { "https://image.tmdb.org/t/p/w185$it" },
+                bio = d.at("biography").str()?.takeIf { it.isNotBlank() },
+                knownFor = knownFor,
+                credits = ranked,
+            )
+        }
 
         /** The best logo: the title's own language, then English, then one without text; most votes first. */
         internal fun pickLogo(logos: List<JsonElement>, language: String?): String? {

@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -366,6 +367,7 @@ fun AddProfileDialog(nextColor: Int, onDismiss: () -> Unit, onSave: (Profile) ->
     var name by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
     var kids by remember { mutableStateOf(false) }
+    var kidsMaxAge by remember { mutableIntStateOf(dev.relay.tv.data.KidsAge.DEFAULT_MAX_AGE) }
     val fr = remember { FocusRequester() }
     InitialFocus(fr)
     TvDialog(onDismiss) {
@@ -376,9 +378,18 @@ fun AddProfileDialog(nextColor: Int, onDismiss: () -> Unit, onSave: (Profile) ->
             password = true, number = true,
         )
         PillButton(
-            if (kids) "Kids profile: On (hides adult categories)" else "Kids profile: Off",
+            if (kids) "Kids profile: On (age-rated kids content only)" else "Kids profile: Off",
             { kids = !kids },
         )
+        if (kids) {
+            PillButton(
+                "Kids age rating: ${dev.relay.tv.data.KidsAge.label(kidsMaxAge)}",
+                {
+                    val tiers = dev.relay.tv.data.KidsAge.TIERS
+                    kidsMaxAge = tiers[(tiers.indexOf(kidsMaxAge) + 1) % tiers.size]
+                },
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Save", {
                 if (name.isNotBlank()) {
@@ -389,6 +400,7 @@ fun AddProfileDialog(nextColor: Int, onDismiss: () -> Unit, onSave: (Profile) ->
                             pin = pin.ifBlank { null },
                             kids = kids,
                             color = nextColor % Palette.avatars.size,
+                            kidsMaxAge = if (kids) kidsMaxAge else 0,
                         ),
                     )
                 }

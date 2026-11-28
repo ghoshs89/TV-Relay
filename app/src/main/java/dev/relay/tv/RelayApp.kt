@@ -36,6 +36,7 @@ class RelayApp : Application(), ImageLoaderFactory {
     lateinit var catalog: Catalog
     lateinit var tmdb: Tmdb
     lateinit var ratings: Ratings
+    lateinit var enricher: dev.relay.tv.data.MetadataEnricher
     lateinit var sync: dev.relay.tv.sync.SyncRunner
 
     /** "Play on TV": on a TV that syncs, receives what a phone of the household asks it to play. */
@@ -123,6 +124,8 @@ class RelayApp : Application(), ImageLoaderFactory {
         sync = dev.relay.tv.sync.SyncRunner(this)
         tmdb = Tmdb(http, java.io.File(cacheDir, "tmdb"))
         ratings = Ratings(http, java.io.File(filesDir, "ratings.json"))
+        enricher = dev.relay.tv.data.MetadataEnricher(catalog, tmdb, ratings, { store.settings }, appScope)
+        ratings.onMeta = { key, found -> enricher.onRatingsMeta(key, found) }
         AppLog.stateDump = { stateDump() }
         AppLog.i("App", deviceLine())
         AppLog.i("App", dev.relay.tv.data.DeviceTier.current.describe())

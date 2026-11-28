@@ -34,7 +34,7 @@ object LibrarySnapshot {
      * SnapshotLogicTest fails when the text rules change without a bump. Parser defaults (what a
      * missing name or file type becomes) are not covered by that test: bump this when they change.
      */
-    const val LOGIC = 1
+    const val LOGIC = 2
 
     const val FILE_NAME = "library.snap"
     private const val MAGIC = 0x524C594C // "RLYL"

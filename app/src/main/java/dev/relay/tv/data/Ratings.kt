@@ -143,6 +143,7 @@ class Ratings(client: OkHttpClient, cacheFile: File?, private val clock: () -> L
     }
 
     var base = MdbList.BASE
+    @Volatile var onMeta: ((String, MdbList.Reply.Found) -> Unit)? = null
 
     /** Saved score for a provider title ("m:123" or "s:45"), fresh or not. */
     fun saved(key: String): Score? {
@@ -188,6 +189,7 @@ class Ratings(client: OkHttpClient, cacheFile: File?, private val clock: () -> L
                 when (val r = MdbList.parseItem(code, root)) {
                     is MdbList.Reply.Found -> {
                         AppLog.d("Ratings", "$key (tmdb $type $id): critics ${r.critics ?: "-"}, audience ${r.audience ?: "-"}, imdb ${r.imdb ?: "-"}")
+                        onMeta?.invoke(key, r)
                         keep(key, Score(r.critics, r.audience, clock(), y, r.imdb))
                     }
                     MdbList.Reply.NotFound -> keep(key, Score(fetched = clock(), year = y))

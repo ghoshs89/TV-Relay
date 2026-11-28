@@ -458,6 +458,23 @@ fun SettingsTab() {
                     }
                     store.profiles.filter { it.kids }.forEach { p ->
                         item {
+                            Setting(
+                                "Age rating for ${p.name}",
+                                dev.relay.tv.data.KidsAge.label(p.effectiveKidsAge()),
+                                kidsLocked && !store.hasParentPin,
+                            ) {
+                                gate.run("Parent PIN for kids age rating") {
+                                    val tiers = dev.relay.tv.data.KidsAge.TIERS
+                                    val cur = p.effectiveKidsAge()
+                                    val next = tiers[(tiers.indexOf(cur) + 1) % tiers.size]
+                                    val updated = p.copy(kidsMaxAge = next)
+                                    store.profiles = store.profiles.map { if (it.id == p.id) updated else it }
+                                    if (app.session.profile?.id == p.id) app.session.profile = updated
+                                    AppLog.i("Access", "Kids age rating for ${p.name}: ${dev.relay.tv.data.KidsAge.label(next)}")
+                                }
+                            }
+                        }
+                        item {
                             // On the kids profile itself this needs a parent PIN to exist, or a child could change it.
                             Setting(
                                 "Viewing time for ${p.name}",
@@ -1258,15 +1275,26 @@ private fun KidsLimitsDialog(pid: String, onDismiss: () -> Unit) {
     val usedMin = store.usedToday(pid) / 60_000
     val extraLeft = ((store.allowUntil(pid) - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)
     TvDialog(onDismiss, width = 600.dp) {
-        Text("Viewing time for ${p.name}", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
+        Text("Kids controls for ${p.name}", fontSize = Type.heading, fontWeight = FontWeight.Bold, color = Palette.text)
         Text(
             "Watched today: ${KidsLimits.label(usedMin.toInt()).let { if (it == "Off") "nothing yet" else it }}" +
                 if (extraLeft > 0) " · extra time: $extraLeft min left" else "",
             fontSize = Type.small, color = Palette.dim,
         )
         ListRow(
+            "Age rating",
+            {
+                val tiers = dev.relay.tv.data.KidsAge.TIERS
+                val cur = p.effectiveKidsAge()
+                val next = tiers[(tiers.indexOf(cur) + 1) % tiers.size]
+                save(p.copy(kidsMaxAge = next))
+                AppLog.i("Access", "Kids age rating for ${p.name}: ${dev.relay.tv.data.KidsAge.label(next)}")
+            },
+            key = "kl:age", trailing = dev.relay.tv.data.KidsAge.label(p.effectiveKidsAge()), focusRequester = first,
+        )
+        ListRow(
             "Daily limit", { save(p.copy(dailyLimitMin = KidsLimits.next(KidsLimits.DAILY_CHOICES, p.dailyLimitMin))) },
-            key = "kl:daily", trailing = KidsLimits.label(p.dailyLimitMin), focusRequester = first,
+            key = "kl:daily", trailing = KidsLimits.label(p.dailyLimitMin),
         )
         ListRow(
             "Bedtime", { save(p.copy(bedtime = KidsLimits.next(KidsLimits.BEDTIME_CHOICES, p.bedtime))) },

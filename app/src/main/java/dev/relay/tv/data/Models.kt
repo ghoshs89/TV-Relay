@@ -81,7 +81,12 @@ data class Profile(
     val dailyLimitMin: Int = 0,
     val bedtime: String = "",
     val wakeTime: String = "",
-)
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val kidsMaxAge: Int = 0,
+) {
+    fun effectiveKidsAge(): Int = KidsAge.normalizeMaxAge(kidsMaxAge)
+}
 
 @Serializable
 data class FavItem(

@@ -48,6 +48,9 @@ object HomeLayout {
         return saved.take(at) + missing + saved.drop(at)
     }
 
+    const val KIDS_AGE_PREFIX = "kidsAge:"
+    val KIDS_BANDS = listOf("${KIDS_AGE_PREFIX}0-6", "${KIDS_AGE_PREFIX}7-9", "${KIDS_AGE_PREFIX}10-12")
+
     fun label(id: String): String = when (id) {
         UP_NEXT -> "Up next"
         RECOMMENDED -> "Recommended for you"
@@ -61,7 +64,11 @@ object HomeLayout {
         NEW_SERIES -> "Recently updated series"
         TOP_MOVIES -> "Top rated movies"
         TOP_SERIES -> "Top rated series"
-        else -> if (id.startsWith(LANG)) "New in ${Langs.label(id.removePrefix(LANG))}" else id
+        else -> when {
+            id.startsWith(KIDS_AGE_PREFIX) -> KidsAge.bandLabel(id.removePrefix(KIDS_AGE_PREFIX))
+            id.startsWith(LANG) -> "New in ${Langs.label(id.removePrefix(LANG))}"
+            else -> id
+        }
     }
 
     /** Moves [id] one place up (-1) or down (+1) among the visible rows. */

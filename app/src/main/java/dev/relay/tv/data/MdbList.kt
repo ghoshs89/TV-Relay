@@ -7,7 +7,15 @@ object MdbList {
     const val BASE = "https://api.mdblist.com"
 
     sealed interface Reply {
-        data class Found(val critics: Int?, val audience: Int?, val imdb: Double? = null) : Reply
+        data class Found(
+            val critics: Int?,
+            val audience: Int?,
+            val imdb: Double? = null,
+            val certification: String? = null,
+            val language: String? = null,
+            val country: String? = null,
+            val genres: List<String> = emptyList(),
+        ) : Reply
         data object NotFound : Reply
         data object LimitReached : Reply
         data class Failed(val reason: String) : Reply
@@ -27,7 +35,13 @@ object MdbList {
         if (code == 404) return Reply.NotFound
         if (code !in 200..299) return Reply.Failed("HTTP $code")
         if (root == null) return Reply.Failed("Unreadable reply")
-        val ratings = root.at("ratings").arr() ?: return Reply.Found(null, null)
+        val certification = root.at("certification").str()?.takeIf { it.isNotBlank() }
+        val language = (root.at("language").str() ?: root.at("languages").arr()?.firstOrNull()?.str())?.takeIf { it.isNotBlank() }
+        val country = (root.at("country").str() ?: root.at("countries").arr()?.firstOrNull()?.str())?.takeIf { it.isNotBlank() }
+        val genres = root.at("genres").arr()?.mapNotNull { g ->
+            (g.str() ?: g.at("title").str() ?: g.at("name").str())?.trim()?.takeIf { it.isNotEmpty() }
+        }.orEmpty()
+        val ratings = root.at("ratings").arr() ?: return Reply.Found(null, null, null, certification, language, country, genres)
         var critics: Int? = null
         var audience: Int? = null
         var imdb: Double? = null
@@ -40,7 +54,7 @@ object MdbList {
                 "imdb" -> imdb = imdb ?: raw?.takeIf { it > 0.0 && it <= 10.0 }
             }
         }
-        return Reply.Found(critics, audience, imdb)
+        return Reply.Found(critics, audience, imdb, certification, language, country, genres)
     }
 
     /**

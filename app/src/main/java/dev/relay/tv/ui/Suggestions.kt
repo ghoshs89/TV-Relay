@@ -5,8 +5,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.relay.tv.RelayApp
 import dev.relay.tv.data.AppLog
+import dev.relay.tv.data.ContentKinds
 import dev.relay.tv.data.Episode
 import dev.relay.tv.data.FavItem
+import dev.relay.tv.data.KidsAge
 import dev.relay.tv.data.LangRank
 import dev.relay.tv.data.Recommendations
 import dev.relay.tv.data.SearchText
@@ -28,8 +30,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Watch next for the profile on screen: Up next, Recommended for you and "Because you watched" rows,
- * worked out off the screen thread from the library, the profile's history and (with a key) TMDB, and
- * kept until any of those change. The rules themselves are in [UpNext] and [Recommendations].
+ * plus Kids age-band rows and clickable cast filmographies. Worked out off the screen thread from the
+ * library, the profile's history and (with a key) TMDB, and kept until any of those change.
  */
 class Suggestions(private val app: RelayApp) {
 
@@ -37,6 +39,14 @@ class Suggestions(private val app: RelayApp) {
         val stamp: String = "",
         val upNext: List<UpNext.Item> = emptyList(),
         val rows: Recommendations.Rows = Recommendations.Rows.EMPTY,
+        val kidsByAge: Map<String, List<TitleRef>> = emptyMap(),
+    )
+
+    data class PersonMatches(
+        val credits: Tmdb.PersonCredits?,
+        val movies: List<TitleRef>,
+        val series: List<TitleRef>,
+        val hasTmdbKey: Boolean,
     )
 
     var state by mutableStateOf(State())
@@ -60,15 +70,41 @@ class Suggestions(private val app: RelayApp) {
         else c.movieById[id]?.let { TitleRef.of(it, c.movieLang(it.id), c.vodCatKindOf(it.categoryId)) }
     }
 
-    /** What the profile may see: kids and adult rules, and categories hidden in Settings. */
-    private fun allowed(restrict: Boolean, hidden: Set<String>): (TitleRef) -> Boolean {
-        val r = app.catalog.restrictions(restrict)
-        return { t -> r.allowsCategory(t.categoryId) && (if (t.tv) "series:${t.categoryId}" else "vod:${t.categoryId}") !in hidden }
+    /** Kids age band (6, 9, or 12) for a library title, or null if not kids-eligible. */
+    fun kidsBandOf(t: TitleRef): Int? {
+        val c = app.catalog
+        val catName = if (t.tv) c.seriesCatName(t.categoryId) else c.vodCatName(t.categoryId)
+        val meta = if (t.tv) c.seriesMeta(t.id) else c.movieMeta(t.id)
+        val cached = app.tmdb.cached(t.tv, t.tmdbId, t.name)
+        val cert = meta?.cert ?: cached?.certification
+        val genres = meta?.genres?.ifEmpty { cached?.genres.orEmpty() } ?: cached?.genres.orEmpty()
+        return KidsAge.classifyAgeBand(t.name, catName, certification = cert, genres = genres)
     }
 
-    private fun filterFor(pid: String, restrict: Boolean, hidden: Set<String>): Recommendations.Filter {
+    /** What the profile may see: adult category rules, hidden categories, and Kids age rating when on a kids profile. */
+    private fun allowed(
+        restrict: Boolean,
+        hidden: Set<String>,
+        kidsOnly: Boolean = false,
+        kidsMaxAge: Int = KidsAge.DEFAULT_MAX_AGE,
+    ): (TitleRef) -> Boolean {
+        val r = app.catalog.restrictions(restrict)
+        return { t ->
+            r.allowsCategory(t.categoryId) &&
+                (if (t.tv) "series:${t.categoryId}" else "vod:${t.categoryId}") !in hidden &&
+                (!kidsOnly || (kidsBandOf(t)?.let { it <= kidsMaxAge } == true))
+        }
+    }
+
+    private fun filterFor(
+        pid: String,
+        restrict: Boolean,
+        hidden: Set<String>,
+        kidsOnly: Boolean,
+        kidsMaxAge: Int,
+    ): Recommendations.Filter {
         val history = app.store.history(pid)
-        return Recommendations.Filter(Recommendations.seen(history, ::ref), app.store.dismissed(pid), allowed(restrict, hidden))
+        return Recommendations.Filter(Recommendations.seen(history, ::ref), app.store.dismissed(pid), allowed(restrict, hidden, kidsOnly, kidsMaxAge))
     }
 
     /**
@@ -97,46 +133,117 @@ class Suggestions(private val app: RelayApp) {
     private suspend fun compute(stamp: String): State? {
         val pid = app.session.profileId ?: return null
         if (app.catalog.movies.isEmpty() && app.catalog.series.isEmpty()) return State(stamp)
+        val profile = app.session.profile
+        val kidsOnly = profile?.kids == true
+        val kidsMaxAge = profile?.effectiveKidsAge() ?: KidsAge.DEFAULT_MAX_AGE
         val s = app.store.settings
         val restrict = app.session.restrict(s)
         val langs = app.session.langRank(s)
         val history = app.store.history(pid)
         val favs = app.store.favs(pid).filter { it.kind != "live" }
         val dismissed = app.store.dismissed(pid)
-        val allowedSeries = allowed(restrict, s.hiddenCats)
+        val allowedTitle = allowed(restrict, s.hiddenCats, kidsOnly, kidsMaxAge)
 
         // Up next: fetch episode lists for recently finished eligible series that are missing or older than 12 hours.
-        val allowSeriesId: (Int) -> Boolean = { sid -> ref(true, sid)?.let(allowedSeries) ?: false }
+        val allowSeriesId: (Int) -> Boolean = { sid -> ref(true, sid)?.let(allowedTitle) ?: false }
         loadEpisodes(UpNext.seriesToLoad(history, dismissed = dismissed, allowed = allowSeriesId))
         val upNext = UpNext.build(
             history, ::episodesOf, dismissed,
             allowed = allowSeriesId,
         )
 
-        val seeds = Recommendations.seeds(history, favs, ::ref, allowed = allowedSeries)
-        val filter = filterFor(pid, restrict, s.hiddenCats)
+        val seeds = Recommendations.seeds(history, favs, ::ref, allowed = allowedTitle)
+        val filter = filterFor(pid, restrict, s.hiddenCats, kidsOnly, kidsMaxAge)
         val key = s.tmdbKey
+        val kidsPool = if (kidsOnly) kidsCandidates(allowedTitle) else emptyList()
         val rows = if (key.isNotBlank() && seeds.isNotEmpty()) {
             val recs = coroutineScope {
                 seeds.map { seed ->
                     async {
                         val id = Tmdb.validTmdbId(seed.title.tmdbId)
                             ?: app.tmdb.lookup(key, seed.title.tv, null, seed.title.name, seed.title.year)?.id
-                        TitleVersions.groupKey(seed.title) to (id?.let { app.tmdb.recommendations(key, seed.title.tv, it) }.orEmpty())
+                        val list = id?.let { app.tmdb.recommendations(key, seed.title.tv, it) }.orEmpty()
+                        val safe = if (kidsOnly) list.filter { KidsAge.isTmdbRecAllowedForKids(it) } else list
+                        TitleVersions.groupKey(seed.title) to safe
                     }
                 }.awaitAll().toMap()
             }
             val match = matcher(recs.values.flatten())
             val fromTmdb = Recommendations.fromTmdb(seeds, recs, match, filter, langs)
-            if (fromTmdb.forYou.size >= 6) fromTmdb else merge(fromTmdb, local(seeds, filter, langs))
+            if (fromTmdb.forYou.size >= 6) fromTmdb else merge(fromTmdb, local(seeds, filter, langs, kidsPool))
         } else {
-            local(seeds, filter, langs)
+            local(seeds, filter, langs, kidsPool)
         }
-        return State(stamp, upNext, rows)
+        val kidsByAge = if (kidsOnly) buildKidsByAge(kidsPool, langs, kidsMaxAge) else emptyMap()
+        return State(stamp, upNext, rows, kidsByAge)
     }
 
-    private fun local(seeds: List<Recommendations.Seed>, filter: Recommendations.Filter, langs: LangRank): Recommendations.Rows =
-        Recommendations.local(seeds, pool(seeds), filter, langs, System.currentTimeMillis())
+    private fun local(
+        seeds: List<Recommendations.Seed>,
+        filter: Recommendations.Filter,
+        langs: LangRank,
+        extraPool: List<TitleRef>,
+    ): Recommendations.Rows =
+        Recommendations.local(seeds, (extraPool + pool(seeds)).distinctBy { it.key }, filter, langs, System.currentTimeMillis())
+
+    /** Gather kids-eligible candidates across kids/family categories (not capped by overall top-1500). */
+    private fun kidsCandidates(allow: (TitleRef) -> Boolean): List<TitleRef> {
+        val c = app.catalog
+        val out = ArrayList<TitleRef>(800)
+        for (cat in c.vodCats) {
+            if (cat.adult) continue
+            val k = ContentKinds.ofTitleCategory(cat.name)
+            if (k == ContentKinds.KIDS || KidsAge.classifyAgeBand("", cat.name) != null) {
+                for (m in c.moviesByCat[cat.id].orEmpty().take(250)) {
+                    val ref = TitleRef.of(m, c.movieLang(m.id), c.vodCatKindOf(m.categoryId))
+                    if (allow(ref)) out += ref
+                }
+            }
+        }
+        for (cat in c.seriesCats) {
+            if (cat.adult) continue
+            val k = ContentKinds.ofTitleCategory(cat.name)
+            if (k == ContentKinds.KIDS || KidsAge.classifyAgeBand("", cat.name) != null) {
+                for (sr in c.seriesByCat[cat.id].orEmpty().take(250)) {
+                    val ref = TitleRef.of(sr, c.seriesLang(sr.id), c.seriesCatKindOf(sr.categoryId))
+                    if (allow(ref)) out += ref
+                }
+            }
+        }
+        for (m in c.moviesByAdded.take(600)) {
+            val ref = TitleRef.of(m, c.movieLang(m.id), c.vodCatKindOf(m.categoryId))
+            if (allow(ref)) out += ref
+        }
+        for (sr in c.seriesByAdded.take(400)) {
+            val ref = TitleRef.of(sr, c.seriesLang(sr.id), c.seriesCatKindOf(sr.categoryId))
+            if (allow(ref)) out += ref
+        }
+        return out.distinctBy { it.key }
+    }
+
+    private fun buildKidsByAge(
+        kidsPool: List<TitleRef>,
+        langs: LangRank,
+        maxAge: Int,
+    ): Map<String, List<TitleRef>> {
+        val collapsed = TitleVersions.collapse(kidsPool, langs)
+        val buckets = LinkedHashMap<String, MutableList<TitleRef>>()
+        KidsAge.eligibleBands(maxAge).forEach { buckets[it] = ArrayList() }
+        for (t in collapsed) {
+            val age = kidsBandOf(t) ?: continue
+            if (age > maxAge) continue
+            buckets[KidsAge.bandOf(age)]?.add(t)
+        }
+        val out = LinkedHashMap<String, List<TitleRef>>()
+        for ((band, items) in buckets) {
+            if (items.isNotEmpty()) {
+                out[band] = items
+                    .sortedWith(compareBy<TitleRef> { langs.rank(it.lang) }.thenByDescending { it.rating }.thenByDescending { it.added })
+                    .take(Recommendations.ROW)
+            }
+        }
+        return out
+    }
 
     /** TMDB's rows first, topped up from the library's own ranking. */
     private fun merge(a: Recommendations.Rows, b: Recommendations.Rows): Recommendations.Rows {
@@ -255,14 +362,18 @@ class Suggestions(private val app: RelayApp) {
     /** "More like this" for an open film or series. */
     suspend fun moreLikeThis(title: TitleRef): List<TitleRef> = withContext(Dispatchers.Default) {
         val pid = app.session.profileId ?: return@withContext emptyList()
+        val profile = app.session.profile
+        val kidsOnly = profile?.kids == true
+        val kidsMaxAge = profile?.effectiveKidsAge() ?: KidsAge.DEFAULT_MAX_AGE
         val s = app.store.settings
         val restrict = app.session.restrict(s)
-        val filter = filterFor(pid, restrict, s.hiddenCats)
+        val filter = filterFor(pid, restrict, s.hiddenCats, kidsOnly, kidsMaxAge)
         val key = s.tmdbKey
         val tmdb = if (key.isBlank()) null else {
             val id = Tmdb.validTmdbId(title.tmdbId)
                 ?: app.tmdb.lookup(key, title.tv, null, title.name, title.year)?.id
-            id?.let { app.tmdb.recommendations(key, title.tv, it) }
+            val recs = id?.let { app.tmdb.recommendations(key, title.tv, it) }
+            if (kidsOnly && recs != null) recs.filter { KidsAge.isTmdbRecAllowedForKids(it) } else recs
         }
         val match = matcher(tmdb.orEmpty())
         val c = app.catalog
@@ -270,7 +381,67 @@ class Suggestions(private val app: RelayApp) {
             c.seriesByRating.take(400).mapNotNull { ref(true, it.id) }
         else c.moviesByCat[title.categoryId].orEmpty().take(300).mapNotNull { ref(false, it.id) } +
             c.moviesByRating.take(400).mapNotNull { ref(false, it.id) }
-        Recommendations.moreLikeThis(title, tmdb, match, candidates, filter, app.session.langRank(s))
+        val pool = if (kidsOnly) (candidates + kidsCandidates(allowed(restrict, s.hiddenCats, true, kidsMaxAge))).distinctBy { it.key } else candidates
+        Recommendations.moreLikeThis(title, tmdb, match, pool, filter, app.session.langRank(s))
+    }
+
+    /** Movies and series in the library featuring [person], using TMDB person credits or cached TMDB metadata. */
+    suspend fun titlesForPerson(person: Tmdb.Person): PersonMatches = withContext(Dispatchers.Default) {
+        val s = app.store.settings
+        val profile = app.session.profile
+        val kidsOnly = profile?.kids == true
+        val kidsMaxAge = profile?.effectiveKidsAge() ?: KidsAge.DEFAULT_MAX_AGE
+        val restrict = app.session.restrict(s)
+        val langs = app.session.langRank(s)
+        val allow = allowed(restrict, s.hiddenCats, kidsOnly, kidsMaxAge)
+        val hasKey = s.tmdbKey.isNotBlank()
+        if (hasKey) {
+            val credits = app.tmdb.personCredits(s.tmdbKey, person.id, person.name)
+            if (credits != null) {
+                val safe = if (kidsOnly) credits.credits.filter { KidsAge.isTmdbRecAllowedForKids(it) } else credits.credits
+                val match = matcher(safe)
+                val seenM = HashSet<String>()
+                val seenS = HashSet<String>()
+                val movies = ArrayList<TitleRef>()
+                val series = ArrayList<TitleRef>()
+                for (rec in safe) {
+                    val hits = match(rec).filter { it.tv == rec.tv && allow(it) }
+                    if (hits.isEmpty()) continue
+                    val pick = TitleVersions.collapse(hits, langs).firstOrNull() ?: continue
+                    val gk = TitleVersions.groupKey(pick)
+                    if (rec.tv) {
+                        if (seenS.add(gk)) series += pick
+                    } else {
+                        if (seenM.add(gk)) movies += pick
+                    }
+                }
+                return@withContext PersonMatches(credits, movies, series, hasTmdbKey = true)
+            }
+        }
+        // Fallback without a TMDB key: scan RAM-cached TMDB entries for cast matches.
+        val c = app.catalog
+        val mHits = ArrayList<TitleRef>()
+        for (m in c.movies) {
+            val info = app.tmdb.cached(false, m.tmdbId, m.name) ?: continue
+            if (info.people.any { it.name.equals(person.name, true) }) {
+                val r = TitleRef.of(m, c.movieLang(m.id), c.vodCatKindOf(m.categoryId))
+                if (allow(r)) mHits += r
+            }
+        }
+        val sHits = ArrayList<TitleRef>()
+        for (sr in c.series) {
+            val info = app.tmdb.cached(true, sr.tmdbId, sr.name) ?: continue
+            if (info.people.any { it.name.equals(person.name, true) }) {
+                val r = TitleRef.of(sr, c.seriesLang(sr.id), c.seriesCatKindOf(sr.categoryId))
+                if (allow(r)) sHits += r
+            }
+        }
+        PersonMatches(
+            credits = null,
+            movies = TitleVersions.collapse(mHits, langs).sortedByDescending { it.rating },
+            series = TitleVersions.collapse(sHits, langs).sortedByDescending { it.rating },
+            hasTmdbKey = hasKey,
+        )
     }
 
     /** Hides [t] (every copy) from this profile's recommendations. */
@@ -289,6 +460,7 @@ class Suggestions(private val app: RelayApp) {
         /** Everything the rows depend on, as one string. */
         fun stamp(app: RelayApp, favs: List<FavItem>): String {
             val pid = app.session.profileId.orEmpty()
+            val profile = app.session.profile
             val s = app.store.settings
             val histList = app.store.history(pid)
             val hist = histList.firstOrNull()?.let { "${it.key}@${it.updated}/${it.position}" }.orEmpty()
@@ -296,8 +468,10 @@ class Suggestions(private val app: RelayApp) {
             val dis = "${disMap.size}:${disMap.values.maxOrNull() ?: 0L}"
             return listOf(
                 pid, hist, histList.size, favs.size, favs.firstOrNull()?.at ?: 0L, dis,
-                app.catalog.libraryVersion, s.tmdbKey.hashCode(), app.session.restrict(s), s.hiddenCats.hashCode(),
-                app.session.langOrder(s).joinToString(","),
+                app.catalog.libraryVersion, app.catalog.langVersion,
+                s.tmdbKey.hashCode(), app.session.restrict(s),
+                profile?.kids ?: false, profile?.effectiveKidsAge() ?: KidsAge.DEFAULT_MAX_AGE,
+                s.hiddenCats.hashCode(), app.session.langOrder(s).joinToString(","),
             ).joinToString("|")
         }
     }

@@ -522,6 +522,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         gridCache.clear()
         epgVersion++
         learned.clear()
+        learnedMeta.clear()
+        vodCatNames = emptyMap()
+        seriesCatNames = emptyMap()
         guide?.clear()
         searchChannels.clear(); searchMovies.clear(); searchSeries.clear()
         error = null
@@ -531,11 +534,14 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         val currentDir = File(ctx.filesDir, "catalog")
         val deadDir = File(ctx.filesDir, "catalog_del_${System.nanoTime()}")
         val deadLearned = File(ctx.filesDir, "learned_del_${System.nanoTime()}")
+        val deadMeta = File(ctx.filesDir, "meta_del_${System.nanoTime()}")
         val renamedDir = currentDir.exists() && currentDir.renameTo(deadDir)
         val renamedLearned = learnedFile.exists() && learnedFile.renameTo(deadLearned)
+        val renamedMeta = learnedMetaFile.exists() && learnedMetaFile.renameTo(deadMeta)
         val cleanup = {
             if (renamedDir) deadDir.deleteRecursively() else currentDir.deleteRecursively()
             if (renamedLearned) deadLearned.delete() else learnedFile.delete()
+            if (renamedMeta) deadMeta.delete() else learnedMetaFile.delete()
         }
         appScope?.launch(Dispatchers.IO) { cleanup() } ?: cleanup()
     }
@@ -752,6 +758,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         mvLang = ms.lang
         movieById = ms.byId
         vodCats = cs.vodCats
+        vodCatNames = cs.vodCats.associate { it.id to it.name }
         movies = ms.movies
         moviesByCat = ms.byCat
         moviesByAdded = ms.added; moviesByRating = ms.rated
@@ -765,6 +772,7 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         srLang = ss.lang
         seriesById = ss.byId
         seriesCats = cs.seriesCats
+        seriesCatNames = cs.seriesCats.associate { it.id to it.name }
         series = ss.series
         seriesByCat = ss.byCat
         seriesByAdded = ss.added; seriesByRating = ss.rated
@@ -787,6 +795,8 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     private var liveCatLang: Map<String, String> = emptyMap()
     private var vodCatLang: Map<String, String> = emptyMap()
     private var seriesCatLang: Map<String, String> = emptyMap()
+    @Volatile private var vodCatNames: Map<String, String> = emptyMap()
+    @Volatile private var seriesCatNames: Map<String, String> = emptyMap()
     @Volatile private var liveCatKind: Map<String, String> = emptyMap()
     @Volatile private var vodCatKind: Map<String, String> = emptyMap()
     @Volatile private var seriesCatKind: Map<String, String> = emptyMap()
@@ -808,6 +818,22 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     }
     private val learnedWrite = Any()
 
+    /** Certifications, API genres, and dubbed flags learned from TMDB/MDBList. Saved. */
+    private val learnedMetaFile: File get() = File(ctx.filesDir, "learned_meta.json")
+    private val learnedMeta: LearnedMeta by lazy {
+        LearnedMeta().also { m ->
+            try {
+                if (learnedMetaFile.exists()) m.load(Jsons.json.decodeFromString(META_MAP, learnedMetaFile.readText()))
+            } catch (e: Exception) {
+                AppLog.w("Catalog", "Saved title metadata unreadable", e)
+            }
+        }
+    }
+    private val metaWrite = Any()
+    @Volatile private var pendingLangDirty = false
+    @Volatile private var pendingMetaDirty = false
+    @Volatile private var pendingNotifyDirty = false
+
     var langVersion by mutableIntStateOf(0); private set
     var indexMs = 0L; private set
 
@@ -817,39 +843,115 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
     fun liveCatLang(id: String): String? = liveCatLang[id]
     fun vodCatLang(id: String): String? = vodCatLang[id]
     fun seriesCatLang(id: String): String? = seriesCatLang[id]
+    fun vodCatName(id: String): String = vodCatNames[id].orEmpty()
+    fun seriesCatName(id: String): String = seriesCatNames[id].orEmpty()
     fun vodCatKindOf(id: String): String? = vodCatKind[id]
     fun seriesCatKindOf(id: String): String? = seriesCatKind[id]
+    fun learnedMetaOf(key: String): TitleMeta? = learnedMeta.get(key)
+    fun movieMeta(id: Int): TitleMeta? = learnedMeta.movie(id)
+    fun seriesMeta(id: Int): TitleMeta? = learnedMeta.series(id)
+
+    fun isDubbedMovie(m: Movie): Boolean =
+        learnedMeta.movie(m.id)?.dubbed == true || LanguageDetector.isDubbed(m.name, vodCatName(m.categoryId))
+
+    fun isDubbedSeries(s: Series): Boolean =
+        learnedMeta.series(s.id)?.dubbed == true || LanguageDetector.isDubbed(s.name, seriesCatName(s.categoryId))
 
     /** TMDB's original language for a title ("hi", "bn", "en", "ta"...), mapped to Relay's groups. */
     fun learnLanguage(key: String, isoCode: String?, region: String? = null) {
-        val g = when (isoCode?.lowercase()) {
-            "en" -> Langs.EN
-            "hi" -> Langs.HI
-            "bn" -> if (region.equals("BD", true)) Langs.BD else Langs.BN
-            "ta", "te", "ml", "kn" -> Langs.SOUTH
-            null, "" -> return
-            else -> Langs.OTHER
-        }
+        learnTitleMeta(key = key, isoCode = isoCode, region = region)
+    }
+
+    /** Records API-verified language, certification, genres, and dubbed status for a movie ("m:id") or series ("s:id"). */
+    fun learnTitleMeta(
+        key: String,
+        isoCode: String?,
+        region: String? = null,
+        cert: String? = null,
+        genres: List<String> = emptyList(),
+        categoryName: String? = null,
+        deferNotify: Boolean = false,
+    ) {
+        val g = LanguageDetector.fromApi(isoCode, region)
         val guess: (Boolean, Int) -> String? = { movie, id -> if (movie) mvLang[id] else srLang[id] }
-        when (learned.learn(key, g, guess)) {
-            LearnedLangs.Change.None -> return
-            // Lists are only built again when the title really moved to another language group. Learning what
-            // was already guessed (the usual case) is saved and nothing on screen is redone.
-            LearnedLangs.Change.Moved -> langVersion++
-            LearnedLangs.Change.Confirmed -> Unit
-        }
-        val keep = learned.snapshot(LearnedLangs.MAX_SAVED)
-        val save = {
-            synchronized(learnedWrite) {
-                try {
-                    learnedFile.writeText(Jsons.json.encodeToString(LANG_MAP, keep))
-                } catch (e: Exception) {
-                    AppLog.w("Catalog", "Couldn't save title languages", e)
-                }
+        var langChanged = false
+        var notify = false
+        if (g != null) {
+            when (learned.learn(key, g, guess)) {
+                LearnedLangs.Change.None -> Unit
+                LearnedLangs.Change.Moved -> { langChanged = true; notify = true }
+                LearnedLangs.Change.Confirmed -> { langChanged = true }
             }
         }
-        // Off the screen thread: this is called while a detail page is opening.
-        appScope?.launch(Dispatchers.IO) { save() } ?: save()
+        val numId = key.drop(2).toIntOrNull()
+        val isMovie = key.startsWith("m:")
+        val titleName = when {
+            isMovie && numId != null -> movieById[numId]?.name.orEmpty()
+            !isMovie && numId != null -> seriesById[numId]?.name.orEmpty()
+            else -> ""
+        }
+        val catId = when {
+            isMovie && numId != null -> movieById[numId]?.categoryId
+            !isMovie && numId != null -> seriesById[numId]?.categoryId
+            else -> null
+        }
+        val catName = categoryName ?: catId?.let { if (isMovie) vodCatName(it) else seriesCatName(it) }
+        val catLang = catId?.let { if (isMovie) vodCatLang[it] else seriesCatLang[it] }
+        val isDub = LanguageDetector.isDubbed(titleName, catName) ||
+            (catLang == Langs.HI && (g == Langs.EN || g == Langs.SOUTH))
+        val metaChanged = learnedMeta.put(
+            key = key,
+            cert = cert,
+            genres = genres,
+            originalLang = g,
+            dubbed = if (isDub) true else null,
+        )
+        if (!langChanged && !metaChanged) return
+        if (langChanged) pendingLangDirty = true
+        if (metaChanged) pendingMetaDirty = true
+        if (notify || metaChanged) pendingNotifyDirty = true
+        if (!deferNotify) {
+            commitMetaUpdates()
+        }
+    }
+
+    /** Flushes deferred learned language/metadata writes and triggers a single list refresh if anything changed. */
+    fun commitMetaUpdates() {
+        val saveLang = pendingLangDirty
+        val saveMeta = pendingMetaDirty
+        val bump = pendingNotifyDirty
+        pendingLangDirty = false
+        pendingMetaDirty = false
+        pendingNotifyDirty = false
+        if (bump) {
+            Snapshot.withMutableSnapshot { langVersion++ }
+        }
+        if (saveLang) {
+            val keep = learned.snapshot(LearnedLangs.MAX_SAVED)
+            val write = {
+                synchronized(learnedWrite) {
+                    try {
+                        learnedFile.writeText(Jsons.json.encodeToString(LANG_MAP, keep))
+                    } catch (e: Exception) {
+                        AppLog.w("Catalog", "Couldn't save title languages", e)
+                    }
+                }
+            }
+            appScope?.launch(Dispatchers.IO) { write() } ?: write()
+        }
+        if (saveMeta) {
+            val keep = learnedMeta.snapshot(LearnedMeta.MAX_SAVED)
+            val write = {
+                synchronized(metaWrite) {
+                    try {
+                        learnedMetaFile.writeText(Jsons.json.encodeToString(META_MAP, keep))
+                    } catch (e: Exception) {
+                        AppLog.w("Catalog", "Couldn't save title metadata", e)
+                    }
+                }
+            }
+            appScope?.launch(Dispatchers.IO) { write() } ?: write()
+        }
     }
 
     /** Library size, how long indexing took and memory in use, for the report and the log. */
@@ -1060,6 +1162,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         override fun byId(id: Int): Movie? = movieById[id]
         override fun lang(id: Int): String? = movieLang(id)
         override fun kind(t: Movie): String? = vodCatKind[t.categoryId]
+        override fun matchesKind(t: Movie, wantKind: String): Boolean =
+            vodCatKind[t.categoryId] == wantKind || ContentKinds.matchesApiGenres(movieMeta(t.id)?.genres.orEmpty(), wantKind)
+        override fun isDubbed(t: Movie): Boolean = isDubbedMovie(t)
         override fun id(t: Movie): Int = t.id
         override fun category(t: Movie): String = t.categoryId
     }
@@ -1072,6 +1177,9 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
         override fun byId(id: Int): Series? = seriesById[id]
         override fun lang(id: Int): String? = seriesLang(id)
         override fun kind(t: Series): String? = seriesCatKind[t.categoryId]
+        override fun matchesKind(t: Series, wantKind: String): Boolean =
+            seriesCatKind[t.categoryId] == wantKind || ContentKinds.matchesApiGenres(seriesMeta(t.id)?.genres.orEmpty(), wantKind)
+        override fun isDubbed(t: Series): Boolean = isDubbedSeries(t)
         override fun id(t: Series): Int = t.id
         override fun category(t: Series): String = t.categoryId
     }
@@ -1236,3 +1344,4 @@ class Catalog(private val ctx: Context, private val api: XtreamApi) {
 }
 
 private val LANG_MAP = kotlinx.serialization.builtins.MapSerializer(String.serializer(), String.serializer())
+private val META_MAP = kotlinx.serialization.builtins.MapSerializer(String.serializer(), TitleMeta.serializer())

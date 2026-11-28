@@ -198,4 +198,26 @@ object ContentKinds {
     fun titleCategoryKinds(cats: List<Category>): Map<String, String> = buildMap {
         for (c in cats) if (!c.adult) ofTitleCategory(c.name)?.let { put(c.id, it) }
     }
+
+    /** True when TMDB/MDBList [genres] satisfy a [wantKind] filter chip ("action", "comedy"...). */
+    fun matchesApiGenres(genres: List<String>, wantKind: String): Boolean {
+        if (genres.isEmpty()) return false
+        for (raw in genres) {
+            val g = raw.trim().lowercase()
+            val hit = when (wantKind) {
+                SPORTS -> "sport" in g
+                DOCS -> "documentary" in g || g == "history"
+                KIDS -> g in setOf("kids", "family", "animation")
+                HORROR -> g == "horror"
+                SCIFI -> "sci-fi" in g || "science fiction" in g || g == "fantasy"
+                THRILLER -> g in setOf("thriller", "crime", "mystery")
+                ACTION -> "action" in g || "adventure" in g || g == "war" || g == "western"
+                COMEDY -> g == "comedy"
+                DRAMA -> g == "drama" || g == "romance"
+                else -> false
+            }
+            if (hit) return true
+        }
+        return false
+    }
 }

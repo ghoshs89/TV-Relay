@@ -9,8 +9,8 @@ import dev.relay.tv.data.LiveFilters
 data class CatGroup(val key: String, val label: String, val cats: List<Category>)
 
 object LiveBrowse {
-    // "CA | News", "|IN| Hindi", "[UK] Sports", "USA: Locals", "INDIA - HINDI", "EX-YU » Sport"
-    private val PREFIX = Regex("^\\s*[\\[(|]?\\s*([A-Za-z][A-Za-z\\-]{1,14})\\s*(?:[\\])|]\\s*[:|\\-–»•✦]?|[:|\\-–»•✦])\\s*(.+)$")
+    // "CA | News", "|IN| Hindi", "[UK] Sports", "USA: Locals", "INDIA - HINDI", "ASIA | INDIA - Sports", "EX-YU » Sport"
+    private val PREFIX = Regex("^\\s*[\\[(|]?\\s*([A-Za-z0-9][A-Za-z0-9 \\-]{1,16})\\s*(?:[\\])|]\\s*[:|\\-–»•✦]?|[:|\\-–»•✦])\\s*(.+)$")
 
     private val NAMES = mapOf(
         // Countries (ISO codes, plus the variants providers use)
@@ -37,6 +37,9 @@ object LiveBrowse {
         "UA" to "Ukraine", "UG" to "Uganda", "US" to "USA", "USA" to "USA", "UY" to "Uruguay", "VE" to "Venezuela",
         "VN" to "Vietnam", "YE" to "Yemen", "ZA" to "South Africa", "ZM" to "Zambia", "ZW" to "Zimbabwe",
         // Regions and languages
+        "ASIA" to "Asia", "INTL" to "International", "INTERNATIONAL" to "International",
+        "EUROPE" to "Europe", "EU" to "Europe", "MIDDLE EAST" to "Middle East",
+        "NORTH AMERICA" to "North America", "SOUTH ASIA" to "South Asia",
         "AR-AR" to "Arabic", "ARA" to "Arabic", "ARAB" to "Arabic", "AFR" to "Africa", "LAT" to "Latino",
         "LATAM" to "Latin America", "LATINO" to "Latino", "CAR" to "Caribbean", "CARIB" to "Caribbean", "EN" to "English",
         "ENG" to "English", "EX-YU" to "Ex-Yugoslavia", "EXYU" to "Ex-Yugoslavia", "YU" to "Ex-Yugoslavia",
@@ -57,17 +60,52 @@ object LiveBrowse {
         "ENGLISH", "HINDI", "PUNJABI", "TAMIL", "TELUGU", "BENGALI", "MALAYALAM", "KANNADA", "MARATHI",
         "GUJARATI", "URDU", "FRANCE", "GERMANY", "SPAIN", "ITALY", "PORTUGAL", "BRAZIL", "MEXICO", "TURKEY",
         "GREECE", "POLAND", "EX-YU", "EXYU", "LATAM", "SPORTS", "SPORT", "KIDS", "MUSIC", "NEWS",
+        "ASIA", "INTL", "INTERNATIONAL", "EUROPE", "EU", "MIDDLE EAST", "NORTH AMERICA", "SOUTH ASIA",
     )
 
-    fun split(name: String): Pair<String, String>? {
+    // Synonym keys merge into one canonical folder key so providers mixing "IN |" and "INDIA -" stay grouped.
+    private val CANONICAL = mapOf(
+        "IND" to "IN", "INDIA" to "IN",
+        "USA" to "US",
+        "GB" to "UK",
+        "CAN" to "CA", "CANADA" to "CA",
+        "AUS" to "AU",
+        "GER" to "DE", "GERMANY" to "DE",
+        "FRA" to "FR", "FRANCE" to "FR",
+        "ESP" to "ES", "SPAIN" to "ES",
+        "ITA" to "IT", "ITALY" to "IT",
+        "TUR" to "TR", "TURKEY" to "TR",
+        "UAE" to "AE",
+        "ARA" to "AR-AR", "ARAB" to "AR-AR", "ARABIC" to "AR-AR",
+        "EXYU" to "EX-YU", "YU" to "EX-YU",
+        "ENG" to "EN", "ENGLISH" to "EN",
+        "BANGLADESH" to "BD",
+        "PAKISTAN" to "PK",
+        "PORTUGAL" to "PT", "BRAZIL" to "BR", "MEXICO" to "MX", "GREECE" to "GR", "POLAND" to "PL",
+        "AFRICA" to "AFR", "CARIBBEAN" to "CAR", "CARIB" to "CAR", "LATINO" to "LAT", "SPORT" to "SPORTS",
+        "UHD" to "4K", "INTERNATIONAL" to "INTL", "EUROPE" to "EU",
+    )
+
+    private val REGIONAL = setOf("ASIA", "EU", "INTL", "MIDDLE EAST", "NORTH AMERICA", "SOUTH ASIA", "AFR", "CAR", "LATAM")
+
+    private fun splitOnce(name: String): Pair<String, String>? {
         val m = PREFIX.find(name) ?: return null
-        val code = m.groupValues[1]
+        val code = m.groupValues[1].trim()
         val rest = m.groupValues[2].trim()
         if (rest.isEmpty()) return null
         val up = code.uppercase()
         // Only codes we can name: "HR" is Croatia, but an unknown "TS" isn't treated as a country.
-        val ok = up in NAMES || up in KNOWN
-        return if (ok) up to rest else null
+        if (up !in NAMES && up !in KNOWN) return null
+        return (CANONICAL[up] ?: up) to rest
+    }
+
+    fun split(name: String): Pair<String, String>? {
+        val first = splitOnce(name) ?: return null
+        if (first.first in REGIONAL) {
+            val inner = splitOnce(first.second)
+            if (inner != null) return inner
+        }
+        return first
     }
 
     fun label(key: String): String =

@@ -26,6 +26,8 @@ data class TitleQuery(
     val langFilter: String? = null,
     /** Optional content-type filter chip ("sports", "docs", "comedy"...). */
     val kindFilter: String? = null,
+    /** Filter to dubbed titles (e.g. Hindi dubbed Hollywood/South films). */
+    val dubbedOnly: Boolean = false,
 )
 
 /** What [buildTitleList] reads from the library. Implemented by [Catalog] for movies and for series; fakes in tests. */
@@ -37,6 +39,8 @@ interface TitleSource<T> {
     fun byId(id: Int): T?
     fun lang(id: Int): String?
     fun kind(t: T): String? = null
+    fun matchesKind(t: T, wantKind: String): Boolean = kind(t) == wantKind
+    fun isDubbed(t: T): Boolean = false
     fun id(t: T): Int
     fun category(t: T): String
 }
@@ -57,7 +61,8 @@ fun <T> buildTitleList(src: TitleSource<T>, q: TitleQuery, check: () -> Unit = {
     }
     var allowed = if (q.blockedCats.isEmpty()) base else base.filterChecked(check) { src.category(it) !in q.blockedCats }
     if (q.langFilter != null) allowed = allowed.filterChecked(check) { src.lang(src.id(it)) == q.langFilter }
-    if (q.kindFilter != null) allowed = allowed.filterChecked(check) { src.kind(it) == q.kindFilter }
+    if (q.kindFilter != null) allowed = allowed.filterChecked(check) { src.matchesKind(it, q.kindFilter) }
+    if (q.dubbedOnly) allowed = allowed.filterChecked(check) { src.isDubbed(it) }
     val mixed = q.selection == TitleSelection.Recent || q.selection == TitleSelection.Top || q.selection == TitleSelection.All
     val ranked = if (!mixed) {
         allowed
