@@ -33,7 +33,7 @@ The plans so far are finished. What they did, measured and learned is in [HISTOR
 
 ## Check on a device
 
-The Watch next pre-release, 1.0.147 (sidebar, Modern home, detail pages, trailers in other apps), on the TV with the remote and on a phone in landscape:
+The Watch next pre-release, 1.0.148 (sidebar, Modern home, detail pages, trailers in other apps), on the TV with the remote and on a phone in landscape:
 
 | Item | What to look for |
 |---|---|
@@ -206,6 +206,7 @@ Older checks:
 
 | Release | What |
 |---|---|
+| 1.0.148 (pre-release) | Follow-up fixes on `modern-watch-next`: Back on Home after visiting Guide, player Up next card controls/progress/series recommendations, reactive Live hero EPG, off-main-thread TMDB disk cache, O(N) anchor-word TMDB matching without allocating the Search index, TV sidebar Right focus handoff, non-English TMDB logos, `tmdbId == "0"` guard, ReVanced Music/manager exclusion, and seed/stamp hardening. |
 | 1.0.147 (pre-release) | Left sidebar on TVs and a bottom bar on phones; a Modern Home with a hero that follows focus; Up next, Recommended for you, Because you watched and More like this (TMDB with a key, the library's own ranking without); new detail pages with cast and episode cards; a countdown card at the end of episodes; trailers open in SmartTube, Morphe, ReVanced or YouTube, with the QR code when none is installed. |
 | 1.0.144 | Merged from `next-release` (pre-release 1.0.143): content-type filter chips in Live TV and genre and language chips in Movies and Series; kids and hidden categories applied across Home, favourites, history, details, reminders and channel versions; sync set-up, joining and background syncs no longer overlap; pairing lock; update downloads only from GitHub and checked for version and signing key; external guides capped at 256 MB; provider messages ignore billing and support links; live channels stop in the background; optional usage stats and diagnostic report upload (needs `RELAY_TELEMETRY_URL` in the build) |
 | 1.0.139 | Per-screen **Update channel** (Stable only, or Stable and beta pre-releases) in About & diagnostics; **Run workflow** can publish a pre-release |
